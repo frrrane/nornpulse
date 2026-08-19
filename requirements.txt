@@ -1,0 +1,19 @@
+# NornPulse: Autonomous Media Engine
+# Core Dependencies for Hackathon Setup
+
+# Google GenAI SDK (Gemini 2.0 Flash)
+google-genai>=2.18.0
+
+# ClickHouse Client
+clickhouse-connect>=1.7.0
+
+# Frontend & Visualization
+streamlit>=1.35.0
+plotly>=5.20.0
+pandas>=2.0.0
+pillow>=10.0.0
+
+# Schema & Environment
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+requests>=2.30.0
