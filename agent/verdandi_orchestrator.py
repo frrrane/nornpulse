@@ -3,7 +3,7 @@ Verðandi Orchestrator (ᚹ - Verðandi / The Present)
 Part of NornPulse: Autonomous Media Engine by Norn Labs (nornlabs.ai)
 
 Verðandi weaves the thread of the present moment. This module leverages
-Gemini 2.0 Flash to analyze transcripts, interface with the Urðr ClickHouse
+Gemini 3.6 Flash to analyze transcripts, interface with the Urðr ClickHouse
 retention analytics tool, and make deterministic, viral clip decisions for
 9:16 vertical video conversion.
 """
@@ -47,13 +47,13 @@ class VerdandiAnalysisResult(BaseModel):
 
 class VerdandiOrchestrator:
     """
-    Verðandi: Real-time Orchestrator & Gemini 2.0 Flash Reasoning Agent.
+    Verðandi: Real-time Orchestrator & Gemini 3.6 Flash Reasoning Agent.
     """
 
     def __init__(self, api_key: Optional[str] = None, urdr_tool: Optional[UrdrAnalytics] = None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         self.urdr = urdr_tool or UrdrAnalytics()
-        self.model_name = "gemini-2.0-flash"
+        self.model_name = "gemini-3.6-flash"
         self._init_client()
 
     def _init_client(self):
@@ -66,7 +66,7 @@ class VerdandiOrchestrator:
         try:
             from google import genai
             self.client = genai.Client(api_key=self.api_key)
-            logger.info(f"⚡ Verðandi initialized with Gemini 2.0 Flash client.")
+            logger.info(f"⚡ Verðandi initialized with Gemini 3.6 Flash client.")
         except Exception as e:
             logger.error(f"Failed to initialize google-genai Client: {e}")
             self.client = None
@@ -78,7 +78,7 @@ class VerdandiOrchestrator:
         target_clip_count: int = 2,
     ) -> VerdandiAnalysisResult:
         """
-        Orchestrates transcript analysis with Gemini 2.0 Flash and Urðr historical retention benchmarks.
+        Orchestrates transcript analysis with Gemini 3.6 Flash and Urðr historical retention benchmarks.
         """
         video_metadata = video_metadata or {}
         
@@ -119,7 +119,7 @@ TRANSCRIPT:
 Extract the top clips and specify exact start/end timestamps, hook titles, retention metrics grounded in ClickHouse data, and 9:16 rendering instructions.
 """
 
-        # If Gemini client is active, execute via Gemini 2.0 Flash
+        # If Gemini client is active, execute via Gemini 3.6 Flash
         if self.client:
             try:
                 from google.genai import types
@@ -143,7 +143,7 @@ Extract the top clips and specify exact start/end timestamps, hook titles, reten
                     parsed_json = json.loads(response.text)
                     return VerdandiAnalysisResult(**parsed_json)
             except Exception as e:
-                logger.error(f"Gemini 2.0 Flash call failed: {e}. Falling back to rule-based parser.")
+                logger.error(f"Gemini 3.6 Flash call failed: {e}. Falling back to rule-based parser.")
 
         # Fallback heuristic parser if no API key or API call fails
         return self._heuristic_fallback(transcript_text, video_metadata, target_clip_count, urdr_intelligence)
@@ -161,7 +161,6 @@ Extract the top clips and specify exact start/end timestamps, hook titles, reten
         """
         logger.info("Executing Verðandi heuristic analysis fallback.")
 
-        # Parse timestamp ranges from transcript, e.g. [00:00 - 00:08]
         timestamp_matches = re.findall(
             r'\[(\d{1,2}:\d{2}(?:\.\d+)?)\s*-\s*(\d{1,2}:\d{2}(?:\.\d+)?)\]',
             transcript_text
@@ -187,7 +186,6 @@ Extract the top clips and specify exact start/end timestamps, hook titles, reten
             except Exception:
                 max_sec = 60.0
 
-        # Also check if video_metadata specifies duration
         if "duration" in video_metadata and float(video_metadata["duration"]) > 0:
             max_sec = min(max_sec, float(video_metadata["duration"]))
 
@@ -195,7 +193,6 @@ Extract the top clips and specify exact start/end timestamps, hook titles, reten
 
         clips = []
         if max_sec <= 16.0:
-            # Short test clip (e.g. 10s benchmark asset) -> 1 unified clip
             clips.append(
                 ClipDecision(
                     clip_id="clip_01_standard_10s",
@@ -210,11 +207,10 @@ Extract the top clips and specify exact start/end timestamps, hook titles, reten
                     urgency_rationale="Fast-paced opening hook with immediate value proposition and seamless loop potential.",
                     recommended_crop_focus="Center speaker crop with top bold hook banner",
                     social_caption="How NornPulse automates 9:16 vertical shorts in under 1 second. #AI #ClickHouse #Gemini",
-                    hashtags=["#AI", "#ClickHouse", "#Gemini2", "#NornLabs", "#Automation"]
+                    hashtags=["#AI", "#ClickHouse", "#Gemini", "#NornLabs", "#Automation"]
                 )
             )
         else:
-            # Standard long-form video (e.g. 60s - 90s)
             clip1_end = min(32.0, max_sec * 0.45)
             clips.append(
                 ClipDecision(
@@ -230,7 +226,7 @@ Extract the top clips and specify exact start/end timestamps, hook titles, reten
                     urgency_rationale="Opens with a high-impact contrarian statistic that immediately shatters viewer assumptions, leading into a fast resolution.",
                     recommended_crop_focus="Center speaker crop with top bold hook banner",
                     social_caption="Why 90% of AI workflows fail in production (and how Norn Labs solves it). #AI #Engineering #TechTrends",
-                    hashtags=["#AI", "#ClickHouse", "#Gemini2", "#NornLabs", "#TechShorts"]
+                    hashtags=["#AI", "#ClickHouse", "#Gemini", "#NornLabs", "#TechShorts"]
                 )
             )
 

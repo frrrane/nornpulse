@@ -1,7 +1,7 @@
 """
 ⚡ NornPulse: Autonomous Media Engine
 Built for Norn Labs (nornlabs.ai)
-Pairing Google GenAI SDK (Gemini 2.0 Flash), ClickHouse, and FFmpeg
+Pairing Google GenAI SDK (Gemini 3.6 Flash), ClickHouse, and FFmpeg
 """
 
 import os
@@ -19,8 +19,16 @@ from agent.urdr_analytics import UrdrAnalytics
 from agent.verdandi_orchestrator import VerdandiOrchestrator
 from agent.skuld_renderer import SkuldRenderer
 from utils.sample_generator import SAMPLE_TRANSCRIPTS, create_sample_16x9_video
+from utils.ingest import download_youtube_video
+from utils.db_logger import log_render_event, init_telemetry_table
 
 load_dotenv()
+
+# Initialize ClickHouse telemetry table on startup
+try:
+    init_telemetry_table()
+except Exception:
+    pass
 
 # Streamlit Page Configuration
 st.set_page_config(
@@ -89,12 +97,6 @@ st.markdown("""
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
-    .card-value {
-        color: #f8fafc;
-        font-size: 1.8rem;
-        font-weight: 700;
-        font-family: 'JetBrains Mono', monospace;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -111,7 +113,40 @@ if "analysis_result" not in st.session_state:
 if "rendered_clips" not in st.session_state:
     st.session_state.rendered_clips = []
 if "sample_video_path" not in st.session_state:
-    st.session_state.sample_video_path = None
+    st.session_state.sample_video_path = "sample_data/yt_input.mp4"
+
+
+# Helper function to fetch YouTube transcripts automatically
+def fetch_youtube_transcript_text(url: str) -> str:
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+        import re
+        
+        # Extract video ID
+        vid_match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
+        if not vid_match:
+            return "[00:00 - 00:05] Autonomous video analysis stream initialization."
+        
+        vid_id = vid_match.group(1)
+        transcript_list = YouTubeTranscriptApi.get_transcript(vid_id)
+        
+        formatted_lines = []
+        for entry in transcript_list:
+            start = entry['start']
+            dur = entry.get('duration', 5.0)
+            end = start + dur
+            text = entry['text'].replace('\n', ' ')
+            
+            m_s = int(start // 60)
+            s_s = int(start % 60)
+            m_e = int(end // 60)
+            s_e = int(end % 60)
+            
+            formatted_lines.append(f"[{m_s:02d}:{s_s:02d} - {m_e:02d}:{s_e:02d}] {text}")
+            
+        return "\n".join(formatted_lines)
+    except Exception as e:
+        return f"[00:00 - 00:10] Automatic transcript extraction fallback active ({e})."
 
 
 # Sidebar Configuration
@@ -125,11 +160,11 @@ with st.sidebar:
         "Google Gemini API Key",
         value=os.getenv("GEMINI_API_KEY", ""),
         type="password",
-        help="Required for Gemini 2.0 Flash reasoning. Fallback simulation operates if empty.",
+        help="Required for Gemini 3.6 Flash reasoning.",
     )
     if api_key_input and api_key_input != st.session_state.verdandi.api_key:
         st.session_state.verdandi = VerdandiOrchestrator(api_key=api_key_input, urdr_tool=st.session_state.urdr)
-        st.success("Gemini 2.0 Flash client updated!")
+        st.success("Gemini 3.6 Flash client updated!")
 
     st.markdown("#### 🗄️ ClickHouse Engine")
     ch_host = st.text_input("Host", value=os.getenv("CLICKHOUSE_HOST", "localhost"))
@@ -143,7 +178,7 @@ with st.sidebar:
             if st.session_state.urdr.is_connected():
                 st.success("Connected to ClickHouse!")
             else:
-                st.warning("ClickHouse offline. Operating in fallback cache.")
+                st.warning("ClickHouse offline.")
     with col_c2:
         if st.button("Seed DB", use_container_width=True):
             count = st.session_state.urdr.seed_benchmarks()
@@ -156,46 +191,12 @@ with st.sidebar:
         options=["center_crop", "blurred_background"],
         format_func=lambda x: "🎯 High-Res Center Crop (9:16)" if x == "center_crop" else "✨ Blurred Background Canvas (9:16)",
     )
-    target_clips = st.slider("Target Clips to Extract", min_value=1, max_value=3, value=2)
-    
-    st.markdown("---")
-    st.caption("NornPulse v1.0.0 • Hackathon Edition")
+    target_clips = st.slider("Target Clips to Extract", min_value=1, max_value=3, value=1)
 
 
 # Main Header
 st.markdown("<h1 class='main-title'>⚡ NornPulse: Autonomous Media Engine</h1>", unsafe_allow_html=True)
-st.markdown("<div class='sub-title'>Autonomous 16:9 to 9:16 Short Generator grounded in <b>ClickHouse Historical Retention Intelligence</b> and <b>Gemini 2.0 Flash Reasoning</b></div>", unsafe_allow_html=True)
-
-# System Health Indicators
-c_urdr, c_verdandi, c_skuld = st.columns(3)
-with c_urdr:
-    ch_status = "🟢 Live (Port 8123)" if st.session_state.urdr.is_connected() else "🟡 In-Memory Cache"
-    st.markdown(f"""
-    <div class='metric-card'>
-        <div class='card-title'>ᚢ Urðr (Past / ClickHouse)</div>
-        <div style='font-size: 1.1rem; font-weight: 600; color: #60a5fa; margin-top: 4px;'>{ch_status}</div>
-        <div style='font-size: 0.8rem; color: #94a3b8;'>Historical Hook Telemetry</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with c_verdandi:
-    gemini_status = "🟢 Gemini 2.0 Flash Active" if st.session_state.verdandi.client else "🟡 Heuristic Fallback"
-    st.markdown(f"""
-    <div class='metric-card'>
-        <div class='card-title'>ᚹ Verðandi (Present / Gemini)</div>
-        <div style='font-size: 1.1rem; font-weight: 600; color: #f472b6; margin-top: 4px;'>{gemini_status}</div>
-        <div style='font-size: 0.8rem; color: #94a3b8;'>Real-Time Transcript Orchestrator</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with c_skuld:
-    st.markdown(f"""
-    <div class='metric-card'>
-        <div class='card-title'>ᛋ Skuld (Future / FFmpeg)</div>
-        <div style='font-size: 1.1rem; font-weight: 600; color: #34d399; margin-top: 4px;'>🟢 Hardware Accelerated</div>
-        <div style='font-size: 0.8rem; color: #94a3b8;'>9:16 Vertical Short Renderer</div>
-    </div>
-    """, unsafe_allow_html=True)
+st.markdown("<div class='sub-title'>Autonomous 16:9 to 9:16 Short Generator grounded in <b>ClickHouse Historical Retention Intelligence</b> and <b>Gemini 3.6 Flash Reasoning</b></div>", unsafe_allow_html=True)
 
 
 # Tabs Navigation
@@ -221,18 +222,39 @@ with tabs[0]:
         st.markdown("#### 1. Source Video (16:9)")
         video_source_mode = st.radio(
             "Video Input Source:",
-            ["✨ Instant Synthetic Demo Video (1-Click)", "📁 Upload Custom Video (MP4/MOV)"],
+            ["🌐 YouTube URL Link", "✨ Instant Synthetic Demo Video", "📁 Upload Custom Video"],
             horizontal=True
         )
 
         active_video_path = None
-        if "Instant" in video_source_mode:
+        if "YouTube" in video_source_mode:
+            # Hardcoded Big Buck Bunny URL default
+            default_yt_url = "https://www.youtube.com/watch?v=2GgV7bgBS4Q"
+            yt_url_input = st.text_input("YouTube Video URL:", value=default_yt_url)
+            
+            # Check if cached video file already exists
+            target_cache_path = Path("sample_data/yt_input.mp4")
+            if not target_cache_path.exists() and yt_url_input:
+                with st.spinner("Downloading YouTube video stream via yt-dlp (cached for future runs)..."):
+                    try:
+                        active_video_path = download_youtube_video(yt_url_input)
+                        st.session_state.sample_video_path = active_video_path
+                    except Exception as e:
+                        st.error(f"Download failed: {e}")
+            else:
+                active_video_path = str(target_cache_path)
+                st.session_state.sample_video_path = active_video_path
+
+            if os.path.exists(active_video_path):
+                st.video(active_video_path)
+                st.caption("🎬 Cached Big Buck Bunny stream ready.")
+
+        elif "Instant" in video_source_mode:
             if not st.session_state.sample_video_path or not os.path.exists(st.session_state.sample_video_path):
                 with st.spinner("Generating synthetic 16:9 test video via FFmpeg..."):
                     st.session_state.sample_video_path = create_sample_16x9_video(duration=75)
             active_video_path = st.session_state.sample_video_path
             st.video(active_video_path)
-            st.caption("🎬 16:9 Synthetic Test Video with dynamic timestamps & test tone ready.")
         else:
             uploaded_file = st.file_uploader("Upload 16:9 Video", type=["mp4", "mov", "mkv"])
             if uploaded_file:
@@ -242,29 +264,20 @@ with tabs[0]:
                 st.video(active_video_path)
 
     with col_input2:
-        st.markdown("#### 2. Timestamped Transcript")
-        preset_choice = st.selectbox(
-            "Select Transcript Preset or Custom:",
-            options=["norn_ai_keynote", "clickhouse_speed_podcast", "custom"],
-            format_func=lambda x: SAMPLE_TRANSCRIPTS[x]["title"] if x in SAMPLE_TRANSCRIPTS else "✍️ Custom Transcript Input"
+        st.markdown("#### 2. Timestamped Transcript (Auto-Fetched)")
+        
+        # Automatically pull transcript if YouTube URL is used
+        auto_transcript = ""
+        if "YouTube" in video_source_mode and 'yt_url_input' in locals():
+            auto_transcript = fetch_youtube_transcript_text(yt_url_input)
+        
+        transcript_input = st.text_area(
+            "Timestamped Transcript",
+            value=auto_transcript if auto_transcript else SAMPLE_TRANSCRIPTS["norn_ai_keynote"]["transcript"],
+            height=240,
         )
-
-        if preset_choice in SAMPLE_TRANSCRIPTS:
-            transcript_input = st.text_area(
-                "Timestamped Transcript",
-                value=SAMPLE_TRANSCRIPTS[preset_choice]["transcript"],
-                height=240,
-            )
-            video_title = SAMPLE_TRANSCRIPTS[preset_choice]["title"]
-            video_topic = SAMPLE_TRANSCRIPTS[preset_choice]["category"]
-        else:
-            transcript_input = st.text_area(
-                "Paste Timestamped Transcript",
-                value="[00:00 - 00:15] Stop using outdated video workflows...\n[00:15 - 00:40] Here is why NornPulse is revolutionary...",
-                height=240,
-            )
-            video_title = "Custom Media Stream"
-            video_topic = "general"
+        video_title = "Big Buck Bunny Automated Stream"
+        video_topic = "animation"
 
     st.markdown("<br>", unsafe_allow_html=True)
     unleash_btn = st.button("⚡ UNLEASH THE NORNS (ANALYZE & RENDER 9:16)", type="primary", use_container_width=True)
@@ -275,17 +288,16 @@ with tabs[0]:
         elif not transcript_input.strip():
             st.error("Please provide transcript text.")
         else:
-            # Multi-stage execution pipeline
             progress_bar = st.progress(0)
             status_placeholder = st.empty()
 
             # Phase 1: Urðr Analytics
-            status_placeholder.markdown("ᚢ **Phase 1: Urðr** is querying ClickHouse retention benchmarks and historical virality distributions...")
+            status_placeholder.markdown("ᚢ **Phase 1: Urðr** is querying ClickHouse retention benchmarks...")
             progress_bar.progress(25)
-            time.sleep(0.4)
+            time.sleep(0.3)
 
-            # Phase 2: Verðandi Reasoning with Gemini 2.0 Flash
-            status_placeholder.markdown("ᚹ **Phase 2: Verðandi** is analyzing transcript with Gemini 2.0 Flash & calculating optimal clip timestamps...")
+            # Phase 2: Verðandi Reasoning with Gemini 3.6 Flash
+            status_placeholder.markdown("ᚹ **Phase 2: Verðandi** is analyzing transcript with Gemini 3.6 Flash...")
             progress_bar.progress(55)
             
             analysis_result = st.session_state.verdandi.analyze_transcript_and_decide(
@@ -296,7 +308,7 @@ with tabs[0]:
             st.session_state.analysis_result = analysis_result
 
             # Phase 3: Skuld Rendering with FFmpeg
-            status_placeholder.markdown(f"ᛋ **Phase 3: Skuld** is rendering {len(analysis_result.clips)} clips from 16:9 to 9:16 vertical format via FFmpeg...")
+            status_placeholder.markdown(f"ᛋ **Phase 3: Skuld** is rendering {len(analysis_result.clips)} clips via FFmpeg...")
             progress_bar.progress(80)
 
             rendered_clips = []
@@ -311,6 +323,16 @@ with tabs[0]:
                     hook_banner_text=clip.hook_title,
                 )
                 rendered_clips.append({"decision": clip, "render": render_res})
+                
+                try:
+                    log_render_event(
+                        video_name=Path(active_video_path).name,
+                        duration=float(clip.duration_seconds),
+                        status="SUCCESS",
+                        stage="Skuld_Compiler"
+                    )
+                except Exception:
+                    pass
 
             st.session_state.rendered_clips = rendered_clips
             progress_bar.progress(100)
@@ -370,92 +392,22 @@ with tabs[0]:
 # =========================================================================
 with tabs[1]:
     st.markdown("### ᚢ Urðr ClickHouse Retention Intelligence")
-    st.markdown("Historical audience behavior, 3-second hold percentages, and completion rates stored in ClickHouse.")
-
     benchmarks_df = st.session_state.urdr.get_hook_type_benchmarks()
-
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    with kpi1:
-        st.metric("Highest Retention Hook", "Shock Stat (94.6%)", "+5.2% vs avg")
-    with kpi2:
-        st.metric("Overall Avg 3s Hold", f"{benchmarks_df['avg_3s_retention'].mean():.1f}%")
-    with kpi3:
-        st.metric("Optimal Short Length", "28s - 38s")
-    with kpi4:
-        st.metric("Avg Virality Index", f"{benchmarks_df['avg_virality_score'].mean():.1f}")
-
-    col_chart1, col_chart2 = st.columns(2)
-    with col_chart1:
-        st.markdown("#### Average 3s Retention by Hook Taxonomy")
-        fig_bar = px.bar(
-            benchmarks_df,
-            x="hook_type",
-            y="avg_3s_retention",
-            color="avg_virality_score",
-            color_continuous_scale="Viridis",
-            labels={"avg_3s_retention": "3-Second Retention (%)", "hook_type": "Hook Type"},
-        )
-        fig_bar.update_layout(template="plotly_dark", height=340)
-        st.plotly_chart(fig_bar, use_container_width=True)
-
-    with col_chart2:
-        st.markdown("#### Retention Decay Curve (3s ➔ 15s ➔ 30s)")
-        fig_decay = go.Figure()
-        for _, r in benchmarks_df.iterrows():
-            fig_decay.add_trace(go.Scatter(
-                x=["3s", "15s", "30s"],
-                y=[r["avg_3s_retention"], r["avg_15s_retention"], r["avg_30s_retention"]],
-                mode="lines+markers",
-                name=r["hook_type"]
-            ))
-        fig_decay.update_layout(
-            template="plotly_dark",
-            height=340,
-            yaxis_title="Viewer Retention (%)",
-            xaxis_title="Time in Short",
-        )
-        st.plotly_chart(fig_decay, use_container_width=True)
-
-    st.markdown("#### Historical Video Hook Records Table")
-    filter_hook = st.selectbox("Filter by Category", ["all"] + list(benchmarks_df["hook_type"].unique()))
-    filtered_data = st.session_state.urdr.query_hook_retention(hook_category=filter_hook)
-    st.dataframe(filtered_data, use_container_width=True)
-
-    with st.expander("🛠️ Interactive ClickHouse SQL Console"):
-        custom_sql = st.text_area("SQL Query", value="SELECT hook_type, avg(virality_score) as avg_score FROM video_hook_retention GROUP BY hook_type ORDER BY avg_score DESC")
-        if st.button("Execute SQL Query"):
-            try:
-                sql_res = st.session_state.urdr.execute_custom_query(custom_sql)
-                st.dataframe(sql_res)
-            except Exception as e:
-                st.error(f"Query execution error: {e}")
+    st.dataframe(benchmarks_df, use_container_width=True)
 
 
 # =========================================================================
 # TAB 3: VERÐANDI AI PLAYGROUND
 # =========================================================================
 with tabs[2]:
-    st.markdown("### ᚹ Verðandi Gemini 2.0 Flash Reasoning Playground")
-    st.markdown("Inspect raw Gemini 2.0 Flash responses and see how Urðr's historical retention data shapes prompt engineering.")
-
-    sample_key = st.selectbox(
-        "Choose sample transcript to inspect:",
-        options=list(SAMPLE_TRANSCRIPTS.keys()),
-        format_func=lambda x: SAMPLE_TRANSCRIPTS[x]["title"],
-        key="playground_select"
-    )
-
-    t_data = SAMPLE_TRANSCRIPTS[sample_key]
-    st.text_area("Source Transcript", value=t_data["transcript"], height=160, key="play_text")
-
-    if st.button("⚡ Run Gemini 2.0 Flash Analysis Only", key="run_ai_only"):
-        with st.spinner("Invoking Gemini 2.0 Flash with Urðr context..."):
-            res = st.session_state.verdandi.analyze_transcript_and_decide(
-                transcript_text=t_data["transcript"],
-                video_metadata={"title": t_data["title"], "topic": t_data["category"]},
-                target_clip_count=2
-            )
-            st.json(res.model_dump())
+    st.markdown("### ᚹ Verðandi Gemini 3.6 Flash Reasoning Playground")
+    if st.button("⚡ Run Gemini Analysis Only", key="run_ai_only"):
+        res = st.session_state.verdandi.analyze_transcript_and_decide(
+            transcript_text=SAMPLE_TRANSCRIPTS["norn_ai_keynote"]["transcript"],
+            video_metadata={"title": "Test Stream", "topic": "AI"},
+            target_clip_count=1
+        )
+        st.json(res.model_dump())
 
 
 # =========================================================================
@@ -463,81 +415,17 @@ with tabs[2]:
 # =========================================================================
 with tabs[3]:
     st.markdown("### ᛋ Skuld FFmpeg 9:16 Video Studio")
-    st.markdown("Direct 16:9 widescreen to 9:16 vertical short cropping with custom start/end points.")
-
-    c_s1, c_s2 = st.columns([1, 1])
-    with c_s1:
-        st.markdown("#### Input Parameters")
-        studio_crop = st.radio("Crop Mode", ["center_crop", "blurred_background"], horizontal=True, key="studio_crop")
-        s_start = st.text_input("Start Timestamp (MM:SS or sec)", value="00:05")
-        s_end = st.text_input("End Timestamp (MM:SS or sec)", value="00:35")
-        s_title = st.text_input("Clip Identifier", value="studio_custom_short")
-
-        if st.button("🎬 Render Custom 9:16 Short", type="primary"):
-            target_vid = st.session_state.sample_video_path or create_sample_16x9_video()
-            with st.spinner("Rendering short via FFmpeg..."):
-                res = st.session_state.skuld.render_vertical_short(
-                    input_video_path=target_vid,
-                    start_time=s_start,
-                    end_time=s_end,
-                    clip_id=s_title,
-                    crop_mode=studio_crop,
-                )
-                st.session_state.studio_last_render = res
-                st.success("Render complete!")
-
-    with c_s2:
-        st.markdown("#### Render Output")
-        if "studio_last_render" in st.session_state:
-            last_path = st.session_state.studio_last_render["output_video_path"]
-            if os.path.exists(last_path):
-                st.video(last_path)
-                st.json(st.session_state.studio_last_render)
+    if st.button("🎬 Render Custom 9:16 Short", type="primary"):
+        res = st.session_state.skuld.render_vertical_short(
+            input_video_path=st.session_state.sample_video_path,
+            start_time="00:02", end_time="00:07", clip_id="studio_custom"
+        )
+        st.video(res["output_video_path"])
 
 
 # =========================================================================
 # TAB 5: NORN LABS LORE & DOCS
 # =========================================================================
 with tabs[4]:
-    st.markdown("""
-    ### ⚡ Norn Labs: The Autonomous Media Revolution
-    **[nornlabs.ai](https://nornlabs.ai)**
-
-    In Norse mythology, the three **Norns** sit by the Well of Urðr beneath Yggdrasil, weaving the tapestry of fate.
-    
-    In **NornPulse**, they weave the viral destiny of your video content:
-
-    | Norn | Domain | Role in NornPulse | Technology Stack |
-    | :--- | :--- | :--- | :--- |
-    | **ᚢ Urðr** | *The Past* | Analyzes historical video hook retention telemetry and drop-off patterns | ClickHouse (Ports 8123 & 9000), `clickhouse-connect` |
-    | **ᚹ Verðandi** | *The Present* | Evaluates real-time transcripts, injects historical data, and calculates optimal viral timestamps | Google GenAI SDK (`gemini-2.0-flash`) |
-    | **ᛋ Skuld** | *The Future* | Brings destiny into reality by slicing, scaling, and rendering 9:16 vertical shorts | FFmpeg, Hardware-Accelerated Filters |
-
-    ---
-
-    #### 🚀 Architecture Diagram
-    ```text
-    +-------------------------------------------------------------+
-    |                      16:9 Source Video                      |
-    +-------------------------------------------------------------+
-                                   |
-                                   v
-             [ᚢ Urðr] <===================> [ClickHouse Database]
-        (Historical Retention                   (Ports 8123 & 9000)
-             Benchmarks)
-                  |
-                  v
-           [ᚹ Verðandi] <=================> [Google GenAI SDK]
-        (Real-Time Decision                     (Gemini 2.0 Flash)
-             & Timestamps)
-                  |
-                  v
-            [ᛋ Skuld] <===================> [FFmpeg Engine]
-        (Vertical Manifestation)                (1080x1920 9:16 Short)
-                  |
-                  v
-    +-------------------------------------------------------------+
-    |                   ⚡ High-Converting 9:16 Short              |
-    +-------------------------------------------------------------+
-    ```
-    """)
+    st.markdown("### ⚡ Norn Labs: The Autonomous Media Revolution")
+    st.markdown("Automated 16:9 to 9:16 vertical shorts powered by Urðr, Verðandi, and Skuld.")

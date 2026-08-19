@@ -1,0 +1,61 @@
+{
+  "key": "real_test_input",
+  "title": "Modern Server Room Infrastructure & AI Compute Backbone",
+  "category": "infrastructure_tech",
+  "filename": "real_test_input.mp4",
+  "file_path": "/home/franeppotrc/nornpulse/sample_data/real_test_input.mp4",
+  "relative_path": "sample_data/real_test_input.mp4",
+  "speaker": "Systems Architect (Norn Infrastructure Team)",
+  "duration_seconds": 30.03,
+  "duration_estimate": "00:30",
+  "transcript": "[00:00 - 00:06] (Systems Architect): Behind every sub-second AI reasoning agent is an unyielding wall of real-time bare metal compute.\n[00:06 - 00:14] (Systems Architect): In this server room, ClickHouse clusters ingest over 500,000 audience telemetry events every single second with zero latency jitter.\n[00:14 - 00:22] (Systems Architect): When a 16:9 stream enters NornPulse, our parallelized FFmpeg pipeline immediately anchors on retention heatmaps to render 9:16 vertical shorts.\n[00:22 - 00:30] (Systems Architect): 99.999% uptime. Millisecond response times. The infrastructure of autonomous media is already live.",
+  "hooks": [
+    {
+      "type": "shock_stat",
+      "range": "00:00 - 00:06",
+      "expected_3s_retention": 95.2,
+      "hook_title": "⚡ The 500k Event/Sec Server Backbone",
+      "rationale": "High-impact opening shot of enterprise server cluster with immediate scale metrics."
+    },
+    {
+      "type": "curiosity_gap",
+      "range": "00:06 - 00:14",
+      "expected_3s_retention": 92.8,
+      "hook_title": "🔥 Sub-Second Telemetry Inside Tier-3 Data Centers",
+      "rationale": "Deep dive into real-time ClickHouse processing pipeline inside live server racks."
+    },
+    {
+      "type": "problem_solution",
+      "range": "00:14 - 00:22",
+      "expected_3s_retention": 89.5,
+      "hook_title": "🎬 Autonomous 9:16 Conversion at Wire Speed",
+      "rationale": "Showcases automated FFmpeg transformation grounded in telemetry priors."
+    }
+  ],
+  "probe": {
+    "path": "/home/franeppotrc/nornpulse/sample_data/real_test_input.mp4",
+    "filename": "real_test_input.mp4",
+    "size_bytes": 19864469,
+    "size_mb": 18.94,
+    "duration_sec": 30.03,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30.0,
+    "aspect_ratio": "16:9",
+    "video_codec": "h264",
+    "pix_fmt": "yuv420p",
+    "audio_codec": "aac",
+    "sample_rate": "48000",
+    "channels": 2,
+    "has_video": true,
+    "has_audio": true,
+    "is_valid_16x9": true,
+    "is_exact_1080p": true
+  },
+  "provenance": {
+    "source": "Wikimedia Commons / CyrusOne Carrollton Enterprise Data Center",
+    "license": "CC BY-SA 3.0 / Royalty-Free Open Media",
+    "attribution": "Photographed by Victor Grigas for Wikimedia Foundation at CyrusOne data center in Carrollton, Texas",
+    "description": "Authentic 1080p 16:9 footage of enterprise server racks, blinking LEDs, and server room infrastructure."
+  }
+}

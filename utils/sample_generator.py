@@ -145,8 +145,27 @@ SAMPLE_TRANSCRIPTS: Dict[str, Dict[str, Any]] = {
             {"type": "contrarian_claim", "range": "00:00 - 00:25", "expected_3s_retention": 89.2},
             {"type": "metaphor_analogy", "range": "00:10 - 00:45", "expected_3s_retention": 87.5}
         ]
+    },
+    "real_test_input": {
+        "title": "🏢 Real-Life Server Room & High-Compute Infrastructure",
+        "category": "infrastructure_tech",
+        "duration_estimate": "00:30",
+        "filename": "real_test_input.mp4",
+        "speaker": "Systems Architect (Norn Infrastructure)",
+        "transcript": (
+            "[00:00 - 00:06] (Systems Architect): Behind every sub-second AI reasoning agent is an unyielding wall of real-time bare metal compute.\n"
+            "[00:06 - 00:14] (Systems Architect): In this server room, ClickHouse clusters ingest over 500,000 audience telemetry events every single second with zero latency jitter.\n"
+            "[00:14 - 00:22] (Systems Architect): When a 16:9 stream enters NornPulse, our parallelized FFmpeg pipeline immediately anchors on retention heatmaps to render 9:16 vertical shorts.\n"
+            "[00:22 - 00:30] (Systems Architect): 99.999% uptime. Millisecond response times. The infrastructure of autonomous media is already live."
+        ),
+        "hooks": [
+            {"type": "shock_stat", "range": "00:00 - 00:06", "expected_3s_retention": 95.2},
+            {"type": "curiosity_gap", "range": "00:06 - 00:14", "expected_3s_retention": 92.8},
+            {"type": "problem_solution", "range": "00:14 - 00:22", "expected_3s_retention": 89.5}
+        ]
     }
 }
+
 
 
 # ---------------------------------------------------------------------------
