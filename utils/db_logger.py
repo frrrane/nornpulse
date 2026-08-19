@@ -1,17 +1,23 @@
 import clickhouse_connect
 from datetime import datetime
 
+from config import Config
+
+
 def get_clickhouse_client():
     """
     Initializes a connection to a local or remote ClickHouse instance.
+    Connection parameters are sourced from the central Config object
+    (which reads from environment variables / .env file).
     """
     client = clickhouse_connect.get_client(
-        host='localhost', 
-        port=8123, 
-        username='default', 
-        password=''
+        host=Config.CLICKHOUSE_HOST,
+        port=Config.CLICKHOUSE_PORT,
+        username=Config.CLICKHOUSE_USER,
+        password=Config.CLICKHOUSE_PASSWORD,
     )
     return client
+
 
 def init_telemetry_table():
     """

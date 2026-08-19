@@ -15,7 +15,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from config import Config  # noqa: E402 – imported after load_dotenv intentionally
+
 logger = logging.getLogger("nornpulse.urdr")
+
 
 # Default synthetic seed dataset for ClickHouse initialization & fallback
 DEFAULT_HOOK_BENCHMARKS = [
@@ -165,11 +168,12 @@ class UrdrAnalytics:
         password: Optional[str] = None,
         database: Optional[str] = None,
     ):
-        self.host = host or os.getenv("CLICKHOUSE_HOST", "localhost")
-        self.port = int(port or os.getenv("CLICKHOUSE_PORT", "8123"))
-        self.username = username or os.getenv("CLICKHOUSE_USER", "default")
-        self.password = password or os.getenv("CLICKHOUSE_PASSWORD", "nornpulse_secret")
-        self.database = database or os.getenv("CLICKHOUSE_DATABASE", "nornpulse")
+        self.host = host or Config.CLICKHOUSE_HOST
+        self.port = int(port or Config.CLICKHOUSE_PORT)
+        self.username = username or Config.CLICKHOUSE_USER
+        self.password = password or Config.CLICKHOUSE_PASSWORD
+        self.database = database or Config.CLICKHOUSE_DATABASE
+
 
         self.client = None
         self._connected = False

@@ -10,6 +10,8 @@ import logging
 from typing import Optional, Dict, Any
 from pathlib import Path
 
+from config import Config
+
 logger = logging.getLogger("nornpulse.skuld")
 
 class SkuldRenderer:
@@ -40,13 +42,50 @@ class SkuldRenderer:
         self, input_video_path: str, start_time: str, end_time: str,
         clip_id: str = "short_clip", crop_mode: str = "center_crop",
         target_width: int = 1080, target_height: int = 1920,
-        hook_banner_text: Optional[str] = None
+        hook_banner_text: Optional[str] = None,
+        max_duration_override: Optional[float] = None,
     ) -> Dict[str, Any]:
-        
+        """Render a 9:16 vertical short from a source video.
+
+        Duration is derived from ``end_time - start_time`` and then clamped:
+          • lower bound : ``Config.MIN_VIDEO_DURATION_SEC``
+          • upper bound : ``max_duration_override`` if provided, otherwise
+                          ``Config.EFFECTIVE_MAX_DURATION_SEC``
+                          (which already respects ``EXTENDED_DURATION_MODE``).
+
+        No magic numbers are used here – all bounds come from Config.
+        """
         input_path = Path(input_video_path)
         start_sec = self.parse_time_to_seconds(start_time)
-        clip_duration = 5.0 # Forced 5s for testing
-        
+        end_sec   = self.parse_time_to_seconds(end_time)
+
+        # Derive duration from the clip window
+        raw_duration = end_sec - start_sec
+
+        # Determine the effective ceiling for this render call
+        ceiling = (
+            float(max_duration_override)
+            if max_duration_override is not None
+            else Config.EFFECTIVE_MAX_DURATION_SEC
+        )
+
+        # Clamp to [MIN, ceiling]; fall back to DEFAULT when window is degenerate
+        if raw_duration <= 0:
+            logger.warning(
+                f"Clip '{clip_id}': end_time ({end_time}) <= start_time ({start_time}). "
+                f"Falling back to DEFAULT_VIDEO_DURATION_SEC={Config.DEFAULT_VIDEO_DURATION_SEC}s."
+            )
+            clip_duration = Config.DEFAULT_VIDEO_DURATION_SEC
+        else:
+            clip_duration = max(Config.MIN_VIDEO_DURATION_SEC, min(raw_duration, ceiling))
+
+        if clip_duration != raw_duration and raw_duration > 0:
+            logger.info(
+                f"Clip '{clip_id}': requested {raw_duration:.1f}s clamped to "
+                f"{clip_duration:.1f}s (min={Config.MIN_VIDEO_DURATION_SEC}s, "
+                f"max={ceiling}s, extended={Config.EXTENDED_DURATION_MODE})."
+            )
+
         clean_id = re.sub(r'[^a-zA-Z0-9_-]', '_', clip_id)
         output_path = self.output_dir / f"{clean_id}_9x16.mp4"
 
@@ -79,4 +118,9 @@ class SkuldRenderer:
         if process.returncode != 0:
             raise RuntimeError(f"FFmpeg failed: {process.stderr}")
 
-        return {"status": "success", "output_video_path": str(output_path)}
+        return {
+            "status": "success",
+            "output_video_path": str(output_path),
+            "clip_duration_sec": clip_duration,
+            "extended_mode": Config.EXTENDED_DURATION_MODE,
+        }

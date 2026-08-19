@@ -20,9 +20,20 @@ from agent.verdandi_orchestrator import VerdandiOrchestrator
 from agent.skuld_renderer import SkuldRenderer
 from utils.sample_generator import SAMPLE_TRANSCRIPTS, create_sample_16x9_video
 from utils.ingest import download_youtube_video
-from utils.db_logger import log_render_event, init_telemetry_table
+from utils.transcribe import get_or_create_transcript
+
+# Central environment-driven configuration
+from config import Config
+
+# Optional telemetry logger (safe if missing)
+try:
+    from utils.db_logger import log_render_event, init_telemetry_table
+except ImportError:
+    def log_render_event(*args, **kwargs): pass
+    def init_telemetry_table(): pass
 
 load_dotenv()
+
 
 # Initialize ClickHouse telemetry table on startup
 try:
@@ -116,37 +127,28 @@ if "sample_video_path" not in st.session_state:
     st.session_state.sample_video_path = "sample_data/yt_input.mp4"
 
 
-# Helper function to fetch YouTube transcripts automatically
+# Helper: YouTube captions fallback (optional)
 def fetch_youtube_transcript_text(url: str) -> str:
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
         import re
-        
-        # Extract video ID
         vid_match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
         if not vid_match:
-            return "[00:00 - 00:05] Autonomous video analysis stream initialization."
-        
+            return ""
         vid_id = vid_match.group(1)
         transcript_list = YouTubeTranscriptApi.get_transcript(vid_id)
-        
         formatted_lines = []
         for entry in transcript_list:
-            start = entry['start']
-            dur = entry.get('duration', 5.0)
+            start = entry["start"]
+            dur = entry.get("duration", 5.0)
             end = start + dur
-            text = entry['text'].replace('\n', ' ')
-            
-            m_s = int(start // 60)
-            s_s = int(start % 60)
-            m_e = int(end // 60)
-            s_e = int(end % 60)
-            
+            text = entry["text"].replace("\n", " ")
+            m_s, s_s = int(start // 60), int(start % 60)
+            m_e, s_e = int(end // 60), int(end % 60)
             formatted_lines.append(f"[{m_s:02d}:{s_s:02d} - {m_e:02d}:{s_e:02d}] {text}")
-            
         return "\n".join(formatted_lines)
-    except Exception as e:
-        return f"[00:00 - 00:10] Automatic transcript extraction fallback active ({e})."
+    except Exception:
+        return ""
 
 
 # Sidebar Configuration
@@ -158,18 +160,21 @@ with st.sidebar:
     st.markdown("#### 🔑 Model & Intelligence")
     api_key_input = st.text_input(
         "Google Gemini API Key",
-        value=os.getenv("GEMINI_API_KEY", ""),
+        value=Config.GEMINI_API_KEY,
         type="password",
         help="Required for Gemini 3.6 Flash reasoning.",
     )
     if api_key_input and api_key_input != st.session_state.verdandi.api_key:
-        st.session_state.verdandi = VerdandiOrchestrator(api_key=api_key_input, urdr_tool=st.session_state.urdr)
+        st.session_state.verdandi = VerdandiOrchestrator(
+            api_key=api_key_input, urdr_tool=st.session_state.urdr
+        )
         st.success("Gemini 3.6 Flash client updated!")
 
     st.markdown("#### 🗄️ ClickHouse Engine")
-    ch_host = st.text_input("Host", value=os.getenv("CLICKHOUSE_HOST", "localhost"))
-    ch_port = st.number_input("Port (HTTP)", value=int(os.getenv("CLICKHOUSE_PORT", "8123")), step=1)
-    
+    ch_host = st.text_input("Host", value=Config.CLICKHOUSE_HOST)
+    ch_port = st.number_input("Port (HTTP)", value=Config.CLICKHOUSE_PORT, step=1)
+
+
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         if st.button("Reconnect", use_container_width=True):
@@ -196,16 +201,20 @@ with st.sidebar:
 
 # Main Header
 st.markdown("<h1 class='main-title'>⚡ NornPulse: Autonomous Media Engine</h1>", unsafe_allow_html=True)
-st.markdown("<div class='sub-title'>Autonomous 16:9 to 9:16 Short Generator grounded in <b>ClickHouse Historical Retention Intelligence</b> and <b>Gemini 3.6 Flash Reasoning</b></div>", unsafe_allow_html=True)
+st.markdown(
+    "<div class='sub-title'>Autonomous 16:9 to 9:16 Short Generator grounded in "
+    "<b>ClickHouse Historical Retention Intelligence</b> and <b>Gemini 3.6 Flash Reasoning</b></div>",
+    unsafe_allow_html=True,
+)
 
 
-# Tabs Navigation
+# Tabs Navigation  ← THIS LINE IS REQUIRED
 tabs = st.tabs([
     "🚀 Autonomous Pipeline",
     "ᚢ Urðr Analytics Hub",
     "ᚹ Verðandi AI Playground",
     "ᛋ Skuld Video Studio",
-    "📜 Norn Labs Lore & Docs"
+    "📜 Norn Labs Lore & Docs",
 ])
 
 
@@ -222,40 +231,92 @@ with tabs[0]:
         st.markdown("#### 1. Source Video (16:9)")
         video_source_mode = st.radio(
             "Video Input Source:",
-            ["🌐 YouTube URL Link", "✨ Instant Synthetic Demo Video", "📁 Upload Custom Video"],
-            horizontal=True
+            [
+                "🌍 Carl Sagan (auto transcript)",
+                "🌐 YouTube URL Link",
+                "✨ Instant Synthetic Demo Video",
+                "📁 Upload Custom Video",
+            ],
+            horizontal=False,
         )
 
         active_video_path = None
-        if "YouTube" in video_source_mode:
-            # Hardcoded Big Buck Bunny URL default
-            default_yt_url = "https://www.youtube.com/watch?v=2GgV7bgBS4Q"
+        transcript_input = ""
+        video_title = "Custom Media Stream"
+        video_topic = "general"
+
+        if "Carl Sagan" in video_source_mode:
+            sagan_path = Path("sample_data/yt_input.mp4")
+            if not sagan_path.exists():
+                st.error("Sagan video not found. Download it first:")
+                st.code(
+                    "python -c \"from utils.ingest import download_youtube_video; "
+                    "download_youtube_video('https://www.youtube.com/watch?v=tLPkpBN6bEI')\""
+                )
+            else:
+                active_video_path = str(sagan_path)
+                st.session_state.sample_video_path = active_video_path
+                st.video(active_video_path)
+                st.caption("🌍 Carl Sagan – We Are Their Children (Cosmos)")
+
+                with st.spinner("Generating / loading transcript with Whisper (tiny)..."):
+                    try:
+                        transcript_input = get_or_create_transcript(
+                            sagan_path, model_size="tiny"
+                        )
+                        st.success("Transcript ready")
+                    except Exception as e:
+                        st.error(f"Transcription failed: {e}")
+                        transcript_input = ""
+
+                video_title = "Carl Sagan – We Are Their Children"
+                video_topic = "science_cosmos"
+
+        elif "YouTube" in video_source_mode:
+            default_yt_url = Config.INPUT_VIDEO_SOURCE or "https://www.youtube.com/watch?v=tLPkpBN6bEI"
             yt_url_input = st.text_input("YouTube Video URL:", value=default_yt_url)
-            
-            # Check if cached video file already exists
-            target_cache_path = Path("sample_data/yt_input.mp4")
-            if not target_cache_path.exists() and yt_url_input:
-                with st.spinner("Downloading YouTube video stream via yt-dlp (cached for future runs)..."):
+
+            if yt_url_input:
+                with st.spinner("Downloading YouTube video via yt-dlp..."):
                     try:
                         active_video_path = download_youtube_video(yt_url_input)
                         st.session_state.sample_video_path = active_video_path
                     except Exception as e:
                         st.error(f"Download failed: {e}")
-            else:
-                active_video_path = str(target_cache_path)
-                st.session_state.sample_video_path = active_video_path
+                        active_video_path = None
 
-            if os.path.exists(active_video_path):
+            if active_video_path and os.path.exists(active_video_path):
                 st.video(active_video_path)
-                st.caption("🎬 Cached Big Buck Bunny stream ready.")
+                st.caption("🎬 Downloaded YouTube stream ready.")
+
+                with st.spinner("Generating transcript..."):
+                    try:
+                        transcript_input = get_or_create_transcript(
+                            active_video_path, model_size="tiny"
+                        )
+                    except Exception:
+                        transcript_input = fetch_youtube_transcript_text(yt_url_input)
+
+                video_title = "YouTube Source"
+                video_topic = "general"
 
         elif "Instant" in video_source_mode:
-            if not st.session_state.sample_video_path or not os.path.exists(st.session_state.sample_video_path):
+            if (
+                not st.session_state.sample_video_path
+                or not os.path.exists(st.session_state.sample_video_path)
+                or "yt_input" in str(st.session_state.sample_video_path)
+            ):
                 with st.spinner("Generating synthetic 16:9 test video via FFmpeg..."):
                     st.session_state.sample_video_path = create_sample_16x9_video(duration=75)
             active_video_path = st.session_state.sample_video_path
             st.video(active_video_path)
-        else:
+            st.caption("🎬 Synthetic test video")
+
+            transcript_input = SAMPLE_TRANSCRIPTS.get("norn_ai_keynote", {}).get("transcript", "")
+            video_title = SAMPLE_TRANSCRIPTS.get("norn_ai_keynote", {}).get("title", "Synthetic Demo")
+            video_topic = "tech_ai"
+
+        else:  # Upload
             uploaded_file = st.file_uploader("Upload 16:9 Video", type=["mp4", "mov", "mkv"])
             if uploaded_file:
                 tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
@@ -263,24 +324,29 @@ with tabs[0]:
                 active_video_path = tfile.name
                 st.video(active_video_path)
 
+                with st.spinner("Transcribing uploaded video..."):
+                    try:
+                        transcript_input = get_or_create_transcript(
+                            active_video_path, model_size="tiny"
+                        )
+                    except Exception as e:
+                        st.warning(f"Auto-transcript failed: {e}. You can paste one manually.")
+                        transcript_input = ""
+
     with col_input2:
-        st.markdown("#### 2. Timestamped Transcript (Auto-Fetched)")
-        
-        # Automatically pull transcript if YouTube URL is used
-        auto_transcript = ""
-        if "YouTube" in video_source_mode and 'yt_url_input' in locals():
-            auto_transcript = fetch_youtube_transcript_text(yt_url_input)
-        
+        st.markdown("#### 2. Timestamped Transcript")
         transcript_input = st.text_area(
-            "Timestamped Transcript",
-            value=auto_transcript if auto_transcript else SAMPLE_TRANSCRIPTS["norn_ai_keynote"]["transcript"],
-            height=240,
+            "Transcript (auto-generated – you can edit)",
+            value=transcript_input,
+            height=280,
         )
-        video_title = "Big Buck Bunny Automated Stream"
-        video_topic = "animation"
 
     st.markdown("<br>", unsafe_allow_html=True)
-    unleash_btn = st.button("⚡ UNLEASH THE NORNS (ANALYZE & RENDER 9:16)", type="primary", use_container_width=True)
+    unleash_btn = st.button(
+        "⚡ UNLEASH THE NORNS (ANALYZE & RENDER 9:16)",
+        type="primary",
+        use_container_width=True,
+    )
 
     if unleash_btn:
         if not active_video_path or not os.path.exists(active_video_path):
@@ -291,29 +357,37 @@ with tabs[0]:
             progress_bar = st.progress(0)
             status_placeholder = st.empty()
 
-            # Phase 1: Urðr Analytics
+            # Phase 1
             status_placeholder.markdown("ᚢ **Phase 1: Urðr** is querying ClickHouse retention benchmarks...")
             progress_bar.progress(25)
             time.sleep(0.3)
 
-            # Phase 2: Verðandi Reasoning with Gemini 3.6 Flash
+            # Phase 2
             status_placeholder.markdown("ᚹ **Phase 2: Verðandi** is analyzing transcript with Gemini 3.6 Flash...")
             progress_bar.progress(55)
-            
+
             analysis_result = st.session_state.verdandi.analyze_transcript_and_decide(
                 transcript_text=transcript_input,
-                video_metadata={"title": video_title, "topic": video_topic, "video_path": active_video_path},
+                video_metadata={
+                    "title": video_title,
+                    "topic": video_topic,
+                    "video_path": active_video_path,
+                },
                 target_clip_count=target_clips,
             )
             st.session_state.analysis_result = analysis_result
 
-            # Phase 3: Skuld Rendering with FFmpeg
-            status_placeholder.markdown(f"ᛋ **Phase 3: Skuld** is rendering {len(analysis_result.clips)} clips via FFmpeg...")
+            # Phase 3
+            status_placeholder.markdown(
+                f"ᛋ **Phase 3: Skuld** is rendering {len(analysis_result.clips)} clips via FFmpeg..."
+            )
             progress_bar.progress(80)
 
             rendered_clips = []
             for idx, clip in enumerate(analysis_result.clips):
-                status_placeholder.markdown(f"ᛋ **Skuld** rendering `{clip.clip_id}` ({clip.start_time} ➔ {clip.end_time})...")
+                status_placeholder.markdown(
+                    f"ᛋ **Skuld** rendering `{clip.clip_id}` ({clip.start_time} ➔ {clip.end_time})..."
+                )
                 render_res = st.session_state.skuld.render_vertical_short(
                     input_video_path=active_video_path,
                     start_time=clip.start_time,
@@ -323,20 +397,22 @@ with tabs[0]:
                     hook_banner_text=clip.hook_title,
                 )
                 rendered_clips.append({"decision": clip, "render": render_res})
-                
+
                 try:
                     log_render_event(
                         video_name=Path(active_video_path).name,
                         duration=float(clip.duration_seconds),
                         status="SUCCESS",
-                        stage="Skuld_Compiler"
+                        stage="Skuld_Compiler",
                     )
                 except Exception:
                     pass
 
             st.session_state.rendered_clips = rendered_clips
             progress_bar.progress(100)
-            status_placeholder.success(f"✨ Destiny Fulfilled! Successfully generated {len(rendered_clips)} vertical short(s).")
+            status_placeholder.success(
+                f"✨ Destiny Fulfilled! Successfully generated {len(rendered_clips)} vertical short(s)."
+            )
 
     # Display Generated Clips
     if st.session_state.rendered_clips:
@@ -348,7 +424,7 @@ with tabs[0]:
             render = item["render"]
 
             with st.container():
-                st.markdown(f"#### Short #{idx+1}: {clip.hook_title}")
+                st.markdown(f"#### Short #{idx + 1}: {clip.hook_title}")
                 c_vid, c_info = st.columns([1, 1.2])
 
                 with c_vid:
@@ -362,17 +438,20 @@ with tabs[0]:
                                 file_name=f"{clip.clip_id}_9x16.mp4",
                                 mime="video/mp4",
                                 key=f"dl_{clip.clip_id}_{idx}",
-                                use_container_width=True
+                                use_container_width=True,
                             )
                     else:
                         st.error(f"Render output missing: {out_path}")
 
                 with c_info:
-                    st.markdown(f"""
+                    st.markdown(
+                        f"""
                     <span class='norn-badge badge-urdr'>Hook: {clip.hook_type}</span>
                     <span class='norn-badge badge-verdandi'>Virality: {clip.virality_score}/100</span>
                     <span class='norn-badge badge-skuld'>Duration: {clip.duration_seconds}s</span>
-                    """, unsafe_allow_html=True)
+                    """,
+                        unsafe_allow_html=True,
+                    )
 
                     m1, m2 = st.columns(2)
                     with m1:
@@ -405,7 +484,7 @@ with tabs[2]:
         res = st.session_state.verdandi.analyze_transcript_and_decide(
             transcript_text=SAMPLE_TRANSCRIPTS["norn_ai_keynote"]["transcript"],
             video_metadata={"title": "Test Stream", "topic": "AI"},
-            target_clip_count=1
+            target_clip_count=1,
         )
         st.json(res.model_dump())
 
@@ -418,7 +497,9 @@ with tabs[3]:
     if st.button("🎬 Render Custom 9:16 Short", type="primary"):
         res = st.session_state.skuld.render_vertical_short(
             input_video_path=st.session_state.sample_video_path,
-            start_time="00:02", end_time="00:07", clip_id="studio_custom"
+            start_time="00:02",
+            end_time="00:07",
+            clip_id="studio_custom",
         )
         st.video(res["output_video_path"])
 

@@ -36,6 +36,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 load_dotenv()
 
+# Central environment-driven configuration
+from config import Config
+
 # Import Norn Agent Triad
 from agent.urdr_analytics import UrdrAnalytics
 from agent.verdandi_orchestrator import VerdandiOrchestrator, VerdandiAnalysisResult

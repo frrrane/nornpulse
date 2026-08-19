@@ -19,7 +19,9 @@ from dotenv import load_dotenv
 from .urdr_analytics import UrdrAnalytics
 
 load_dotenv()
+from config import Config  # noqa: E402 – imported after load_dotenv intentionally
 logger = logging.getLogger("nornpulse.verdandi")
+
 
 
 class ClipDecision(BaseModel):
@@ -51,7 +53,8 @@ class VerdandiOrchestrator:
     """
 
     def __init__(self, api_key: Optional[str] = None, urdr_tool: Optional[UrdrAnalytics] = None):
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        self.api_key = api_key or Config.GEMINI_API_KEY
+
         self.urdr = urdr_tool or UrdrAnalytics()
         self.model_name = "gemini-3.6-flash"
         self._init_client()
@@ -89,6 +92,11 @@ class VerdandiOrchestrator:
         benchmarks_str = urdr_benchmarks_df.to_string(index=False)
         intelligence_json = json.dumps(urdr_intelligence, indent=2)
 
+        # Duration bounds from central config – never hardcoded here
+        min_dur = Config.MIN_VIDEO_DURATION_SEC
+        max_dur = Config.EFFECTIVE_MAX_DURATION_SEC
+        default_dur = Config.DEFAULT_VIDEO_DURATION_SEC
+
         # Build comprehensive system prompt
         system_instruction = f"""
 You are Verðandi (ᚹ), the Norse Norn of the Present, serving as the master video orchestrator for NornPulse (by Norn Labs, nornlabs.ai).
@@ -101,11 +109,12 @@ Key Intelligence Insights from Urðr:
 {intelligence_json}
 
 GUIDELINES FOR SELECTION:
-1. Target clip duration: 25 to 50 seconds (the optimal sweet spot for completion rate).
+1. Target clip duration: {default_dur:.0f} seconds (range: {min_dur:.0f}–{max_dur:.0f} seconds). Do NOT produce clips outside this range.
 2. The first 3 seconds MUST have a strong hook matching one of the proven hook taxonomies (shock_stat, curiosity_gap, contrarian_claim, problem_agitation).
 3. The ending must have a satisfying punchline, climax, or intriguing loop without awkward mid-sentence cutoffs.
 4. Output must be structured strictly according to the requested JSON schema.
 """
+
 
         user_prompt = f"""
 Analyze the following timestamped video transcript and select the top {target_clip_count} best 9:16 vertical clip segments.
@@ -158,8 +167,21 @@ Extract the top clips and specify exact start/end timestamps, hook titles, reten
         """
         Intelligent rule-based fallback when Gemini API is offline or testing without key.
         Dynamically extracts timestamp segments from the transcript and bounds them to source length.
+        All duration thresholds come from Config – no magic numbers.
         """
         logger.info("Executing Verðandi heuristic analysis fallback.")
+
+        # Pull bounds from Config once so all logic below uses named values
+        min_dur     = Config.MIN_VIDEO_DURATION_SEC       # e.g. 5 s
+        max_dur     = Config.EFFECTIVE_MAX_DURATION_SEC   # 15 s standard / 30 s extended
+        default_dur = Config.DEFAULT_VIDEO_DURATION_SEC   # e.g. 10 s
+
+        # Threshold below which we treat the source as a "short" asset and
+        # emit a single clip spanning the whole thing.
+        short_asset_threshold = max_dur + min_dur  # e.g. 20 s standard, 35 s extended
+
+        # Minimum source length required to attempt a second clip
+        second_clip_min_source = max_dur * 2 + min_dur  # e.g. 35 s standard, 65 s extended
 
         timestamp_matches = re.findall(
             r'\[(\d{1,2}:\d{2}(?:\.\d+)?)\s*-\s*(\d{1,2}:\d{2}(?:\.\d+)?)\]',
@@ -179,12 +201,12 @@ Extract the top clips and specify exact start/end timestamps, hook titles, reten
             s = int(sec % 60)
             return f"{m:02d}:{s:02d}"
 
-        max_sec = 60.0
+        max_sec = default_dur * 6  # sensible fallback if transcript has no timestamps
         if timestamp_matches:
             try:
                 max_sec = max(time_str_to_sec(end) for _, end in timestamp_matches)
             except Exception:
-                max_sec = 60.0
+                pass
 
         if "duration" in video_metadata and float(video_metadata["duration"]) > 0:
             max_sec = min(max_sec, float(video_metadata["duration"]))
@@ -192,14 +214,17 @@ Extract the top clips and specify exact start/end timestamps, hook titles, reten
         top_hook = urdr_intelligence.get("top_performing_hook_type", "shock_stat")
 
         clips = []
-        if max_sec <= 16.0:
+        if max_sec <= short_asset_threshold:
+            # Short source: emit one clip spanning the full available window,
+            # clamped to [min_dur, max_dur].
+            clip_end = max(min_dur, min(max_sec, max_dur))
             clips.append(
                 ClipDecision(
-                    clip_id="clip_01_standard_10s",
+                    clip_id="clip_01_standard",
                     start_time="00:00",
-                    end_time=sec_to_time_str(max_sec),
-                    duration_seconds=round(max_sec, 1),
-                    hook_title="⚡ Autonomous 10s High-Retention Unit",
+                    end_time=sec_to_time_str(clip_end),
+                    duration_seconds=round(clip_end, 1),
+                    hook_title="⚡ Autonomous High-Retention Unit",
                     hook_type=top_hook,
                     virality_score=95.5,
                     predicted_3s_retention=94.8,
@@ -211,7 +236,9 @@ Extract the top clips and specify exact start/end timestamps, hook titles, reten
                 )
             )
         else:
-            clip1_end = min(32.0, max_sec * 0.45)
+            # Longer source: first clip targets ~45 % of source, capped at max_dur
+            clip1_end = min(max_dur, max_sec * 0.45)
+            clip1_end = max(min_dur, clip1_end)  # never below minimum
             clips.append(
                 ClipDecision(
                     clip_id="clip_01_shock_hook",
@@ -230,9 +257,9 @@ Extract the top clips and specify exact start/end timestamps, hook titles, reten
                 )
             )
 
-            if target_clip_count > 1 and max_sec >= 35.0:
-                clip2_start = max(15.0, max_sec * 0.4)
-                clip2_end = min(max_sec, clip2_start + 35.0)
+            if target_clip_count > 1 and max_sec >= second_clip_min_source:
+                clip2_start = max(max_dur, max_sec * 0.4)
+                clip2_end = min(max_sec, clip2_start + max_dur)
                 clips.append(
                     ClipDecision(
                         clip_id="clip_02_curiosity_gap",
