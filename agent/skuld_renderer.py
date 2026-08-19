@@ -144,6 +144,17 @@ class SkuldRenderer:
         end_sec = self.parse_time_to_seconds(end_time)
         clip_duration = max(1.0, end_sec - start_sec)
 
+        # Ensure timestamps do not seek past video duration
+        try:
+            meta = self.get_video_metadata(input_video_path)
+            total_dur = meta.get("duration", 0.0)
+            if total_dur > 0:
+                if start_sec >= total_dur:
+                    start_sec = 0.0
+                clip_duration = max(1.0, min(clip_duration, total_dur - start_sec))
+        except Exception:
+            pass
+
         clean_id = re.sub(r'[^a-zA-Z0-9_-]', '_', clip_id)
         output_filename = f"{clean_id}_9x16.mp4"
         output_path = self.output_dir / output_filename

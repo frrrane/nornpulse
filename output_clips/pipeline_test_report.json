@@ -1,0 +1,149 @@
+{
+  "timestamp": "2026-08-19T16:16:34Z",
+  "status": "PASSED",
+  "elapsed_seconds": 10.61,
+  "crop_mode": "center_crop",
+  "source_video": "sample_data/test_10s_standard.mp4",
+  "clickhouse_live": true,
+  "gemini_api_active": false,
+  "intelligence_summary": {
+    "top_performing_hook_type": "shock_stat",
+    "overall_avg_3s_retention": 88.88125,
+    "recommended_clip_duration_range": "25s - 45s",
+    "hook_taxonomies": [
+      {
+        "hook_type": "shock_stat",
+        "avg_3s_retention": "94.6%",
+        "avg_virality_score": 97.4,
+        "optimal_duration_sec": 29.0
+      },
+      {
+        "hook_type": "curiosity_gap",
+        "avg_3s_retention": "92.95%",
+        "avg_virality_score": 95.5,
+        "optimal_duration_sec": 36.0
+      },
+      {
+        "hook_type": "story_in_medias_res",
+        "avg_3s_retention": "89.7%",
+        "avg_virality_score": 93.1,
+        "optimal_duration_sec": 52.0
+      },
+      {
+        "hook_type": "contrarian_claim",
+        "avg_3s_retention": "88.8%",
+        "avg_virality_score": 90.85,
+        "optimal_duration_sec": 37.6
+      },
+      {
+        "hook_type": "visual_disruption",
+        "avg_3s_retention": "91.0%",
+        "avg_virality_score": 89.9,
+        "optimal_duration_sec": 24.5
+      },
+      {
+        "hook_type": "metaphor_analogy",
+        "avg_3s_retention": "87.5%",
+        "avg_virality_score": 88.7,
+        "optimal_duration_sec": 41.5
+      },
+      {
+        "hook_type": "problem_agitation",
+        "avg_3s_retention": "85.3%",
+        "avg_virality_score": 86.5,
+        "optimal_duration_sec": 35.2
+      },
+      {
+        "hook_type": "direct_question",
+        "avg_3s_retention": "81.2%",
+        "avg_virality_score": 79.5,
+        "optimal_duration_sec": 31.0
+      }
+    ],
+    "key_insights": [
+      "Shock Stats and Curiosity Gaps generate >92% 3-second hold rate.",
+      "Optimal clip length for maximum completion rate is between 28s and 42s.",
+      "Contrarian claims maintain the strongest 15-to-30s retention curve."
+    ]
+  },
+  "analysis_result": {
+    "source_video_title": "\u26a1 NornPulse Standard 10s Benchmark",
+    "total_clips_identified": 1,
+    "urdr_retention_alignment": "Calibrated against Ur\u00f0r ClickHouse historical retention benchmarks (Shock Stat prioritized for >90% 3s hold).",
+    "clips": [
+      {
+        "clip_id": "clip_01_standard_10s",
+        "start_time": "00:00",
+        "end_time": "00:10",
+        "duration_seconds": 10.0,
+        "hook_title": "\u26a1 Autonomous 10s High-Retention Unit",
+        "hook_type": "shock_stat",
+        "virality_score": 95.5,
+        "predicted_3s_retention": 94.8,
+        "predicted_completion_rate": 72.0,
+        "urgency_rationale": "Fast-paced opening hook with immediate value proposition and seamless loop potential.",
+        "recommended_crop_focus": "Center speaker crop with top bold hook banner",
+        "social_caption": "How NornPulse automates 9:16 vertical shorts in under 1 second. #AI #ClickHouse #Gemini",
+        "hashtags": [
+          "#AI",
+          "#ClickHouse",
+          "#Gemini2",
+          "#NornLabs",
+          "#Automation"
+        ]
+      }
+    ]
+  },
+  "rendered_shorts": [
+    {
+      "clip_id": "clip_01_standard_10s",
+      "decision": {
+        "clip_id": "clip_01_standard_10s",
+        "start_time": "00:00",
+        "end_time": "00:10",
+        "duration_seconds": 10.0,
+        "hook_title": "\u26a1 Autonomous 10s High-Retention Unit",
+        "hook_type": "shock_stat",
+        "virality_score": 95.5,
+        "predicted_3s_retention": 94.8,
+        "predicted_completion_rate": 72.0,
+        "urgency_rationale": "Fast-paced opening hook with immediate value proposition and seamless loop potential.",
+        "recommended_crop_focus": "Center speaker crop with top bold hook banner",
+        "social_caption": "How NornPulse automates 9:16 vertical shorts in under 1 second. #AI #ClickHouse #Gemini",
+        "hashtags": [
+          "#AI",
+          "#ClickHouse",
+          "#Gemini2",
+          "#NornLabs",
+          "#Automation"
+        ]
+      },
+      "render": {
+        "status": "success",
+        "clip_id": "clip_01_standard_10s",
+        "output_video_path": "output_clips/clip_01_standard_10s_9x16.mp4",
+        "thumbnail_path": "output_clips/clip_01_standard_10s_thumb.png",
+        "start_time_sec": 0.0,
+        "end_time_sec": 10.0,
+        "duration_sec": 10.0,
+        "crop_mode": "center_crop",
+        "aspect_ratio": "9:16",
+        "resolution": "1080x1920"
+      },
+      "probe": {
+        "file": "output_clips/clip_01_standard_10s_9x16.mp4",
+        "filename": "clip_01_standard_10s_9x16.mp4",
+        "size_bytes": 389648,
+        "duration_sec": 10.0,
+        "width": 1080,
+        "height": 1920,
+        "aspect_ratio": "9:16",
+        "video_codec": "h264",
+        "audio_codec": "aac",
+        "has_video": true,
+        "has_audio": true
+      },
+      "thumbnail_valid": true
+    }
+  ]
+}

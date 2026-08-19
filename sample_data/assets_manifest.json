@@ -1,0 +1,300 @@
+{
+  "generator": "NornPulse Media Assets Generator v1.2",
+  "assets_directory": "/home/franeppotrc/nornpulse/sample_data",
+  "presets": {
+    "test_10s_standard": {
+      "key": "test_10s_standard",
+      "title": "\u26a1 NornPulse Standard 10s Benchmark",
+      "category": "benchmark_test",
+      "filename": "test_10s_standard.mp4",
+      "relative_path": "sample_data/test_10s_standard.mp4",
+      "speaker": "AI Announcer & System Telemetry",
+      "duration_estimate": "00:10",
+      "transcript": "[00:00 - 00:03] (System): Initializing NornPulse autonomous video ingestion pipeline.\n[00:03 - 00:07] (Ur\u00f0r Engine): Aggregating sub-second retention priors and calculating virality coefficients.\n[00:07 - 00:10] (Skuld Engine): Rendering deterministic 9:16 vertical crop with active speaker centering.",
+      "hooks": [
+        {
+          "type": "shock_stat",
+          "range": "00:00 - 00:03",
+          "expected_3s_retention": 95.8
+        },
+        {
+          "type": "curiosity_gap",
+          "range": "00:03 - 00:07",
+          "expected_3s_retention": 92.4
+        }
+      ],
+      "probe": {
+        "path": "/home/franeppotrc/nornpulse/sample_data/test_10s_standard.mp4",
+        "filename": "test_10s_standard.mp4",
+        "size_bytes": 677202,
+        "size_mb": 0.65,
+        "duration_sec": 10.0,
+        "width": 1920,
+        "height": 1080,
+        "fps": 30.0,
+        "aspect_ratio": "16:9",
+        "video_codec": "h264",
+        "pix_fmt": "yuv420p",
+        "audio_codec": "aac",
+        "sample_rate": "44100",
+        "channels": 1,
+        "has_video": true,
+        "has_audio": true,
+        "is_valid_16x9": true,
+        "is_exact_1080p": true
+      }
+    },
+    "test_10s_keynote": {
+      "key": "test_10s_keynote",
+      "title": "\u26a1 Norn Labs Keynote: 10s Autonomous Media Teaser",
+      "category": "tech_ai",
+      "filename": "test_10s_keynote.mp4",
+      "relative_path": "sample_data/test_10s_keynote.mp4",
+      "speaker": "Speaker 1 (Norn Labs CEO)",
+      "duration_estimate": "00:10",
+      "transcript": "[00:00 - 00:03] (Speaker 1): 93% of AI video startups will fail because they lack retention feedback.\n[00:03 - 00:07] (Speaker 1): NornPulse connects ClickHouse telemetry directly to Gemini 2.0 reasoning.\n[00:07 - 00:10] (Speaker 1): Never edit a 16:9 video manually again. The future is autonomous.",
+      "hooks": [
+        {
+          "type": "shock_stat",
+          "range": "00:00 - 00:03",
+          "expected_3s_retention": 94.6
+        },
+        {
+          "type": "problem_agitation",
+          "range": "00:03 - 00:07",
+          "expected_3s_retention": 91.2
+        }
+      ],
+      "probe": {
+        "path": "/home/franeppotrc/nornpulse/sample_data/test_10s_keynote.mp4",
+        "filename": "test_10s_keynote.mp4",
+        "size_bytes": 636346,
+        "size_mb": 0.61,
+        "duration_sec": 10.0,
+        "width": 1920,
+        "height": 1080,
+        "fps": 30.0,
+        "aspect_ratio": "16:9",
+        "video_codec": "h264",
+        "pix_fmt": "yuv420p",
+        "audio_codec": "aac",
+        "sample_rate": "44100",
+        "channels": 1,
+        "has_video": true,
+        "has_audio": true,
+        "is_valid_16x9": true,
+        "is_exact_1080p": true
+      }
+    },
+    "test_10s_podcast": {
+      "key": "test_10s_podcast",
+      "title": "\ud83c\udf99\ufe0f Data Pulse 10s: ClickHouse vs Video Analytics",
+      "category": "data_infra",
+      "filename": "test_10s_podcast.mp4",
+      "relative_path": "sample_data/test_10s_podcast.mp4",
+      "speaker": "Host (Data Pulse) & Guest (ClickHouse Engineer)",
+      "duration_estimate": "00:10",
+      "transcript": "[00:00 - 00:04] (Host): Why are traditional databases useless for sub-second video analytics?\n[00:04 - 00:08] (Guest): ClickHouse aggregates 2 billion retention events in under 12 milliseconds.\n[00:08 - 00:10] (Host): That allows instant agentic crop decisions without human lag.",
+      "hooks": [
+        {
+          "type": "contrarian_claim",
+          "range": "00:00 - 00:04",
+          "expected_3s_retention": 89.4
+        },
+        {
+          "type": "metaphor_analogy",
+          "range": "00:04 - 00:08",
+          "expected_3s_retention": 93.1
+        }
+      ],
+      "probe": {
+        "path": "/home/franeppotrc/nornpulse/sample_data/test_10s_podcast.mp4",
+        "filename": "test_10s_podcast.mp4",
+        "size_bytes": 580946,
+        "size_mb": 0.55,
+        "duration_sec": 10.0,
+        "width": 1920,
+        "height": 1080,
+        "fps": 30.0,
+        "aspect_ratio": "16:9",
+        "video_codec": "h264",
+        "pix_fmt": "yuv420p",
+        "audio_codec": "aac",
+        "sample_rate": "44100",
+        "channels": 1,
+        "has_video": true,
+        "has_audio": true,
+        "is_valid_16x9": true,
+        "is_exact_1080p": true
+      }
+    },
+    "test_10s_screencast": {
+      "key": "test_10s_screencast",
+      "title": "\ud83d\udcbb Live Code Screencast: Sub-Second Video Trimming",
+      "category": "engineering",
+      "filename": "test_10s_screencast.mp4",
+      "relative_path": "sample_data/test_10s_screencast.mp4",
+      "speaker": "Core Engineer (Norn Labs)",
+      "duration_estimate": "00:10",
+      "transcript": "[00:00 - 00:03] (Engineer): Watch Ur\u00f0r query 1M retention rows in 3.8 milliseconds.\n[00:03 - 00:07] (Engineer): Gemini 2.0 Flash identifies optimal hook boundaries with zero schema hallucination.\n[00:07 - 00:10] (Engineer): Skuld compiles the 9:16 vertical render in pure hardware-accelerated FFmpeg.",
+      "hooks": [
+        {
+          "type": "visual_disruption",
+          "range": "00:00 - 00:03",
+          "expected_3s_retention": 91.0
+        },
+        {
+          "type": "curiosity_gap",
+          "range": "00:03 - 00:07",
+          "expected_3s_retention": 93.8
+        }
+      ],
+      "probe": {
+        "path": "/home/franeppotrc/nornpulse/sample_data/test_10s_screencast.mp4",
+        "filename": "test_10s_screencast.mp4",
+        "size_bytes": 620086,
+        "size_mb": 0.59,
+        "duration_sec": 10.0,
+        "width": 1920,
+        "height": 1080,
+        "fps": 30.0,
+        "aspect_ratio": "16:9",
+        "video_codec": "h264",
+        "pix_fmt": "yuv420p",
+        "audio_codec": "aac",
+        "sample_rate": "44100",
+        "channels": 1,
+        "has_video": true,
+        "has_audio": true,
+        "is_valid_16x9": true,
+        "is_exact_1080p": true
+      }
+    },
+    "test_10s_creator": {
+      "key": "test_10s_creator",
+      "title": "\ud83d\udd25 Viral Hook Masterclass: 3-Second Rule",
+      "category": "growth_hacks",
+      "filename": "test_10s_creator.mp4",
+      "relative_path": "sample_data/test_10s_creator.mp4",
+      "speaker": "Creator (Viral Growth Strategist)",
+      "duration_estimate": "00:10",
+      "transcript": "[00:00 - 00:03] (Creator): Never publish a vertical video before applying this 3-second hook rule.\n[00:03 - 00:07] (Creator): Shock stats and curiosity gaps consistently beat all other hooks by 42%.\n[00:07 - 00:10] (Creator): Switch to NornPulse and automate your entire short-form pipeline today.",
+      "hooks": [
+        {
+          "type": "shock_stat",
+          "range": "00:00 - 00:03",
+          "expected_3s_retention": 96.2
+        },
+        {
+          "type": "curiosity_gap",
+          "range": "00:03 - 00:07",
+          "expected_3s_retention": 93.5
+        }
+      ],
+      "probe": {
+        "path": "/home/franeppotrc/nornpulse/sample_data/test_10s_creator.mp4",
+        "filename": "test_10s_creator.mp4",
+        "size_bytes": 594769,
+        "size_mb": 0.57,
+        "duration_sec": 10.0,
+        "width": 1920,
+        "height": 1080,
+        "fps": 30.0,
+        "aspect_ratio": "16:9",
+        "video_codec": "h264",
+        "pix_fmt": "yuv420p",
+        "audio_codec": "aac",
+        "sample_rate": "44100",
+        "channels": 1,
+        "has_video": true,
+        "has_audio": true,
+        "is_valid_16x9": true,
+        "is_exact_1080p": true
+      }
+    },
+    "norn_ai_keynote": {
+      "key": "norn_ai_keynote",
+      "title": "\u26a1 Norn Labs Keynote: The Autonomous Media Revolution",
+      "category": "tech_ai",
+      "filename": "keynote_16x9.mp4",
+      "relative_path": "sample_data/keynote_16x9.mp4",
+      "speaker": "Speaker 1 & Speaker 2",
+      "duration_estimate": "01:30",
+      "transcript": "[00:00 - 00:08] (Speaker 1): 93% of AI video startups will go bankrupt in the next 18 months. Why? Because they're building wrappers around static prompt pipelines.\n[00:08 - 00:18] (Speaker 1): If your media engine can't learn from audience retention curves in sub-second latency, you are flying blind in the algorithm.\n[00:18 - 00:30] (Speaker 1): That is why at Norn Labs, we engineered NornPulse\u2014an autonomous engine powered by the three Norns: Ur\u00f0r for ClickHouse retention intelligence, Ver\u00f0andi for Gemini 2.0 Flash reasoning, and Skuld for real-time video manifestation.\n[00:30 - 00:45] (Speaker 2): When you connect ClickHouse directly to Gemini 2.0, the LLM doesn't just guess timestamps. It calculates exact virality coefficients based on millions of past retention data points.\n[00:45 - 00:58] (Speaker 2): The results are staggering: a 42% increase in 3-second hold rate and over 60% completion rate on vertical shorts across TikTok, Reels, and YouTube.\n[00:58 - 01:15] (Speaker 1): Never edit a 16:9 video manually again. Stop wasting 4 hours a week cropping timelines. The future of media is autonomous, deterministic, and instantaneous.\n[01:15 - 01:30] (Speaker 1): Welcome to NornPulse. Welcome to the dawn of autonomous media.",
+      "hooks": [
+        {
+          "type": "shock_stat",
+          "range": "00:00 - 00:30",
+          "expected_3s_retention": 94.6
+        },
+        {
+          "type": "curiosity_gap",
+          "range": "00:30 - 01:00",
+          "expected_3s_retention": 92.1
+        }
+      ],
+      "probe": {
+        "path": "/home/franeppotrc/nornpulse/sample_data/keynote_16x9.mp4",
+        "filename": "keynote_16x9.mp4",
+        "size_bytes": 4121965,
+        "size_mb": 3.93,
+        "duration_sec": 75.0,
+        "width": 1920,
+        "height": 1080,
+        "fps": 30.0,
+        "aspect_ratio": "16:9",
+        "video_codec": "h264",
+        "pix_fmt": "yuv420p",
+        "audio_codec": "aac",
+        "sample_rate": "44100",
+        "channels": 1,
+        "has_video": true,
+        "has_audio": true,
+        "is_valid_16x9": true,
+        "is_exact_1080p": true
+      }
+    },
+    "clickhouse_speed_podcast": {
+      "key": "clickhouse_speed_podcast",
+      "title": "\u26a1 Real-Time Data Architecture: Why ClickHouse Crushes Video Analytics",
+      "category": "data_infra",
+      "filename": "podcast_16x9.mp4",
+      "relative_path": "sample_data/podcast_16x9.mp4",
+      "speaker": "Host & Guest",
+      "duration_estimate": "01:20",
+      "transcript": "[00:00 - 00:10] (Host): Stop using traditional row-based databases for video analytics. You're throwing compute down the drain.\n[00:10 - 00:24] (Guest): Think of ClickHouse like an F1 engine strapped to your retention telemetry. We can aggregate two billion retention events in under 12 milliseconds.\n[00:24 - 00:38] (Host): That means when Ver\u00f0andi queries Ur\u00f0r, the agent gets instant sub-second historical retention distribution curves before deciding where to crop.\n[00:38 - 00:52] (Guest): Exactly. By combining columnar aggregation with Gemini 2.0 Flash's ultra-low latency multimodal reasoning, you get autonomous video editing that actually converts.\n[00:52 - 01:10] (Host): That is why modern creators and media companies are transitioning to autonomous retention-grounded engines like NornPulse.",
+      "hooks": [
+        {
+          "type": "contrarian_claim",
+          "range": "00:00 - 00:25",
+          "expected_3s_retention": 89.2
+        },
+        {
+          "type": "metaphor_analogy",
+          "range": "00:10 - 00:45",
+          "expected_3s_retention": 87.5
+        }
+      ],
+      "probe": {
+        "path": "/home/franeppotrc/nornpulse/sample_data/podcast_16x9.mp4",
+        "filename": "podcast_16x9.mp4",
+        "size_bytes": 3808141,
+        "size_mb": 3.63,
+        "duration_sec": 75.0,
+        "width": 1920,
+        "height": 1080,
+        "fps": 30.0,
+        "aspect_ratio": "16:9",
+        "video_codec": "h264",
+        "pix_fmt": "yuv420p",
+        "audio_codec": "aac",
+        "sample_rate": "44100",
+        "channels": 1,
+        "has_video": true,
+        "has_audio": true,
+        "is_valid_16x9": true,
+        "is_exact_1080p": true
+      }
+    }
+  }
+}
