@@ -8,7 +8,7 @@ services:
       - "8123:8123"   # HTTP interface (clickhouse-connect, web queries)
       - "9000:9000"   # Native TCP interface
     environment:
-      - CLICKHOUSE_DB=nornpulse
+      - CLICKHOUSE_DB=default
       - CLICKHOUSE_USER=default
       - CLICKHOUSE_PASSWORD=nornpulse_secret
       - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1

@@ -54,6 +54,12 @@ class Config:
 
     # ------------------------------------------------------------------
     # ClickHouse connection settings
+    #
+    # NOTE: these are exposed here for reference/display only. The actual
+    # ClickHouse MCP server (mcp-clickhouse) runs as its own subprocess and
+    # reads CLICKHOUSE_* straight from the environment itself (see
+    # agent/clickhouse_mcp_client.py) — it does not go through this Config
+    # object, since it's a separate process with its own env.
     # ------------------------------------------------------------------
     CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "localhost")
     CLICKHOUSE_PORT: int = int(os.getenv("CLICKHOUSE_PORT", "8123"))

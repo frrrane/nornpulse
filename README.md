@@ -39,7 +39,7 @@ In Norse mythology, the three Norns weave the threads of fate at the Well of Ur�
 ```
 
 ### 1. `agent/urdr_analytics.py` (ᚢ Urðr — The Past)
-- Connects to **ClickHouse** (ports `8123` HTTP and `9000` Native).
+- Talks to **ClickHouse** exclusively through the official **ClickHouse MCP server** (`mcp-clickhouse`), bridged via `agent/clickhouse_mcp_client.py` — no direct DB client library in the runtime path, per the Agentic Cinema ClickHouse track requirement.
 - Manages `video_hook_retention` and historical engagement telemetry.
 - Calculates retention decay curves across hook types (`shock_stat`, `curiosity_gap`, `contrarian_claim`, `problem_agitation`, etc.).
 - Supplies real-time statistical priors to Gemini 2.0 Flash.
@@ -66,6 +66,7 @@ nornpulse/
 ├── agent/
 │   ├── __init__.py
 │   ├── urdr_analytics.py        # ᚢ Urðr: ClickHouse hook retention intelligence
+│   ├── clickhouse_mcp_client.py # Bridge to the official ClickHouse MCP server (mcp-clickhouse)
 │   ├── verdandi_orchestrator.py # ᚹ Verðandi: Gemini 2.0 Flash transcript reasoning
 │   └── skuld_renderer.py       # ᛋ Skuld: FFmpeg 16:9 -> 9:16 vertical short renderer
 ├── utils/
@@ -111,6 +112,7 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
+This also installs the `mcp-clickhouse` CLI into the venv — Urðr launches it as a stdio subprocess on every ClickHouse call, so it must be importable/on `PATH` (activating the venv is enough; no separate install step needed).
 
 ### 4. Launch the Dashboard
 ```bash

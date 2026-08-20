@@ -7,14 +7,17 @@ Built for Norn Labs (nornlabs.ai)
 import os
 import json
 import logging
-from typing import Callable, List, Dict, Any
+import time
+from typing import Callable, List, Dict, Any, Optional
 
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from agent.skuld_renderer import SkuldRenderer, parse_time_to_seconds
+from agent.skuld_renderer import (
+    SkuldRenderer, parse_time_to_seconds, format_seconds_to_mmss, get_video_duration_seconds,
+)
 from agent.urdr_analytics import UrdrAnalytics
 
 load_dotenv(override=True)
@@ -27,11 +30,10 @@ class VerdandiADK:
     Skuld / telemetry logging to Urðr.
 
     Each call to `orchestrate_generation` builds its own bound tool
-    closures rather than relying on module-level globals. This matters in
-    Streamlit, where one server process serves multiple concurrent
-    sessions — a shared global transcript would leak between users'
-    generations, and a shared global renderer state made it hard to trust
-    which clip belonged to which request.
+    closures rather than relying on module-level globals, and explicitly
+    injects Urðr's ClickHouse-derived retention intelligence into the
+    prompt — the "grounds decisions in Urðr's telemetry" step the
+    architecture diagram describes, actually wired into the request.
     """
 
     def __init__(self, project_id: str = None):
@@ -42,9 +44,50 @@ class VerdandiADK:
         self.urdr = UrdrAnalytics()
 
     def _make_tools(
-        self, transcript_text: str, rendered_clips: List[Dict[str, Any]]
+        self,
+        transcript_text: str,
+        rendered_clips: List[Dict[str, Any]],
+        warmth: float,
+        crazy: float,
+        retention_summary: Dict[str, Any],
+        min_duration_sec: float,
+        max_duration_sec: float,
+        video_duration_sec: float,
     ) -> List[Callable]:
         """Builds request-scoped tool functions closing over this call's state."""
+
+        ranked_hook_types = [t["hook_type"] for t in retention_summary.get("hook_taxonomies", [])]
+        top_hook_type = retention_summary.get("top_performing_hook_type")
+        # Index by hook_type for O(1) lookup, so per-clip telemetry doesn't
+        # need a fresh ClickHouse round-trip for data we already fetched
+        # once at the start of this generation run.
+        benchmarks_by_hook = {t["hook_type"]: t for t in retention_summary.get("hook_taxonomies", [])}
+        # Leave a small buffer so a clip never tries to seek to the exact
+        # last frame of the source file, which can trip up FFmpeg seeking.
+        safe_video_end_sec = max(min_duration_sec, video_duration_sec - 1.0)
+
+        def _clamp_duration(start_time: str, end_time: str) -> tuple[str, str]:
+            """
+            Code-level enforcement of the duration range, independent of
+            whether the model actually followed the prompt instruction.
+            Keeps start_time fixed and adjusts end_time only, since Gemini
+            picks start_time to align with a specific transcript moment.
+            """
+            start_sec = parse_time_to_seconds(start_time)
+            end_sec = parse_time_to_seconds(end_time)
+            duration = end_sec - start_sec
+
+            if duration > max_duration_sec:
+                end_sec = start_sec + max_duration_sec
+            elif duration < min_duration_sec:
+                end_sec = start_sec + min_duration_sec
+
+            end_sec = min(end_sec, safe_video_end_sec)  # never exceed the actual source video's length
+            if end_sec != parse_time_to_seconds(end_time):
+                new_end = f"00:{int(end_sec):02d}"
+                logger.info(f"Clamped clip duration: {start_time}-{end_time} -> {start_time}-{new_end}")
+                return start_time, new_end
+            return start_time, end_time
 
         def tool_execute_skuld_render(
             input_video_path: str,
@@ -64,6 +107,7 @@ class VerdandiADK:
             source transcript for subtitle generation.
             """
             logger.info(f"Executing Skuld render for clip_id: {clip_id} ({start_time} to {end_time})")
+            start_time, end_time = _clamp_duration(start_time, end_time)
             resolved_transcript = (
                 transcript_text_override
                 if transcript_text_override and len(transcript_text_override.strip()) > 20
@@ -77,6 +121,8 @@ class VerdandiADK:
                 crop_mode=crop_mode,
                 hook_banner_text=hook_banner_text,
                 transcript_text=resolved_transcript,
+                warmth=warmth,
+                crazy=crazy,
             )
             # Record ground-truth render output. This is what the UI will
             # ultimately trust, independent of whatever the model's final
@@ -89,6 +135,7 @@ class VerdandiADK:
                     "end_time": end_time,
                     "output_video_path": result["output_video_path"],
                     "has_subtitles": result["has_subtitles"],
+                    "crop_mode": result.get("crop_mode", "unknown"),
                 }
             )
             return json.dumps(result)
@@ -96,40 +143,152 @@ class VerdandiADK:
         def tool_log_urdr_telemetry(
             clip_id: str, hook_type: str, hook_text: str, virality_score: float
         ) -> str:
-            """Logs generated clip telemetry metrics into the Urðr analytics repository."""
-            logger.info(f"Logging Urðr telemetry for clip_id: {clip_id}")
+            """
+            Logs generated clip telemetry into the Urðr ClickHouse analytics
+            repository, grounding the predicted 3s-hold and completion rates
+            in real historical benchmarks for this hook_type rather than
+            placeholder numbers — closing the retention feedback loop the
+            Three Norns architecture is built around.
+            """
+            logger.info(f"Logging Urðr telemetry for clip_id: {clip_id}, hook_type: {hook_type}")
+
             match = next((c for c in rendered_clips if c["clip_id"] == clip_id), None)
-            start_sec = parse_time_to_seconds(match["start_time"]) if match else 0.0
-            end_sec = parse_time_to_seconds(match["end_time"]) if match else 10.0
-            return self.urdr.log_generated_clip(
+            if match:
+                duration_sec = parse_time_to_seconds(match["end_time"]) - parse_time_to_seconds(match["start_time"])
+            else:
+                logger.warning(f"No render record found for clip_id '{clip_id}'; using fallback duration.")
+                duration_sec = 10.0
+
+            benchmark = benchmarks_by_hook.get(hook_type)
+            if benchmark:
+                predicted_3s = benchmark["avg_3s_retention_value"]
+                predicted_completion = benchmark["avg_completion_rate"]
+            else:
+                # hook_type wasn't in our fetched benchmarks (model chose
+                # something outside the known taxonomy) — fall back to a
+                # single ClickHouse lookup only in this edge case.
+                benchmark_df = self.urdr.query_hook_retention(hook_category=hook_type, limit=1)
+                if not benchmark_df.empty:
+                    predicted_3s = float(benchmark_df.iloc[0]["avg_3s_retention_pct"])
+                    predicted_completion = float(benchmark_df.iloc[0]["completion_rate_pct"])
+                else:
+                    predicted_3s = float(retention_summary.get("overall_avg_3s_retention", 85.0))
+                    predicted_completion = 55.0
+
+            # --- Grounding alignment: did the model's hook_type choice
+            # actually reflect Urðr's benchmark ranking, or ignore it? ---
+            hook_rank: Optional[int] = (
+                ranked_hook_types.index(hook_type) + 1 if hook_type in ranked_hook_types else None
+            )
+            is_top_tier = hook_rank is not None and hook_rank <= 2
+
+            if match is not None:
+                match["hook_type"] = hook_type
+                match["hook_rank"] = hook_rank
+                match["is_top_tier_hook"] = is_top_tier
+                match["grounded_top_hook_type"] = top_hook_type
+
+            success = self.urdr.log_generated_clip(
                 clip_id=clip_id,
                 hook_type=hook_type,
                 hook_text=hook_text,
-                start_sec=start_sec,
-                end_sec=end_sec,
-                retention_est=88.5,
+                duration_sec=duration_sec,
+                predicted_3s=predicted_3s,
+                predicted_completion=predicted_completion,
                 virality_score=virality_score,
-                status="staged_clip",
+                topic_category="generated_clip",
+                crop_mode=match.get("crop_mode", "unknown") if match else "unknown",
             )
+            return json.dumps({"logged": success, "clip_id": clip_id, "hook_rank": hook_rank, "is_top_tier": is_top_tier})
 
         return [tool_execute_skuld_render, tool_log_urdr_telemetry]
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-    def orchestrate_generation(
-        self, transcript_text: str, video_path: str, target_count: int
-    ) -> List[Dict[str, Any]]:
-        rendered_clips: List[Dict[str, Any]] = []
-        tools = self._make_tools(transcript_text, rendered_clips)
+    def _build_prompt(
+        self, transcript_text: str, video_path: str, target_count: int, retention_summary: Dict[str, Any],
+        min_duration_sec: float, max_duration_sec: float, video_duration_sec: float,
+    ) -> str:
+        grounding_json = json.dumps(retention_summary, indent=2)
+        topic_focus = retention_summary.get("topic_focus")
+        if topic_focus:
+            topic_instruction = (
+                f"The grounding data above is scoped specifically to the topic_category "
+                f"'{topic_focus}' — reason within that focus.\n\n"
+            )
+        elif retention_summary.get("topic_focus_had_no_history"):
+            topic_instruction = (
+                "Note: the requested topic focus had no matching ClickHouse history, so the "
+                "grounding data above spans all topic categories instead.\n\n"
+            )
+        else:
+            topic_instruction = ""
 
-        prompt = (
+        safe_video_end = max(min_duration_sec, video_duration_sec - 1.0)
+        safe_video_end_mmss = format_seconds_to_mmss(safe_video_end)
+        video_duration_mmss = format_seconds_to_mmss(video_duration_sec)
+
+        return (
+            f"Historical Urðr ClickHouse retention intelligence — ground your hook_type "
+            f"selection in this real data, don't ignore it:\n{grounding_json}\n\n"
+            f"{topic_instruction}"
             f"Analyze this transcript:\n{transcript_text}\n\n"
             f"Source Video Path: {video_path}\n"
-            f"CRITICAL: The video is only 53 seconds long. Generate exactly {target_count} clips (10-15s each). "
-            f"You MUST choose a start_time and end_time strictly between 00:00 and 00:45 that matches the transcript timestamps. "
-            f"Execute `tool_execute_skuld_render` and `tool_log_urdr_telemetry` for each clip with these bounds. "
-            f"Return a strict JSON list response with fields: clip_id, hook_title, social_caption, virality_score, start_time, end_time. "
+            f"CRITICAL: The video is {video_duration_mmss} (MM:SS) long. Generate exactly {target_count} clips. "
+            f"You MUST choose a start_time and end_time strictly between 00:00 and {safe_video_end_mmss} that matches the transcript timestamps. "
+            f"For each clip, select a hook_type from the hook_taxonomies list above that genuinely fits the "
+            f"transcript content. Prefer hook types with higher avg_virality_score when the content honestly "
+            f"supports that framing — do not force a mismatched hook type merely to chase a higher score. "
+            f"HARD CONSTRAINT: every clip's duration (end_time minus start_time) MUST be between "
+            f"{min_duration_sec:.0f} and {max_duration_sec:.0f} seconds — this is a strict user-set range that "
+            f"overrides the taxonomy's optimal_duration_sec values whenever they'd fall outside it. Within this "
+            f"range, lean toward whichever end is closer to your chosen hook_type's own optimal_duration_sec, "
+            f"but never exceed {max_duration_sec:.0f}s or go below {min_duration_sec:.0f}s regardless of what "
+            f"the historical optimum says. "
+            f"Execute `tool_execute_skuld_render` and `tool_log_urdr_telemetry` for each clip with these bounds, "
+            f"passing the same hook_type you selected to both tools. "
+            f"Return a strict JSON list response with fields: clip_id, hook_type, hook_title, social_caption, "
+            f"virality_score, start_time, end_time. "
             f"The clip_id values in your JSON response MUST exactly match the clip_id values you passed to tool_execute_skuld_render."
         )
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    def orchestrate_generation(
+        self,
+        transcript_text: str,
+        video_path: str,
+        target_count: int,
+        warmth: float = 0.5,
+        crazy: float = 0.3,
+        topic_focus: Optional[str] = None,
+        min_duration_sec: float = 8.0,
+        max_duration_sec: float = 15.0,
+    ) -> List[Dict[str, Any]]:
+        rendered_clips: List[Dict[str, Any]] = []
+
+        # Detect the actual source video length instead of assuming the
+        # ~53s demo asset — this is what makes the pipeline work with any
+        # video, not just the one it was originally built against.
+        try:
+            video_duration_sec = get_video_duration_seconds(video_path)
+        except Exception as e:
+            logger.warning(f"Could not detect video duration via ffprobe ({e}); falling back to 53.0s assumption.")
+            video_duration_sec = 53.0
+
+        # Pull real ClickHouse-grounded retention intelligence BEFORE
+        # prompting, so the model reasons over it rather than guessing.
+        # Optionally scoped to a single topic_category the user selected.
+        _t0 = time.perf_counter()
+        retention_summary = self.urdr.get_retention_intelligence_summary(topic_category=topic_focus)
+        logger.info(f"⏱️ Retention summary fetch took {time.perf_counter() - _t0:.1f}s")
+
+        tools = self._make_tools(
+            transcript_text, rendered_clips, warmth, crazy, retention_summary,
+            min_duration_sec, max_duration_sec, video_duration_sec,
+        )
+        prompt = self._build_prompt(
+            transcript_text, video_path, target_count, retention_summary,
+            min_duration_sec, max_duration_sec, video_duration_sec,
+        )
+        safe_video_end_mmss = format_seconds_to_mmss(max(min_duration_sec, video_duration_sec - 1.0))
 
         try:
             chat = self.client.chats.create(
@@ -137,14 +296,29 @@ class VerdandiADK:
                 config=types.GenerateContentConfig(
                     tools=tools,
                     system_instruction=(
-                        "You are Verðandi. Select valid start/end times strictly within the "
-                        "00:00-00:45 range. Always call tool_execute_skuld_render before "
-                        "reporting a clip as generated."
+                        f"You are Verðandi. Select valid start/end times strictly within the "
+                        f"00:00-{safe_video_end_mmss} range for this video. Ground every hook_type "
+                        f"selection in the Urðr retention intelligence provided in the prompt — prefer "
+                        f"higher-virality hook types "
+                        "when the transcript content genuinely fits that framing, rather than "
+                        "defaulting to the same hook type regardless of content. Always call "
+                        "tool_execute_skuld_render and tool_log_urdr_telemetry with matching "
+                        "hook_type values before reporting a clip as generated."
                     ),
                 ),
             )
 
+            # This single call contains the ENTIRE reasoning loop: Gemini's
+            # thinking, every tool_execute_skuld_render call (which includes
+            # the FFmpeg encode — timed separately above), and every
+            # tool_log_urdr_telemetry call (ClickHouse writes). This number
+            # can't be broken down further from outside the SDK, but
+            # comparing it against the sum of the FFmpeg encode times above
+            # tells you how much is Gemini's own reasoning/latency vs. the
+            # actual rendering work.
+            _t1 = time.perf_counter()
             response = chat.send_message(prompt)
+            logger.info(f"⏱️ Gemini reasoning + all tool calls took {time.perf_counter() - _t1:.1f}s total")
             text_output = response.text if response and response.text else ""
             parsed_metadata = self._parse_model_json(text_output)
 
@@ -178,11 +352,11 @@ class VerdandiADK:
     ) -> List[Dict[str, Any]]:
         """
         Merges the model's descriptive metadata (hook_title, social_caption,
-        virality_score) with the authoritative render records (clip_id,
-        output_video_path), keyed by clip_id. This guarantees the UI never
-        points at a file that doesn't exist. Any rendered clip missing from
-        the model's JSON still surfaces with sensible defaults; any JSON
-        entry that doesn't correspond to a real render is dropped.
+        virality_score) with the authoritative render + telemetry records
+        (clip_id, output_video_path, hook_type, grounding alignment), keyed
+        by clip_id. This guarantees the UI never points at a file that
+        doesn't exist, and always shows real alignment data rather than
+        whatever the model's closing text happened to say.
         """
         if not rendered_clips:
             logger.error("No clips were actually rendered by Skuld this run.")
@@ -203,6 +377,10 @@ class VerdandiADK:
                     "hook_title": meta.get("hook_title", "Autonomous Core Insight"),
                     "social_caption": meta.get("social_caption", "Engineered by NornPulse"),
                     "virality_score": meta.get("virality_score", 90.0),
+                    "hook_type": clip.get("hook_type", meta.get("hook_type", "unknown")),
+                    "hook_rank": clip.get("hook_rank"),
+                    "is_top_tier_hook": clip.get("is_top_tier_hook", False),
+                    "grounded_top_hook_type": clip.get("grounded_top_hook_type"),
                 }
             )
 

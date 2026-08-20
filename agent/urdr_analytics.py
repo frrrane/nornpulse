@@ -6,9 +6,12 @@ Urðr weaves the thread of the past. This module queries ClickHouse for historic
 video hook retention metrics, drop-off curves, and virality benchmarks to ground
 AI clip decisions in empirical audience behavioral data. It also logs new generation
 telemetry to close the autonomous feedback loop.
+
+All ClickHouse access goes through the official ClickHouse MCP server
+(mcp-clickhouse), via agent/clickhouse_mcp_client.py, per the Agentic Cinema
+ClickHouse track requirement.
 """
 
-import os
 import logging
 import datetime
 from typing import Dict, Any, List, Optional
@@ -17,7 +20,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from config import Config  # noqa: E402 – imported after load_dotenv intentionally
+import agent.clickhouse_mcp_client as ch  # noqa: E402 – imported after load_dotenv intentionally
 
 logger = logging.getLogger("nornpulse.urdr")
 
@@ -160,64 +163,46 @@ DEFAULT_HOOK_BENCHMARKS = [
 class UrdrAnalytics:
     """
     Urðr: Past Video Hook Analytics & ClickHouse Intelligence Tool.
+
+    All queries route through the official ClickHouse MCP server via
+    agent/clickhouse_mcp_client.py. Connection details are read by that
+    server directly from environment variables (CLICKHOUSE_HOST,
+    CLICKHOUSE_USER, CLICKHOUSE_PASSWORD, CLICKHOUSE_SECURE,
+    CLICKHOUSE_DATABASE) — set these in .env.
     """
 
-    def __init__(
-        self,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
-        database: Optional[str] = None,
-    ):
-        self.host = host or Config.CLICKHOUSE_HOST
-        self.port = int(port or Config.CLICKHOUSE_PORT)
-        self.username = username or Config.CLICKHOUSE_USER
-        self.password = password or Config.CLICKHOUSE_PASSWORD
-        self.database = database or Config.CLICKHOUSE_DATABASE
-
-
-        self.client = None
+    def __init__(self):
         self._connected = False
         self._fallback_df = pd.DataFrame(DEFAULT_HOOK_BENCHMARKS)
         self.connect()
 
     def connect(self) -> bool:
-        """Attempts connection to ClickHouse server via clickhouse-connect."""
+        """Verifies the ClickHouse MCP server can reach ClickHouse, and initializes schema."""
+        import time
+        _t0 = time.perf_counter()
         try:
-            import clickhouse_connect
-
-            self.client = clickhouse_connect.get_client(
-                host=self.host,
-                port=self.port,
-                username=self.username,
-                password=self.password,
-                database=self.database,
-                connect_timeout=3,
-                send_receive_timeout=5,
-            )
-            # Test query
-            self.client.command("SELECT 1")
-            self._connected = True
-            logger.info(f"⚡ Urðr successfully connected to ClickHouse at {self.host}:{self.port}/{self.database}")
-            self.init_schema()
-            return True
+            if ch.check_connection():
+                self._connected = True
+                logger.info(f"⚡ Urðr successfully connected to ClickHouse via mcp-clickhouse ({time.perf_counter() - _t0:.1f}s — this is a one-time cold-start cost per app process, includes MCP subprocess spawn and any ClickHouse Cloud idle-resume delay).")
+                self.init_schema()
+                logger.info(f"⏱️ Total connect() + init_schema() took {time.perf_counter() - _t0:.1f}s")
+                return True
+            self._connected = False
+            logger.warning("⚠️ Urðr ClickHouse MCP connection check failed. Operating in resilient fallback mode.")
+            return False
         except Exception as e:
             self._connected = False
-            self.client = None
-            logger.warning(f"⚠️ Urðr ClickHouse connection unavailable ({e}). Operating in resilient fallback mode.")
+            logger.warning(f"⚠️ Urðr ClickHouse MCP connection unavailable ({e}). Operating in resilient fallback mode.")
             return False
 
     def is_connected(self) -> bool:
-        """Returns whether a live ClickHouse connection is active."""
-        if not self._connected or not self.client:
-            return False
-        try:
-            self.client.command("SELECT 1")
-            return True
-        except Exception:
-            self._connected = False
-            return False
+        """
+        Returns whether the last known connection check succeeded. This is
+        a cached flag rather than a fresh ping on every call — each MCP
+        call spawns a subprocess, so re-pinging on every UI render would
+        add real latency. Call connect() again to force a fresh check.
+        """
+        return self._connected
 
     def init_schema(self) -> None:
         """Initializes database schema and populates seed dataset if empty."""
@@ -225,8 +210,7 @@ class UrdrAnalytics:
             return
 
         try:
-            # Create video_hook_retention table
-            create_table_query = """
+            ch.run_query("""
             CREATE TABLE IF NOT EXISTS video_hook_retention (
                 video_id String,
                 hook_type LowCardinality(String),
@@ -242,13 +226,40 @@ class UrdrAnalytics:
                 created_at DateTime DEFAULT now()
             ) ENGINE = MergeTree()
             ORDER BY (hook_type, virality_score, video_id);
-            """
-            self.client.command(create_table_query)
+            """)
 
-            # Check if empty
-            count = self.client.command("SELECT count() FROM video_hook_retention")
+            count_result = ch.run_query("SELECT count() AS cnt FROM video_hook_retention")
+            count = count_result.get("rows", [[0]])[0][0] if count_result.get("rows") else 0
             if count == 0:
                 self.seed_benchmarks()
+
+            # Non-destructive: adds the column to any table created before
+            # this field existed, without touching existing rows (they get
+            # the default value). Safe to run on every startup.
+            ch.run_query("""
+            ALTER TABLE video_hook_retention
+            ADD COLUMN IF NOT EXISTS crop_mode LowCardinality(String) DEFAULT 'unknown'
+            """)
+
+            # Cross-validation table: real YouTube outcomes for clips this
+            # pipeline actually published, so predictions can be checked
+            # against ground truth rather than only synthetic benchmarks.
+            ch.run_query("""
+            CREATE TABLE IF NOT EXISTS published_clip_outcomes (
+                clip_id String,
+                youtube_video_id String,
+                youtube_url String,
+                hook_type LowCardinality(String),
+                predicted_virality_score Float32,
+                predicted_3s_retention_pct Float32,
+                actual_view_count UInt64 DEFAULT 0,
+                actual_like_count UInt64 DEFAULT 0,
+                actual_comment_count UInt64 DEFAULT 0,
+                last_synced_at Nullable(DateTime),
+                published_at DateTime DEFAULT now()
+            ) ENGINE = MergeTree()
+            ORDER BY (published_at, clip_id);
+            """)
         except Exception as e:
             logger.error(f"Error initializing ClickHouse schema: {e}")
 
@@ -258,102 +269,206 @@ class UrdrAnalytics:
             return len(self._fallback_df)
 
         try:
-            rows = [
-                (
-                    b["video_id"],
-                    b["hook_type"],
-                    b["hook_text"],
-                    b["duration_sec"],
-                    b["avg_3s_retention_pct"],
-                    b["avg_15s_retention_pct"],
-                    b["avg_30s_retention_pct"],
-                    b["completion_rate_pct"],
-                    b["virality_score"],
-                    b["topic_category"],
-                    b["sample_size_views"],
+            values_clauses = []
+            for b in DEFAULT_HOOK_BENCHMARKS:
+                values_clauses.append(
+                    "(" + ", ".join([
+                        ch.sql_literal(b["video_id"]),
+                        ch.sql_literal(b["hook_type"]),
+                        ch.sql_literal(b["hook_text"]),
+                        ch.sql_literal(b["duration_sec"]),
+                        ch.sql_literal(b["avg_3s_retention_pct"]),
+                        ch.sql_literal(b["avg_15s_retention_pct"]),
+                        ch.sql_literal(b["avg_30s_retention_pct"]),
+                        ch.sql_literal(b["completion_rate_pct"]),
+                        ch.sql_literal(b["virality_score"]),
+                        ch.sql_literal(b["topic_category"]),
+                        ch.sql_literal(b["sample_size_views"]),
+                    ]) + ")"
                 )
-                for b in DEFAULT_HOOK_BENCHMARKS
-            ]
-            self.client.insert(
-                "video_hook_retention",
-                rows,
-                column_names=[
-                    "video_id",
-                    "hook_type",
-                    "hook_text",
-                    "duration_sec",
-                    "avg_3s_retention_pct",
-                    "avg_15s_retention_pct",
-                    "avg_30s_retention_pct",
-                    "completion_rate_pct",
-                    "virality_score",
-                    "topic_category",
-                    "sample_size_views",
-                ],
+            query = (
+                "INSERT INTO video_hook_retention "
+                "(video_id, hook_type, hook_text, duration_sec, avg_3s_retention_pct, "
+                "avg_15s_retention_pct, avg_30s_retention_pct, completion_rate_pct, "
+                "virality_score, topic_category, sample_size_views) VALUES "
+                + ", ".join(values_clauses)
             )
-            logger.info(f"Seeded {len(rows)} retention benchmark records into ClickHouse.")
-            return len(rows)
+            ch.run_query(query)
+            logger.info(f"Seeded {len(DEFAULT_HOOK_BENCHMARKS)} retention benchmark records into ClickHouse.")
+            return len(DEFAULT_HOOK_BENCHMARKS)
         except Exception as e:
             logger.error(f"Failed to seed benchmarks into ClickHouse: {e}")
             return 0
-            
+
     def log_generated_clip(
-        self, 
-        clip_id: str, 
-        hook_type: str, 
-        hook_text: str, 
-        duration_sec: float, 
-        predicted_3s: float, 
+        self,
+        clip_id: str,
+        hook_type: str,
+        hook_text: str,
+        duration_sec: float,
+        predicted_3s: float,
         predicted_completion: float,
         virality_score: float,
-        topic_category: str = "generated_clip"
+        topic_category: str = "generated_clip",
+        crop_mode: str = "unknown",
     ) -> bool:
         """
-        Closes the loop by logging newly generated clips and their predicted 
+        Closes the loop by logging newly generated clips and their predicted
         telemetry back into the ClickHouse database.
         """
         if not self.is_connected():
             logger.warning("ClickHouse disconnected; unable to log generated clip.")
             return False
-            
+
         try:
-            # We seed new rows with 0 sample_size until actual telemetry is retrieved
-            row = (
-                clip_id,
-                hook_type,
-                hook_text,
-                float(duration_sec),
-                float(predicted_3s),
-                0.0, # 15s prediction placeholder
-                0.0, # 30s prediction placeholder
-                float(predicted_completion),
-                float(virality_score),
-                topic_category,
-                0, # Sample size views starts at 0
+            query = (
+                "INSERT INTO video_hook_retention "
+                "(video_id, hook_type, hook_text, duration_sec, avg_3s_retention_pct, "
+                "avg_15s_retention_pct, avg_30s_retention_pct, completion_rate_pct, "
+                "virality_score, topic_category, sample_size_views, crop_mode) VALUES ("
+                + ", ".join([
+                    ch.sql_literal(clip_id),
+                    ch.sql_literal(hook_type),
+                    ch.sql_literal(hook_text),
+                    ch.sql_literal(float(duration_sec)),
+                    ch.sql_literal(float(predicted_3s)),
+                    ch.sql_literal(0.0),  # 15s prediction placeholder
+                    ch.sql_literal(0.0),  # 30s prediction placeholder
+                    ch.sql_literal(float(predicted_completion)),
+                    ch.sql_literal(float(virality_score)),
+                    ch.sql_literal(topic_category),
+                    ch.sql_literal(0),  # sample_size_views starts at 0
+                    ch.sql_literal(crop_mode),
+                ]) + ")"
             )
-            
-            self.client.insert(
-                "video_hook_retention",
-                [row],
-                column_names=[
-                    "video_id",
-                    "hook_type",
-                    "hook_text",
-                    "duration_sec",
-                    "avg_3s_retention_pct",
-                    "avg_15s_retention_pct",
-                    "avg_30s_retention_pct",
-                    "completion_rate_pct",
-                    "virality_score",
-                    "topic_category",
-                    "sample_size_views",
-                ],
-            )
+            ch.run_query(query)
             logger.info(f"Logged generated clip {clip_id} prediction telemetry to ClickHouse.")
             return True
         except Exception as e:
             logger.error(f"Failed to log generated clip to ClickHouse: {e}")
             return False
+
+    def log_published_outcome(
+        self,
+        clip_id: str,
+        youtube_video_id: str,
+        youtube_url: str,
+        hook_type: str,
+        predicted_virality_score: float,
+        predicted_3s_retention_pct: float,
+    ) -> bool:
+        """
+        Records that a generated clip was actually published to YouTube.
+        This is the anchor row `sync_actual_stats` later updates with real
+        performance, closing the loop from prediction to ground truth.
+        """
+        if not self.is_connected():
+            logger.warning("ClickHouse disconnected; unable to log published outcome.")
+            return False
+
+        try:
+            query = (
+                "INSERT INTO published_clip_outcomes "
+                "(clip_id, youtube_video_id, youtube_url, hook_type, "
+                "predicted_virality_score, predicted_3s_retention_pct, "
+                "actual_view_count, actual_like_count, actual_comment_count, last_synced_at) VALUES ("
+                + ", ".join([
+                    ch.sql_literal(clip_id),
+                    ch.sql_literal(youtube_video_id),
+                    ch.sql_literal(youtube_url),
+                    ch.sql_literal(hook_type),
+                    ch.sql_literal(float(predicted_virality_score)),
+                    ch.sql_literal(float(predicted_3s_retention_pct)),
+                    ch.sql_literal(0), ch.sql_literal(0), ch.sql_literal(0),
+                    ch.sql_literal(None),
+                ]) + ")"
+            )
+            ch.run_query(query)
+            logger.info(f"Logged published outcome for {clip_id} -> {youtube_video_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to log published outcome: {e}")
+            return False
+
+    def sync_actual_stats(
+        self, youtube_video_id: str, view_count: int, like_count: int, comment_count: int
+    ) -> bool:
+        """
+        Writes real YouTube performance numbers back onto a previously
+        logged published_clip_outcomes row. ClickHouse's MergeTree doesn't
+        do cheap in-place UPDATEs, so this appends a fresh row for the same
+        clip_id/youtube_video_id with the latest stats and a new
+        last_synced_at — reads always take the most recent row per video
+        (see get_published_outcomes).
+        """
+        if not self.is_connected():
+            logger.warning("ClickHouse disconnected; unable to sync actual stats.")
+            return False
+
+        try:
+            existing = ch.run_query_df(f"""
+                SELECT clip_id, youtube_url, hook_type,
+                       predicted_virality_score, predicted_3s_retention_pct
+                FROM published_clip_outcomes
+                WHERE youtube_video_id = {ch.sql_literal(youtube_video_id)}
+                ORDER BY published_at DESC
+                LIMIT 1
+            """)
+            if existing.empty:
+                logger.warning(f"No published_clip_outcomes row found for {youtube_video_id}; cannot sync.")
+                return False
+
+            row = existing.iloc[0]
+            query = (
+                "INSERT INTO published_clip_outcomes "
+                "(clip_id, youtube_video_id, youtube_url, hook_type, "
+                "predicted_virality_score, predicted_3s_retention_pct, "
+                "actual_view_count, actual_like_count, actual_comment_count, last_synced_at) VALUES ("
+                + ", ".join([
+                    ch.sql_literal(row["clip_id"]),
+                    ch.sql_literal(youtube_video_id),
+                    ch.sql_literal(row["youtube_url"]),
+                    ch.sql_literal(row["hook_type"]),
+                    ch.sql_literal(float(row["predicted_virality_score"])),
+                    ch.sql_literal(float(row["predicted_3s_retention_pct"])),
+                    ch.sql_literal(int(view_count)),
+                    ch.sql_literal(int(like_count)),
+                    ch.sql_literal(int(comment_count)),
+                    ch.sql_literal(datetime.datetime.utcnow()),
+                ]) + ")"
+            )
+            ch.run_query(query)
+            logger.info(f"Synced actual stats for {youtube_video_id}: {view_count} views.")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to sync actual stats: {e}")
+            return False
+
+    def get_published_outcomes(self, limit: int = 50) -> pd.DataFrame:
+        """
+        Returns the latest known row per published video — predicted vs.
+        actual performance, for the cross-validation view in the UI.
+        """
+        if not self.is_connected():
+            return pd.DataFrame()
+        try:
+            return ch.run_query_df(f"""
+            SELECT * FROM (
+                SELECT
+                    clip_id, youtube_video_id, youtube_url, hook_type,
+                    predicted_virality_score, predicted_3s_retention_pct,
+                    actual_view_count, actual_like_count, actual_comment_count,
+                    last_synced_at, published_at
+                FROM published_clip_outcomes
+                ORDER BY youtube_video_id, published_at DESC
+                LIMIT 1 BY youtube_video_id
+            )
+            ORDER BY published_at DESC
+            LIMIT {int(limit)}
+            """)
+        except Exception as e:
+            logger.error(f"Failed to fetch published outcomes: {e}")
+            return pd.DataFrame()
 
     def query_hook_retention(
         self,
@@ -368,11 +483,11 @@ class UrdrAnalytics:
             try:
                 where_clauses = [f"virality_score >= {float(min_virality)}"]
                 if hook_category and hook_category != "all":
-                    where_clauses.append(f"hook_type = '{hook_category}'")
-                
+                    where_clauses.append(f"hook_type = {ch.sql_literal(hook_category)}")
+
                 where_str = " AND ".join(where_clauses)
                 query = f"""
-                SELECT 
+                SELECT
                     video_id, hook_type, hook_text, duration_sec,
                     avg_3s_retention_pct, avg_15s_retention_pct, avg_30s_retention_pct,
                     completion_rate_pct, virality_score, topic_category, sample_size_views
@@ -381,7 +496,7 @@ class UrdrAnalytics:
                 ORDER BY virality_score DESC
                 LIMIT {int(limit)}
                 """
-                return self.client.query_df(query)
+                return ch.run_query_df(query)
             except Exception as e:
                 logger.error(f"ClickHouse query failed: {e}. Falling back to cached memory.")
 
@@ -393,14 +508,58 @@ class UrdrAnalytics:
             df = df[df["hook_type"] == hook_category]
         return df.sort_values(by="virality_score", ascending=False).head(limit)
 
-    def get_hook_type_benchmarks(self) -> pd.DataFrame:
+    def get_crop_mode_benchmarks(self) -> pd.DataFrame:
         """
-        Calculates aggregated retention performance across hook taxonomies.
+        Aggregates performance by crop_mode (center_crop vs
+        blurred_background). Rows logged before this column existed, and
+        seed benchmark data, fall under 'unknown' — this view starts
+        genuinely useful once a handful of real clips have been generated
+        with different crop modes.
+        """
+        if not self.is_connected():
+            return pd.DataFrame()
+        try:
+            return ch.run_query_df("""
+            SELECT
+                crop_mode,
+                count() as total_samples,
+                round(avg(avg_3s_retention_pct), 2) as avg_3s_retention,
+                round(avg(completion_rate_pct), 2) as avg_completion_rate,
+                round(avg(virality_score), 2) as avg_virality_score
+            FROM video_hook_retention
+            GROUP BY crop_mode
+            ORDER BY avg_virality_score DESC
+            """)
+        except Exception as e:
+            logger.error(f"ClickHouse crop_mode aggregation query failed: {e}")
+            return pd.DataFrame()
+
+    def get_distinct_topic_categories(self) -> List[str]:
+        """Returns known topic_category values, for the Topic Focus UI dropdown."""
+        if self.is_connected():
+            try:
+                result = ch.run_query_df(
+                    "SELECT DISTINCT topic_category FROM video_hook_retention ORDER BY topic_category"
+                )
+                if not result.empty:
+                    return result["topic_category"].tolist()
+            except Exception as e:
+                logger.error(f"Failed to fetch distinct topic categories: {e}")
+        return sorted(self._fallback_df["topic_category"].unique().tolist())
+
+    def get_hook_type_benchmarks(self, topic_category: Optional[str] = None) -> pd.DataFrame:
+        """
+        Calculates aggregated retention performance across hook taxonomies,
+        optionally filtered to a single topic_category so grounding data
+        can be scoped to a relevant slice of history instead of everything.
         """
         if self.is_connected():
             try:
-                query = """
-                SELECT 
+                where_clause = ""
+                if topic_category and topic_category != "all":
+                    where_clause = f"WHERE topic_category = {ch.sql_literal(topic_category)}"
+                query = f"""
+                SELECT
                     hook_type,
                     count() as total_samples,
                     round(avg(avg_3s_retention_pct), 2) as avg_3s_retention,
@@ -410,15 +569,19 @@ class UrdrAnalytics:
                     round(avg(virality_score), 2) as avg_virality_score,
                     round(avg(duration_sec), 1) as avg_duration_sec
                 FROM video_hook_retention
+                {where_clause}
                 GROUP BY hook_type
                 ORDER BY avg_virality_score DESC
                 """
-                return self.client.query_df(query)
+                return ch.run_query_df(query)
             except Exception as e:
                 logger.error(f"ClickHouse aggregation query failed: {e}")
 
         # Fallback aggregation
-        grouped = self._fallback_df.groupby("hook_type").agg(
+        df = self._fallback_df
+        if topic_category and topic_category != "all":
+            df = df[df["topic_category"] == topic_category]
+        grouped = df.groupby("hook_type").agg(
             total_samples=("video_id", "count"),
             avg_3s_retention=("avg_3s_retention_pct", "mean"),
             avg_15s_retention=("avg_15s_retention_pct", "mean"),
@@ -429,26 +592,40 @@ class UrdrAnalytics:
         ).reset_index()
         return grouped.round(2).sort_values(by="avg_virality_score", ascending=False)
 
-    def get_retention_intelligence_summary(self) -> Dict[str, Any]:
+    def get_retention_intelligence_summary(self, topic_category: Optional[str] = None) -> Dict[str, Any]:
         """
-        Generates a concise intelligence payload for Gemini 2.0 Flash prompt context.
+        Generates a concise intelligence payload for the Gemini prompt.
+        When topic_category is set, grounding data is scoped to that
+        category — but if the category has too little history to be
+        useful (empty result), this falls back to the full unfiltered
+        benchmark set rather than handing Gemini an empty taxonomy.
         """
-        benchmarks_df = self.get_hook_type_benchmarks()
+        benchmarks_df = self.get_hook_type_benchmarks(topic_category=topic_category)
+        used_fallback_scope = False
+        if benchmarks_df.empty and topic_category and topic_category != "all":
+            logger.warning(f"No ClickHouse history for topic_category '{topic_category}'; falling back to all categories.")
+            benchmarks_df = self.get_hook_type_benchmarks()
+            used_fallback_scope = True
+
         summary_list = []
         for _, row in benchmarks_df.iterrows():
             summary_list.append({
                 "hook_type": row["hook_type"],
                 "avg_3s_retention": f"{row['avg_3s_retention']}%",
+                "avg_3s_retention_value": float(row["avg_3s_retention"]),
+                "avg_completion_rate": float(row["avg_completion_rate"]),
                 "avg_virality_score": row["avg_virality_score"],
                 "optimal_duration_sec": row["avg_duration_sec"],
             })
 
         best_hook = benchmarks_df.iloc[0]["hook_type"] if not benchmarks_df.empty else "shock_stat"
-        
+
         return {
             "top_performing_hook_type": best_hook,
             "overall_avg_3s_retention": float(benchmarks_df["avg_3s_retention"].mean()) if not benchmarks_df.empty else 88.5,
             "recommended_clip_duration_range": "25s - 45s",
+            "topic_focus": topic_category if (topic_category and topic_category != "all" and not used_fallback_scope) else None,
+            "topic_focus_had_no_history": used_fallback_scope,
             "hook_taxonomies": summary_list,
             "key_insights": [
                 "Shock Stats and Curiosity Gaps generate >92% 3-second hold rate.",
@@ -460,5 +637,5 @@ class UrdrAnalytics:
     def execute_custom_query(self, query: str) -> pd.DataFrame:
         """Executes a custom SQL query against ClickHouse (for the explorer UI)."""
         if not self.is_connected():
-            raise ConnectionError("ClickHouse server is not connected.")
-        return self.client.query_df(query)
+            raise ConnectionError("ClickHouse MCP server is not connected.")
+        return ch.run_query_df(query)

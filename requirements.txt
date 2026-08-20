@@ -4,8 +4,12 @@
 # Google GenAI SDK (Gemini 2.0 Flash)
 google-genai>=2.18.0
 
-# ClickHouse Client
-clickhouse-connect>=1.7.0
+# ClickHouse access — via the official ClickHouse MCP server (mcp-clickhouse),
+# per the Agentic Cinema ClickHouse track requirement. See
+# agent/clickhouse_mcp_client.py for the bridge and .env.example for the
+# CLICKHOUSE_* variables the server itself reads.
+mcp>=1.29.0
+mcp-clickhouse>=0.4.1
 
 # Frontend & Visualization
 streamlit>=1.35.0
