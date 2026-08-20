@@ -19,6 +19,7 @@ from agent.skuld_renderer import (
     SkuldRenderer, parse_time_to_seconds, format_seconds_to_mmss, get_video_duration_seconds,
 )
 from agent.urdr_analytics import UrdrAnalytics
+from agent.bragi_composer import BragiComposer
 
 load_dotenv(override=True)
 logger = logging.getLogger("nornpulse.orchestrator")
@@ -42,6 +43,7 @@ class VerdandiADK:
         self.project_id = project_id
         self.skuld = SkuldRenderer(output_dir="output_clips")
         self.urdr = UrdrAnalytics()
+        self.bragi = BragiComposer()
 
     def _make_tools(
         self,
@@ -53,6 +55,7 @@ class VerdandiADK:
         min_duration_sec: float,
         max_duration_sec: float,
         video_duration_sec: float,
+        topic_focus: Optional[str] = None,
     ) -> List[Callable]:
         """Builds request-scoped tool functions closing over this call's state."""
 
@@ -95,6 +98,7 @@ class VerdandiADK:
             end_time: str,
             clip_id: str,
             hook_banner_text: str,
+            hook_type: str,
             crop_mode: str = "center_crop",
             transcript_text_override: str = "",
         ) -> str:
@@ -104,7 +108,11 @@ class VerdandiADK:
             a unique clip_id per clip. crop_mode must be either
             'center_crop' or 'blurred_background'. Leave
             transcript_text_override empty to automatically use the full
-            source transcript for subtitle generation.
+            source transcript for subtitle generation. hook_type must be
+            the same value you will later pass to tool_log_urdr_telemetry
+            for this clip_id — it's used here up front to ground Bragi's
+            Lyria-composed background score in Urðr's
+            music_virality_benchmarks for that hook type.
             """
             logger.info(f"Executing Skuld render for clip_id: {clip_id} ({start_time} to {end_time})")
             start_time, end_time = _clamp_duration(start_time, end_time)
@@ -113,6 +121,16 @@ class VerdandiADK:
                 if transcript_text_override and len(transcript_text_override.strip()) > 20
                 else transcript_text
             )
+
+            # Ground Bragi's Lyria prompt in real ClickHouse virality data
+            # for this hook_type, then compose (or reuse a cached) track.
+            # A composition failure never blocks the clip — render simply
+            # proceeds without music.
+            music_path = None
+            music_benchmark = self.urdr.get_top_music_benchmark(hook_type=hook_type, topic_category=topic_focus)
+            if music_benchmark:
+                music_path = self.bragi.compose_track(hook_type, music_benchmark)
+
             result = self.skuld.render_vertical_short(
                 input_video_path=input_video_path,
                 start_time=start_time,
@@ -123,6 +141,7 @@ class VerdandiADK:
                 transcript_text=resolved_transcript,
                 warmth=warmth,
                 crazy=crazy,
+                music_path=music_path,
             )
             # Record ground-truth render output. This is what the UI will
             # ultimately trust, independent of whatever the model's final
@@ -135,6 +154,9 @@ class VerdandiADK:
                     "end_time": end_time,
                     "output_video_path": result["output_video_path"],
                     "has_subtitles": result["has_subtitles"],
+                    "has_bragi_score": result.get("has_bragi_score", False),
+                    "music_genre": music_benchmark.get("genre") if music_benchmark else None,
+                    "music_mood": music_benchmark.get("mood") if music_benchmark else None,
                     "crop_mode": result.get("crop_mode", "unknown"),
                 }
             )
@@ -263,8 +285,10 @@ class VerdandiADK:
             f"range, lean toward whichever end is closer to your chosen hook_type's own optimal_duration_sec, "
             f"but never exceed {max_duration_sec:.0f}s or go below {min_duration_sec:.0f}s regardless of what "
             f"the historical optimum says. "
-            f"Execute `tool_execute_skuld_render` and `tool_log_urdr_telemetry` for each clip with these bounds, "
-            f"passing the same hook_type you selected to both tools. "
+            f"Decide the clip's hook_type BEFORE calling tool_execute_skuld_render, and pass that exact same "
+            f"hook_type value to both tool_execute_skuld_render and tool_log_urdr_telemetry for each clip — "
+            f"tool_execute_skuld_render uses it to ground Bragi's Lyria-composed background score, so it must "
+            f"never be a placeholder. "
             f"Return a strict JSON list response with fields: clip_id, hook_type, hook_title, social_caption, "
             f"virality_score, start_time, end_time. "
             f"The clip_id values in your JSON response MUST exactly match the clip_id values you passed to tool_execute_skuld_render."
@@ -337,6 +361,7 @@ class VerdandiADK:
         tools = self._make_tools(
             transcript_text, rendered_clips, warmth, crazy, retention_summary,
             min_duration_sec, max_duration_sec, video_duration_sec,
+            topic_focus=topic_focus,
         )
         prompt = self._build_prompt(
             transcript_text, video_path, target_count, retention_summary,
@@ -430,6 +455,9 @@ class VerdandiADK:
                     "end_time": clip["end_time"],
                     "output_video_path": clip["output_video_path"],
                     "has_subtitles": clip["has_subtitles"],
+                    "has_bragi_score": clip.get("has_bragi_score", False),
+                    "music_genre": clip.get("music_genre"),
+                    "music_mood": clip.get("music_mood"),
                     "hook_title": meta.get("hook_title", "Autonomous Core Insight"),
                     "social_caption": meta.get("social_caption", "Engineered by NornPulse"),
                     "virality_score": meta.get("virality_score", 90.0),

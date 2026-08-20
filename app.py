@@ -351,6 +351,10 @@ with nav_tab1:
                 st.metric("Virality Score", f"{item.get('virality_score', 90.0)}/100")
                 if item.get("has_subtitles"):
                     st.caption("💬 Kinetic subtitles burned in")
+                if item.get("has_bragi_score"):
+                    genre = item.get("music_genre") or "custom"
+                    mood = item.get("music_mood") or ""
+                    st.caption(f"🎵 Original score by Bragi (Lyria) — {genre}, {mood}".rstrip(", "))
 
                 hook_type = item.get("hook_type", "unknown")
                 top_hook = item.get("grounded_top_hook_type", "—")

@@ -160,6 +160,31 @@ DEFAULT_HOOK_BENCHMARKS = [
 ]
 
 
+# Default synthetic seed dataset correlating musical attributes with global
+# YouTube Shorts virality, per hook_type — grounds Bragi's Lyria prompts
+# the same way DEFAULT_HOOK_BENCHMARKS grounds Verðandi's hook_type choice.
+# Two rows per hook_type (a stronger and a weaker performer) so the
+# top-scoring lookup has a real choice to make, not just one option.
+DEFAULT_MUSIC_BENCHMARKS = [
+    {"hook_type": "shock_stat", "genre": "trap-hybrid trailer", "mood": "aggressive", "bpm": 140, "energy_level": 0.9, "avg_virality_score": 96.7, "sample_size_views": 780000, "topic_category": "business_tech"},
+    {"hook_type": "shock_stat", "genre": "orchestral hit stabs", "mood": "dramatic", "bpm": 120, "energy_level": 0.85, "avg_virality_score": 90.3, "sample_size_views": 300000, "topic_category": "business_tech"},
+    {"hook_type": "curiosity_gap", "genre": "synthwave", "mood": "mysterious", "bpm": 110, "energy_level": 0.7, "avg_virality_score": 93.8, "sample_size_views": 610000, "topic_category": "tech_ai"},
+    {"hook_type": "curiosity_gap", "genre": "ambient electronic", "mood": "curious", "bpm": 90, "energy_level": 0.5, "avg_virality_score": 85.1, "sample_size_views": 200000, "topic_category": "growth_hacks"},
+    {"hook_type": "contrarian_claim", "genre": "cinematic trailer", "mood": "tense", "bpm": 100, "energy_level": 0.75, "avg_virality_score": 89.5, "sample_size_views": 210000, "topic_category": "media_strategy"},
+    {"hook_type": "contrarian_claim", "genre": "lo-fi hip hop", "mood": "moody", "bpm": 80, "energy_level": 0.4, "avg_virality_score": 78.2, "sample_size_views": 90000, "topic_category": "media_strategy"},
+    {"hook_type": "problem_agitation", "genre": "dark ambient", "mood": "anxious", "bpm": 85, "energy_level": 0.55, "avg_virality_score": 82.4, "sample_size_views": 150000, "topic_category": "creator_tools"},
+    {"hook_type": "problem_agitation", "genre": "minimal piano", "mood": "melancholic", "bpm": 70, "energy_level": 0.3, "avg_virality_score": 74.0, "sample_size_views": 80000, "topic_category": "creator_tools"},
+    {"hook_type": "story_in_medias_res", "genre": "cinematic orchestral", "mood": "epic", "bpm": 100, "energy_level": 0.8, "avg_virality_score": 91.5, "sample_size_views": 400000, "topic_category": "storytelling_ai"},
+    {"hook_type": "story_in_medias_res", "genre": "acoustic guitar", "mood": "intimate", "bpm": 75, "energy_level": 0.35, "avg_virality_score": 79.9, "sample_size_views": 120000, "topic_category": "storytelling_ai"},
+    {"hook_type": "visual_disruption", "genre": "glitch electronic", "mood": "chaotic", "bpm": 150, "energy_level": 0.95, "avg_virality_score": 88.6, "sample_size_views": 350000, "topic_category": "engineering"},
+    {"hook_type": "visual_disruption", "genre": "industrial techno", "mood": "intense", "bpm": 130, "energy_level": 0.9, "avg_virality_score": 84.2, "sample_size_views": 180000, "topic_category": "engineering"},
+    {"hook_type": "direct_question", "genre": "upbeat pop instrumental", "mood": "playful", "bpm": 115, "energy_level": 0.65, "avg_virality_score": 76.3, "sample_size_views": 100000, "topic_category": "branding"},
+    {"hook_type": "direct_question", "genre": "chill hip hop", "mood": "casual", "bpm": 90, "energy_level": 0.45, "avg_virality_score": 70.1, "sample_size_views": 60000, "topic_category": "branding"},
+    {"hook_type": "metaphor_analogy", "genre": "cinematic ambient", "mood": "thoughtful", "bpm": 95, "energy_level": 0.6, "avg_virality_score": 85.8, "sample_size_views": 250000, "topic_category": "data_infra"},
+    {"hook_type": "metaphor_analogy", "genre": "jazz fusion", "mood": "smooth", "bpm": 100, "energy_level": 0.55, "avg_virality_score": 80.2, "sample_size_views": 130000, "topic_category": "data_infra"},
+]
+
+
 class UrdrAnalytics:
     """
     Urðr: Past Video Hook Analytics & ClickHouse Intelligence Tool.
@@ -174,6 +199,7 @@ class UrdrAnalytics:
     def __init__(self):
         self._connected = False
         self._fallback_df = pd.DataFrame(DEFAULT_HOOK_BENCHMARKS)
+        self._fallback_music_df = pd.DataFrame(DEFAULT_MUSIC_BENCHMARKS)
         self.connect()
 
     def connect(self) -> bool:
@@ -260,6 +286,29 @@ class UrdrAnalytics:
             ) ENGINE = MergeTree()
             ORDER BY (published_at, clip_id);
             """)
+
+            # Grounds Bragi's Lyria-composed background scores: correlates
+            # musical attributes (genre/mood/bpm/energy) with global YouTube
+            # Shorts virality per hook_type, the same way video_hook_retention
+            # grounds Verðandi's hook_type choice.
+            ch.run_query("""
+            CREATE TABLE IF NOT EXISTS music_virality_benchmarks (
+                hook_type LowCardinality(String),
+                genre LowCardinality(String),
+                mood LowCardinality(String),
+                bpm UInt16,
+                energy_level Float32,
+                avg_virality_score Float32,
+                sample_size_views UInt32,
+                topic_category LowCardinality(String),
+                created_at DateTime DEFAULT now()
+            ) ENGINE = MergeTree()
+            ORDER BY (hook_type, avg_virality_score);
+            """)
+            music_count_result = ch.run_query("SELECT count() AS cnt FROM music_virality_benchmarks")
+            music_count = music_count_result.get("rows", [[0]])[0][0] if music_count_result.get("rows") else 0
+            if music_count == 0:
+                self.seed_music_benchmarks()
         except Exception as e:
             logger.error(f"Error initializing ClickHouse schema: {e}")
 
@@ -299,6 +348,83 @@ class UrdrAnalytics:
         except Exception as e:
             logger.error(f"Failed to seed benchmarks into ClickHouse: {e}")
             return 0
+
+    def seed_music_benchmarks(self) -> int:
+        """Seeds the hook_type -> musical attribute virality correlations Bragi grounds its Lyria prompts in."""
+        if not self.is_connected():
+            return len(self._fallback_music_df)
+
+        try:
+            values_clauses = []
+            for b in DEFAULT_MUSIC_BENCHMARKS:
+                values_clauses.append(
+                    "(" + ", ".join([
+                        ch.sql_literal(b["hook_type"]),
+                        ch.sql_literal(b["genre"]),
+                        ch.sql_literal(b["mood"]),
+                        ch.sql_literal(b["bpm"]),
+                        ch.sql_literal(b["energy_level"]),
+                        ch.sql_literal(b["avg_virality_score"]),
+                        ch.sql_literal(b["sample_size_views"]),
+                        ch.sql_literal(b["topic_category"]),
+                    ]) + ")"
+                )
+            query = (
+                "INSERT INTO music_virality_benchmarks "
+                "(hook_type, genre, mood, bpm, energy_level, avg_virality_score, "
+                "sample_size_views, topic_category) VALUES "
+                + ", ".join(values_clauses)
+            )
+            ch.run_query(query)
+            logger.info(f"Seeded {len(DEFAULT_MUSIC_BENCHMARKS)} music virality benchmark records into ClickHouse.")
+            return len(DEFAULT_MUSIC_BENCHMARKS)
+        except Exception as e:
+            logger.error(f"Failed to seed music benchmarks into ClickHouse: {e}")
+            return 0
+
+    def get_top_music_benchmark(self, hook_type: str, topic_category: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Returns the single highest-virality music_virality_benchmarks row
+        for hook_type — the ClickHouse-grounded genre/mood/bpm/energy_level
+        Bragi composes its Lyria prompt from. Falls back across
+        progressively looser scopes (topic-scoped -> hook_type only ->
+        global top row) rather than returning nothing, so Bragi always has
+        something concrete grounded in real data to compose from, even for
+        a hook_type or topic_category outside the seeded taxonomy.
+        """
+        def _query(where_clauses: List[str]) -> str:
+            where_str = " AND ".join(where_clauses) if where_clauses else "1=1"
+            return f"""
+            SELECT genre, mood, bpm, energy_level, avg_virality_score
+            FROM music_virality_benchmarks
+            WHERE {where_str}
+            ORDER BY avg_virality_score DESC
+            LIMIT 1
+            """
+
+        if self.is_connected():
+            try:
+                clauses = [f"hook_type = {ch.sql_literal(hook_type)}"]
+                if topic_category and topic_category != "all":
+                    clauses.append(f"topic_category = {ch.sql_literal(topic_category)}")
+                df = ch.run_query_df(_query(clauses))
+                if df.empty and topic_category:
+                    df = ch.run_query_df(_query([f"hook_type = {ch.sql_literal(hook_type)}"]))
+                if df.empty:
+                    df = ch.run_query_df(_query([]))
+                if not df.empty:
+                    return df.iloc[0].to_dict()
+            except Exception as e:
+                logger.error(f"Music benchmark query failed: {e}")
+
+        # In-memory fallback
+        fdf = self._fallback_music_df
+        scoped = fdf[fdf["hook_type"] == hook_type]
+        if scoped.empty:
+            scoped = fdf
+        if scoped.empty:
+            return None
+        return scoped.sort_values("avg_virality_score", ascending=False).iloc[0].to_dict()
 
     def log_generated_clip(
         self,

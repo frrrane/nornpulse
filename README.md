@@ -56,6 +56,12 @@ In Norse mythology, the three Norns weave the threads of fate at the Well of Ur�
   - **High-Res Center Crop**: Focused speaker extraction.
   - **Blurred Background Canvas**: Full 16:9 video centered over a stylized, blurred vertical background.
 - Generates preview thumbnails and downloadable MP4 shorts.
+- Mixes in Bragi's composed score (below), ducked under the original audio.
+
+### 4. `agent/bragi_composer.py` (🎵 Bragi — Music)
+- Composes an original instrumental background score per clip via **Google Lyria 3** (`lyria-3-clip-preview`).
+- Genre/mood/bpm/energy are grounded in `music_virality_benchmarks` — Urðr's ClickHouse table correlating musical attributes with global YouTube Shorts virality per hook type, so the score isn't a random pick but the highest-virality combination on record for that hook type.
+- Caches composed tracks on disk by (genre, mood, bpm), so repeated hook types reuse a track instead of paying for a fresh Lyria call every time.
 
 ---
 
@@ -68,7 +74,8 @@ nornpulse/
 │   ├── urdr_analytics.py        # ᚢ Urðr: ClickHouse hook retention intelligence
 │   ├── clickhouse_mcp_client.py # Bridge to the official ClickHouse MCP server (mcp-clickhouse)
 │   ├── verdandi_orchestrator.py # ᚹ Verðandi: Gemini 2.0 Flash transcript reasoning
-│   └── skuld_renderer.py       # ᛋ Skuld: FFmpeg 16:9 -> 9:16 vertical short renderer
+│   ├── skuld_renderer.py       # ᛋ Skuld: FFmpeg 16:9 -> 9:16 vertical short renderer
+│   └── bragi_composer.py       # 🎵 Bragi: Lyria 3 original scores, grounded in Urðr's music benchmarks
 ├── utils/
 │   ├── __init__.py
 │   └── sample_generator.py      # Synthetic 16:9 video and sample transcripts

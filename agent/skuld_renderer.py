@@ -60,6 +60,24 @@ def get_video_duration_seconds(video_path: str | Path) -> float:
     return float(result.stdout.strip())
 
 
+def has_audio_stream(video_path: str | Path) -> bool:
+    """
+    Checks via ffprobe whether the source has an audio stream at all —
+    some sources (silent b-roll, music-video-style clips) don't. Needed
+    before referencing [0:a] in a filter graph, since FFmpeg errors out
+    if that stream specifier matches nothing.
+    """
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "a",
+        "-show_entries", "stream=index",
+        "-of", "csv=p=0",
+        str(video_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    return bool(result.stdout.strip())
+
+
 def seconds_to_ass_time(total_seconds: float) -> str:
     """Converts total seconds into ASS time format 'H:MM:SS.cs'."""
     if total_seconds < 0:
@@ -290,6 +308,7 @@ class SkuldRenderer:
         transcript_text: Optional[str] = None,
         warmth: float = 0.5,
         crazy: float = 0.3,
+        music_path: Optional[str | Path] = None,
     ) -> Dict[str, Any]:
         input_video_path = Path(input_video_path)
         if not input_video_path.exists():
@@ -301,14 +320,16 @@ class SkuldRenderer:
             f"(warmth={warmth:.2f}, crazy={crazy:.2f})"
         )
 
+        clip_start_sec = parse_time_to_seconds(start_time)
+        clip_end_sec = parse_time_to_seconds(end_time)
+        clip_duration_sec = max(0.1, clip_end_sec - clip_start_sec)
+
         vf = self._build_crop_filter(crop_mode)
 
         if hook_banner_text:
             vf += self._build_banner_filter(hook_banner_text, warmth)
 
         if transcript_text:
-            clip_start_sec = parse_time_to_seconds(start_time)
-            clip_end_sec = parse_time_to_seconds(end_time)
             sub_path = self.output_dir / f"{clip_id}_subs.ass"
             generate_rebased_ass_subtitle_file(
                 transcript_text, sub_path, clip_start_sec, clip_end_sec,
@@ -323,14 +344,40 @@ class SkuldRenderer:
 
         vf += "[scaled]"
 
+        # Bragi's Lyria score (if any) gets mixed in under the source
+        # audio — ducked low so it never competes with dialogue — rather
+        # than replacing it outright. Input 1 is looped indefinitely so a
+        # ~29s Lyria clip still covers clips longer than that; atrim below
+        # cuts it back down to the exact clip length either way.
+        has_music = bool(music_path) and Path(music_path).exists()
+        extra_inputs = ["-stream_loop", "-1", "-i", str(music_path)] if has_music else []
+        filter_complex = vf
+        audio_map = ["-map", "0:a?"]
+        if has_music:
+            if has_audio_stream(input_video_path):
+                filter_complex += (
+                    f";[0:a]volume=1.0[voice];"
+                    f"[1:a]atrim=0:{clip_duration_sec:.3f},asetpts=PTS-STARTPTS,volume=0.18[bragi];"
+                    f"[voice][bragi]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+                )
+            else:
+                # No source audio at all (silent b-roll) — the Lyria track
+                # is the only audio, so it plays at full presence instead
+                # of duck-level volume.
+                filter_complex += (
+                    f";[1:a]atrim=0:{clip_duration_sec:.3f},asetpts=PTS-STARTPTS,volume=0.9[aout]"
+                )
+            audio_map = ["-map", "[aout]"]
+
         cmd = [
             "ffmpeg", "-y",
             "-ss", str(start_time),
             "-to", str(end_time),
             "-i", str(input_video_path),
-            "-filter_complex", vf,
+            *extra_inputs,
+            "-filter_complex", filter_complex,
             "-map", "[scaled]",
-            "-map", "0:a?",
+            *audio_map,
             "-c:v", "libx264",
             "-preset", "veryfast",
             "-crf", "23",
@@ -353,6 +400,7 @@ class SkuldRenderer:
             "clip_id": clip_id,
             "crop_mode": crop_mode,
             "has_subtitles": bool(transcript_text),
+            "has_bragi_score": has_music,
             "warmth": warmth,
             "crazy": crazy,
             "success": True,
