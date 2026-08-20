@@ -267,7 +267,8 @@ with nav_tab1:
         )
         crazy = st.slider(
             "⚡ Crazy", min_value=0.0, max_value=1.0, value=0.3, step=0.05,
-            help="Subtle, static captions at 0.0 → bouncing, wobbling kinetic text at 1.0",
+            help="Controls both the reveal pace and the pop: ~5-word phrases with a gentle "
+                 "bounce at 0.0 → rapid single-word pops with scale overshoot and wobble at 1.0.",
         )
 
         generate_clicked = st.button("⚡ EXECUTE PIPELINE", type="primary")

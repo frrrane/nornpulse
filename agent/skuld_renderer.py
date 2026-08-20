@@ -12,12 +12,13 @@ by two directional sliders:
   crazy  (0.0-1.0): subtle, static text  ->  bouncing, wobbling kinetic text
 """
 
+import colorsys
 import re
 import subprocess
 import logging
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional, Literal, Tuple
+from typing import Dict, Any, Optional, Literal, Tuple, List
 
 logger = logging.getLogger("nornpulse.skuld")
 
@@ -98,6 +99,30 @@ def _lerp_rgb(c1: RGB, c2: RGB, t: float) -> RGB:
     return tuple(round(c1[i] + (c2[i] - c1[i]) * t) for i in range(3))  # type: ignore[return-value]
 
 
+def _lerp_rgb_via_hsv(c1: RGB, c2: RGB, t: float) -> RGB:
+    """
+    Interpolates two colors through HSV (taking the shorter way around the
+    hue wheel) instead of straight-line RGB. Plain RGB lerp between hues
+    that are far apart — e.g. cyan and orange — passes through a
+    desaturated gray at the midpoint; HSV lerp stays vivid the whole way,
+    which matters for a caption highlight color that has to read as a
+    punchy accent at every warmth setting, not just at the two endpoints.
+    """
+    t = _clamp01(t)
+    h1, s1, v1 = colorsys.rgb_to_hsv(c1[0] / 255, c1[1] / 255, c1[2] / 255)
+    h2, s2, v2 = colorsys.rgb_to_hsv(c2[0] / 255, c2[1] / 255, c2[2] / 255)
+    if abs(h2 - h1) > 0.5:
+        if h2 > h1:
+            h1 += 1.0
+        else:
+            h2 += 1.0
+    h = (h1 + (h2 - h1) * t) % 1.0
+    s = s1 + (s2 - s1) * t
+    v = v1 + (v2 - v1) * t
+    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+    return (round(r * 255), round(g * 255), round(b * 255))
+
+
 def _rgb_to_ass_color(rgb: RGB, alpha: int = 0x00) -> str:
     """ASS colors are &HAABBGGRR (alpha, blue, green, red)."""
     r, g, b = rgb
@@ -134,8 +159,11 @@ def _escape_drawtext(text: str) -> str:
 
 def _kinetic_prefix(crazy: float) -> str:
     """
-    Builds an ASS override-tag prefix that pops each caption in with a
-    scale bounce, and adds a slight rotational wobble at higher intensity.
+    Builds an ASS override-tag prefix that pops a chunk of caption text in
+    with a scale bounce, and adds a slight rotational wobble at higher
+    intensity. Applied per word-chunk (see _chunk_words) rather than once
+    per full line, so the bounce is felt continuously through a clip
+    instead of a single pop at the very start of a multi-second sentence.
     Returns "" at low crazy values so default captions stay clean/static.
     """
     crazy = _clamp01(crazy)
@@ -157,25 +185,113 @@ def _kinetic_prefix(crazy: float) -> str:
     return "{" + tags + "}"
 
 
-def _build_style_line(warmth: float, crazy: float) -> str:
-    """Builds the ASS [V4+ Styles] line, color-graded by warmth and sized by crazy."""
+def _words_per_chunk(crazy: float) -> int:
+    """
+    How many words reveal at once, per caption event. Ties directly into
+    "craziness": calm (crazy=0) shows ~5 words at a time, close to a full
+    clause; max craziness (crazy=1) drops to single-word pops, the rapid
+    CapCut/Opus-Clip-style reveal. This is what makes crazy's effect
+    continuous and visible throughout a clip, not just one bounce at the
+    very start of each sentence.
+    """
+    crazy = _clamp01(crazy)
+    return max(1, round(5 - 4 * crazy))
+
+
+def _chunk_words(text: str, words_per_chunk: int) -> List[str]:
+    words = text.split()
+    return [" ".join(words[i:i + words_per_chunk]) for i in range(0, len(words), words_per_chunk)]
+
+
+def _distribute_chunk_times(
+    chunks: List[str], rel_start: float, rel_end: float, min_chunk_dur: float = 0.28,
+) -> List[Tuple[float, float]]:
+    """
+    Splits a line's [rel_start, rel_end] window across its word-chunks,
+    proportional to each chunk's character count (a lightweight stand-in
+    for real per-word ASR timing, which the transcript doesn't carry).
+    min_chunk_dur keeps very short chunks (e.g. a single short word) from
+    flashing illegibly fast; if the floors would collectively overflow the
+    line's actual duration, everything is scaled back down proportionally
+    so the last chunk never reads past rel_end.
+    """
+    if not chunks:
+        return []
+    available = max(0.01, rel_end - rel_start)
+    total_chars = sum(max(1, len(c)) for c in chunks)
+    raw_durations = [max(min_chunk_dur, available * (max(1, len(c)) / total_chars)) for c in chunks]
+    total_raw = sum(raw_durations)
+    if total_raw > available:
+        raw_durations = [d * (available / total_raw) for d in raw_durations]
+
+    times = []
+    cursor = rel_start
+    for d in raw_durations:
+        end = min(rel_end, cursor + d)
+        times.append((cursor, end))
+        cursor = end
+    return times
+
+
+def _highlight_emphasis_word(chunk_text: str, secondary_bgr_hex: str) -> str:
+    """
+    Colors the single longest word in a chunk with the warmth-driven
+    secondary color, so SecondaryColour actually renders somewhere on
+    screen — ASS only honors it via \\k karaoke tags otherwise, which this
+    codebase never emits. Words under 4 letters (stripped of punctuation)
+    are skipped as not punchy enough to bother emphasizing.
+    """
+    words = chunk_text.split()
+    if not words:
+        return chunk_text
+    idx = max(range(len(words)), key=lambda i: len(re.sub(r"[^\w]", "", words[i])))
+    if len(re.sub(r"[^\w]", "", words[idx])) < 4:
+        return chunk_text
+    words[idx] = f"{{\\c&H{secondary_bgr_hex}&}}{words[idx]}{{\\c}}"
+    return " ".join(words)
+
+
+def _build_style_line(warmth: float, crazy: float) -> Tuple[str, str]:
+    """
+    Builds the ASS [V4+ Styles] line, color-graded by warmth and sized by
+    crazy. Returns (style_line, secondary_bgr_hex) — the latter for
+    _highlight_emphasis_word, since SecondaryColour itself never renders
+    (ASS only honors it via \\k karaoke tags, which this pipeline doesn't
+    use) so the actual color has to be reapplied inline per emphasis word.
+    """
     warmth = _clamp01(warmth)
     crazy = _clamp01(crazy)
 
-    primary_rgb = _lerp_rgb((255, 255, 255), (255, 196, 84), warmth)   # white -> warm gold
-    secondary_rgb = _lerp_rgb((255, 255, 0), (255, 90, 0), warmth)     # yellow -> deep orange
+    # Cool icy blue-white at 0.0 -> warm gold at 1.0, matching the UI's
+    # documented range (previously lerped from pure white, so low warmth
+    # looked identical to "off" instead of visibly cool).
+    primary_rgb = _lerp_rgb((205, 230, 255), (255, 196, 84), warmth)
+    # Emphasis-word highlight: cool cyan -> hot orange-red, kept visually
+    # distinct from primary across the whole warmth range so the
+    # highlighted word always reads as an accent, not a shade of the same
+    # color as the rest of the chunk. HSV lerp (not _lerp_rgb) so the
+    # midpoint stays a vivid magenta/pink instead of a desaturated gray —
+    # cyan and orange-red are far enough apart in hue that a straight RGB
+    # average washes out.
+    secondary_rgb = _lerp_rgb_via_hsv((110, 210, 255), (255, 70, 20), warmth)
 
     primary_ass = _rgb_to_ass_color(primary_rgb)
     secondary_ass = _rgb_to_ass_color(secondary_rgb)
+    secondary_bgr_hex = f"{secondary_rgb[2]:02X}{secondary_rgb[1]:02X}{secondary_rgb[0]:02X}"
 
     fontsize = 54 + round(14 * crazy)   # 54 -> 68
     outline = 3 + round(2 * crazy)      # 3 -> 5
     shadow = 2 + round(2 * crazy)       # 2 -> 4
 
-    return (
-        f"Style: KineticViral,sans-serif,{fontsize},{primary_ass},{secondary_ass},"
+    # Arial Black: a real heavy/display weight rather than a generic
+    # "sans-serif" name left for fontconfig to resolve however the host
+    # happens to have it configured. Falls back silently to whatever
+    # libass picks if a host doesn't have it installed.
+    style_line = (
+        f"Style: KineticViral,Arial Black,{fontsize},{primary_ass},{secondary_ass},"
         f"&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,{outline},{shadow},2,50,50,300,1"
     )
+    return style_line, secondary_bgr_hex
 
 
 def generate_rebased_ass_subtitle_file(
@@ -189,13 +305,17 @@ def generate_rebased_ass_subtitle_file(
     """
     Parses transcript lines, rebases timestamps relative to the clip window
     starting at 0, and generates a color-graded, kinetically-animated ASS
-    subtitle file for FFmpeg.
+    subtitle file for FFmpeg. Each line is broken into word-chunks (sized
+    by crazy — see _words_per_chunk) that reveal in sequence rather than
+    the whole line popping in as one static block, with one word per
+    chunk highlighted in the warmth-driven accent color.
     """
     output_ass_path = Path(output_ass_path)
     output_ass_path.parent.mkdir(parents=True, exist_ok=True)
 
-    style_line = _build_style_line(warmth, crazy)
+    style_line, secondary_bgr_hex = _build_style_line(warmth, crazy)
     kinetic_prefix = _kinetic_prefix(crazy)
+    words_per_chunk = _words_per_chunk(crazy)
 
     ass_content = f"""[Script Info]
 ScriptType: v4.00+
@@ -211,19 +331,41 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"""
 
     clip_duration = clip_end_sec - clip_start_sec
-    lines_written = 0
 
+    # Pass 1: parse every line's absolute start (and explicit end, if the
+    # transcript gives one). Lines without an explicit end need a second
+    # pass to know where the NEXT line starts, so a fast-paced transcript
+    # never guesses a duration that bleeds into it — the bug that caused
+    # two captions to render stacked on top of each other simultaneously.
+    parsed: List[Dict[str, Any]] = []
     for line in transcript_text.strip().split("\n"):
         line = line.strip()
         if not line:
             continue
-
         times = re.findall(r"(?:\[)?(\d{1,2}:\d{2}(?:[:.]\d+)?)(?:\])?", line)
         if not times:
             continue
-
         abs_start = parse_time_to_seconds(times[0])
-        abs_end = parse_time_to_seconds(times[1]) if len(times) >= 2 else abs_start + 4.0
+        explicit_end = parse_time_to_seconds(times[1]) if len(times) >= 2 else None
+        parsed.append({"abs_start": abs_start, "explicit_end": explicit_end, "raw_line": line})
+
+    # Pass 2: resolve each line's effective end, capping any guessed
+    # (non-explicit) duration at the next line's start.
+    DEFAULT_LINE_DUR = 4.0
+    for i, entry in enumerate(parsed):
+        if entry["explicit_end"] is not None:
+            entry["abs_end"] = entry["explicit_end"]
+            continue
+        guessed_end = entry["abs_start"] + DEFAULT_LINE_DUR
+        if i + 1 < len(parsed):
+            guessed_end = min(guessed_end, parsed[i + 1]["abs_start"])
+        # Never let the cap collapse a line to zero/negative duration if
+        # two lines share (or nearly share) a start timestamp.
+        entry["abs_end"] = max(entry["abs_start"] + 0.1, guessed_end)
+
+    lines_written = 0
+    for entry in parsed:
+        abs_start, abs_end, line = entry["abs_start"], entry["abs_end"], entry["raw_line"]
 
         # Inclusive overlap check: catches any line overlapping the clip window
         if max(abs_start, clip_start_sec) >= min(abs_end, clip_end_sec):
@@ -231,9 +373,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\
 
         rel_start = max(0.0, abs_start - clip_start_sec)
         rel_end = min(clip_duration, abs_end - clip_start_sec)
-
-        start_ass = seconds_to_ass_time(rel_start)
-        end_ass = seconds_to_ass_time(rel_end)
 
         # Strip bracketed timestamp tags, e.g. "[00:12 - 00:16]"
         clean_text = re.sub(r"\[.*?\]", "", line)
@@ -246,13 +385,26 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\
         # real words like "well-known"
         clean_text = re.sub(r"(?<=\s)-(?=\s)", "", clean_text)
         clean_text = clean_text.strip(" []:")
+        # Escape any literal '{'/'}' from the transcript itself BEFORE
+        # _highlight_emphasis_word injects its own real override-tag
+        # braces below — escaping afterward would turn those injected
+        # tags into visible literal text instead of a color directive.
         clean_text = _escape_ass_text(clean_text)
 
         if not clean_text:
             continue
 
-        ass_content += f"Dialogue: 0,{start_ass},{end_ass},KineticViral,,0,0,0,,{kinetic_prefix}{clean_text}\n"
-        lines_written += 1
+        chunks = _chunk_words(clean_text, words_per_chunk)
+        chunk_times = _distribute_chunk_times(chunks, rel_start, rel_end)
+
+        for chunk_text, (chunk_start, chunk_end) in zip(chunks, chunk_times):
+            if chunk_end <= chunk_start:
+                continue
+            highlighted = _highlight_emphasis_word(chunk_text, secondary_bgr_hex)
+            start_ass = seconds_to_ass_time(chunk_start)
+            end_ass = seconds_to_ass_time(chunk_end)
+            ass_content += f"Dialogue: 0,{start_ass},{end_ass},KineticViral,,0,0,0,,{kinetic_prefix}{highlighted}\n"
+            lines_written += 1
 
     if lines_written == 0:
         logger.warning(
