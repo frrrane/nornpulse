@@ -134,7 +134,7 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 1. **Autonomous 1-Click Generation**: Select or generate a synthetic 16:9 test video, pick a sample transcript, and hit **"⚡ Unleash The Norns"**.
 2. **Urðr Analytics Hub**: Interactive ClickHouse charts showing 3s drop-off benchmarks, duration sweet spots, and an interactive SQL query console.
 3. **Verðandi AI Playground**: Inspect raw Gemini 2.0 Flash responses and structured output schemas.
-4. **Skuld Video Studio**: Standalone video trimmer with center crop and blurred background rendering modes.
+4. **Manual Cut Range**: Optionally restrict generation to a portion of the source video via a range slider — Verðandi only sees (and can only render from) that window, enforced both in the prompt and as a hard code-level clamp. Pair with **Cut Energy** to bias clip length toward the calm/long or snappy/short end of the duration range.
 
 ---
 

@@ -13,7 +13,8 @@ import streamlit as st
 from pathlib import Path
 from dotenv import load_dotenv
 
-from agent.verdandi_orchestrator import VerdandiADK
+from agent.verdandi_orchestrator import VerdandiADK, filter_transcript_by_window
+from agent.skuld_renderer import get_video_duration_seconds, format_seconds_to_mmss
 from agent.norn_publisher import NornPublisher, PublishError
 from utils.ingest import download_youtube_video
 from utils.transcribe import get_or_create_transcript
@@ -246,6 +247,36 @@ with nav_tab1:
                 "uploaded video directly (no burned-in captions, since there's no dialogue to caption). "
                 "Works well for silent/instrumental sources; adds upload + processing latency."
             )
+
+        transcript_window = None
+        if active_video_path and os.path.exists(active_video_path):
+            @st.cache_data(show_spinner=False)
+            def _cached_duration(video_path: str) -> float:
+                return get_video_duration_seconds(video_path)
+
+            try:
+                video_duration_sec = _cached_duration(active_video_path)
+                window_choice = st.slider(
+                    "✂️ Cut From/To (optional)",
+                    min_value=0.0, max_value=float(video_duration_sec),
+                    value=(0.0, float(video_duration_sec)), step=1.0,
+                    help="Restrict generation to a portion of the video. Leave at the full range "
+                         "to let Verðandi choose from the whole thing (default).",
+                )
+                is_narrowed = window_choice[0] > 0.5 or window_choice[1] < video_duration_sec - 0.5
+                if is_narrowed:
+                    transcript_window = window_choice
+                    scoped_transcript = filter_transcript_by_window(transcript_input, transcript_window)
+                    line_count = len([ln for ln in scoped_transcript.strip().split("\n") if ln.strip()])
+                    st.caption(
+                        f"✂️ Scoped to {format_seconds_to_mmss(window_choice[0])}–"
+                        f"{format_seconds_to_mmss(window_choice[1])} "
+                        f"({line_count} transcript line{'s' if line_count != 1 else ''} in range, "
+                        f"or vision mode within this window if none)."
+                    )
+            except Exception as e:
+                logging.getLogger("nornpulse.app").warning(f"Could not read video duration for cut range slider: {e}")
+
         target_clips = st.slider("Target Iteration Count", min_value=1, max_value=3, value=1)
 
         st.markdown("<div class='workflow-header'>🎯 Topic Focus</div>", unsafe_allow_html=True)
@@ -269,6 +300,15 @@ with nav_tab1:
             "⚡ Crazy", min_value=0.0, max_value=1.0, value=0.3, step=0.05,
             help="Controls both the reveal pace and the pop: ~5-word phrases with a gentle "
                  "bounce at 0.0 → rapid single-word pops with scale overshoot and wobble at 1.0.",
+        )
+
+        st.markdown("<div class='workflow-header'>✂️ Cut Style</div>", unsafe_allow_html=True)
+        cut_energy = st.slider(
+            "🎬 Cut Energy", min_value=0.0, max_value=1.0, value=0.5, step=0.05,
+            help="Biases the target clip length within the duration range: calm at 0.0 leans "
+                 "toward the longer end (let the moment breathe), energetic at 1.0 leans toward "
+                 "the shorter end (snappy cut). A bias, not a hard override — the min/max range "
+                 "itself is still always enforced.",
         )
 
         generate_clicked = st.button("⚡ EXECUTE PIPELINE", type="primary")
@@ -298,6 +338,8 @@ with nav_tab1:
                     warmth=warmth,
                     crazy=crazy,
                     topic_focus=topic_focus,
+                    cut_energy=cut_energy,
+                    transcript_window=transcript_window,
                 )
 
                 output_dir = Path("output_clips")

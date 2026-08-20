@@ -7,8 +7,9 @@ Built for Norn Labs (nornlabs.ai)
 import os
 import json
 import logging
+import re
 import time
-from typing import Callable, List, Dict, Any, Optional
+from typing import Callable, List, Dict, Any, Optional, Tuple
 
 from google import genai
 from google.genai import types
@@ -23,6 +24,29 @@ from agent.bragi_composer import BragiComposer
 
 load_dotenv(override=True)
 logger = logging.getLogger("nornpulse.orchestrator")
+
+
+def filter_transcript_by_window(transcript_text: str, window: Optional[Tuple[float, float]]) -> str:
+    """
+    Restricts transcript_text to lines whose start timestamp falls inside
+    window (window_start_sec, window_end_sec). Returns transcript_text
+    unchanged when window is None — the default, unscoped behavior.
+    """
+    if not window or not transcript_text:
+        return transcript_text
+    window_start, window_end = window
+    kept = []
+    for line in transcript_text.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        times = re.findall(r"(?:\[)?(\d{1,2}:\d{2}(?:[:.]\d+)?)(?:\])?", line)
+        if not times:
+            continue
+        line_start = parse_time_to_seconds(times[0])
+        if window_start <= line_start <= window_end:
+            kept.append(line)
+    return "\n".join(kept)
 
 
 class VerdandiADK:
@@ -56,6 +80,7 @@ class VerdandiADK:
         max_duration_sec: float,
         video_duration_sec: float,
         topic_focus: Optional[str] = None,
+        window: Optional[Tuple[float, float]] = None,
     ) -> List[Callable]:
         """Builds request-scoped tool functions closing over this call's state."""
 
@@ -71,26 +96,35 @@ class VerdandiADK:
 
         def _clamp_duration(start_time: str, end_time: str) -> tuple[str, str]:
             """
-            Code-level enforcement of the duration range, independent of
-            whether the model actually followed the prompt instruction.
-            Keeps start_time fixed and adjusts end_time only, since Gemini
-            picks start_time to align with a specific transcript moment.
+            Code-level enforcement of the duration range AND the
+            user-chosen transcript window (if any), independent of
+            whether the model actually followed the prompt instructions —
+            so a narrowed window is a hard guarantee, not just a hint the
+            model might ignore.
             """
             start_sec = parse_time_to_seconds(start_time)
             end_sec = parse_time_to_seconds(end_time)
-            duration = end_sec - start_sec
 
+            if window is not None:
+                window_start, window_end = window
+                start_sec = max(start_sec, window_start)
+                end_sec = min(end_sec, window_end)
+
+            duration = end_sec - start_sec
             if duration > max_duration_sec:
                 end_sec = start_sec + max_duration_sec
             elif duration < min_duration_sec:
                 end_sec = start_sec + min_duration_sec
 
             end_sec = min(end_sec, safe_video_end_sec)  # never exceed the actual source video's length
-            if end_sec != parse_time_to_seconds(end_time):
-                new_end = f"00:{int(end_sec):02d}"
-                logger.info(f"Clamped clip duration: {start_time}-{end_time} -> {start_time}-{new_end}")
-                return start_time, new_end
-            return start_time, end_time
+            if window is not None:
+                end_sec = min(end_sec, window[1])
+
+            new_start = format_seconds_to_mmss(start_sec)
+            new_end = format_seconds_to_mmss(end_sec)
+            if new_start != start_time or new_end != end_time:
+                logger.info(f"Clamped clip duration: {start_time}-{end_time} -> {new_start}-{new_end}")
+            return new_start, new_end
 
         def tool_execute_skuld_render(
             input_video_path: str,
@@ -228,7 +262,8 @@ class VerdandiADK:
     def _build_prompt(
         self, transcript_text: str, video_path: str, target_count: int, retention_summary: Dict[str, Any],
         min_duration_sec: float, max_duration_sec: float, video_duration_sec: float,
-        vision_mode: bool = False,
+        vision_mode: bool = False, target_duration_sec: Optional[float] = None,
+        window: Optional[Tuple[float, float]] = None,
     ) -> str:
         grounding_json = json.dumps(retention_summary, indent=2)
         topic_focus = retention_summary.get("topic_focus")
@@ -267,6 +302,28 @@ class VerdandiADK:
         else:
             content_instruction = f"Analyze this transcript:\n{transcript_text}"
 
+        window_instruction = ""
+        if window is not None:
+            window_start_mmss = format_seconds_to_mmss(window[0])
+            window_end_mmss = format_seconds_to_mmss(window[1])
+            window_instruction = (
+                f"The user has manually restricted this generation to the "
+                f"{window_start_mmss}-{window_end_mmss} portion of the video only — every clip's "
+                f"start_time and end_time MUST fall strictly within that range, not just within "
+                f"the full video length. "
+            )
+
+        duration_bias_instruction = (
+            f"Within this range, lean toward whichever end is closer to your chosen hook_type's own "
+            f"optimal_duration_sec, "
+        )
+        if target_duration_sec is not None:
+            duration_bias_instruction = (
+                f"Within this range, the user has set a target duration of ~{target_duration_sec:.0f}s via "
+                f"the Cut Energy dial — treat that as the primary target, and only lean toward your chosen "
+                f"hook_type's own optimal_duration_sec as a tiebreaker when it's close to that target, "
+            )
+
         return (
             f"Historical Urðr ClickHouse retention intelligence — ground your hook_type "
             f"selection in this real data, don't ignore it:\n{grounding_json}\n\n"
@@ -274,6 +331,7 @@ class VerdandiADK:
             f"{content_instruction}\n\n"
             f"Source Video Path: {video_path}\n"
             f"CRITICAL: The video is {video_duration_mmss} (MM:SS) long. Generate exactly {target_count} clips. "
+            f"{window_instruction}"
             f"You MUST choose a start_time and end_time strictly between 00:00 and {safe_video_end_mmss}"
             + (" that matches the transcript timestamps. " if not vision_mode else " based on what you observe directly in the attached video. ")
             + f"For each clip, select a hook_type from the hook_taxonomies list above that genuinely fits the "
@@ -281,8 +339,8 @@ class VerdandiADK:
             f"supports that framing — do not force a mismatched hook type merely to chase a higher score. "
             f"HARD CONSTRAINT: every clip's duration (end_time minus start_time) MUST be between "
             f"{min_duration_sec:.0f} and {max_duration_sec:.0f} seconds — this is a strict user-set range that "
-            f"overrides the taxonomy's optimal_duration_sec values whenever they'd fall outside it. Within this "
-            f"range, lean toward whichever end is closer to your chosen hook_type's own optimal_duration_sec, "
+            f"overrides the taxonomy's optimal_duration_sec values whenever they'd fall outside it. "
+            f"{duration_bias_instruction}"
             f"but never exceed {max_duration_sec:.0f}s or go below {min_duration_sec:.0f}s regardless of what "
             f"the historical optimum says. "
             f"Decide the clip's hook_type BEFORE calling tool_execute_skuld_render, and pass that exact same "
@@ -333,6 +391,8 @@ class VerdandiADK:
         topic_focus: Optional[str] = None,
         min_duration_sec: float = 8.0,
         max_duration_sec: float = 15.0,
+        cut_energy: float = 0.5,
+        transcript_window: Optional[Tuple[float, float]] = None,
     ) -> List[Dict[str, Any]]:
         rendered_clips: List[Dict[str, Any]] = []
 
@@ -344,6 +404,24 @@ class VerdandiADK:
         except Exception as e:
             logger.warning(f"Could not detect video duration via ffprobe ({e}); falling back to 53.0s assumption.")
             video_duration_sec = 53.0
+
+        # A manually-narrowed transcript window is a hard constraint,
+        # enforced twice: here (so the model's own context only contains
+        # lines it's allowed to pick from) and again in _clamp_duration
+        # (so even a model that ignores this still can't render outside
+        # it). transcript_text is filtered before vision_mode is decided,
+        # so narrowing a window down to a silent stretch correctly falls
+        # back to vision mode for that stretch specifically.
+        transcript_text = filter_transcript_by_window(transcript_text, transcript_window)
+
+        # Cut Energy: where in [min_duration_sec, max_duration_sec] the
+        # *target* duration should land — calm (0.0) biases toward the
+        # longer end, energetic (1.0) toward the shorter end. This is a
+        # prompt-level bias only (see _build_prompt's duration_bias_instruction);
+        # the hard min/max range itself is still enforced unconditionally
+        # in _clamp_duration regardless of cut_energy.
+        cut_energy = max(0.0, min(1.0, cut_energy))
+        target_duration_sec = max_duration_sec - (max_duration_sec - min_duration_sec) * cut_energy
 
         # Pull real ClickHouse-grounded retention intelligence BEFORE
         # prompting, so the model reasons over it rather than guessing.
@@ -361,12 +439,13 @@ class VerdandiADK:
         tools = self._make_tools(
             transcript_text, rendered_clips, warmth, crazy, retention_summary,
             min_duration_sec, max_duration_sec, video_duration_sec,
-            topic_focus=topic_focus,
+            topic_focus=topic_focus, window=transcript_window,
         )
         prompt = self._build_prompt(
             transcript_text, video_path, target_count, retention_summary,
             min_duration_sec, max_duration_sec, video_duration_sec,
-            vision_mode=vision_mode,
+            vision_mode=vision_mode, target_duration_sec=target_duration_sec,
+            window=transcript_window,
         )
         safe_video_end_mmss = format_seconds_to_mmss(max(min_duration_sec, video_duration_sec - 1.0))
 
