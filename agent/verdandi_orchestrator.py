@@ -364,7 +364,7 @@ class VerdandiADK:
         self, transcript_text: str, video_path: str, target_count: int, retention_summary: Dict[str, Any],
         min_duration_sec: float, max_duration_sec: float, video_duration_sec: float,
         vision_mode: bool = False, target_duration_sec: Optional[float] = None,
-        window: Optional[Tuple[float, float]] = None,
+        window: Optional[Tuple[float, float]] = None, content_hint: Optional[str] = None,
     ) -> str:
         grounding_json = json.dumps(retention_summary, indent=2)
         topic_focus = retention_summary.get("topic_focus")
@@ -436,10 +436,21 @@ class VerdandiADK:
                 f"hook_type's own optimal_duration_sec as a tiebreaker when it's close to that target, "
             )
 
+        content_hint_instruction = ""
+        if content_hint:
+            content_hint_instruction = (
+                f"Creative direction from the user: \"{content_hint}\". Prioritize a moment that genuinely "
+                f"matches this direction over one that might otherwise score higher on the retention "
+                f"benchmarks alone — the user's explicit creative intent outranks a marginal virality-score "
+                f"gain. If nothing in this video plausibly matches the direction, pick the closest honest "
+                f"fit rather than fabricating one that isn't there.\n\n"
+            )
+
         return (
             f"Historical Urðr ClickHouse retention intelligence — ground your hook_type "
             f"selection in this real data, don't ignore it:\n{grounding_json}\n\n"
             f"{topic_instruction}"
+            f"{content_hint_instruction}"
             f"{content_instruction}\n\n"
             f"Source Video Path: {video_path}\n"
             f"CRITICAL: The video is {video_duration_mmss} (MM:SS) long. Generate exactly {target_count} clips. "
@@ -511,6 +522,7 @@ class VerdandiADK:
         transcript_window: Optional[Tuple[float, float]] = None,
         auto_window_mode: str = "random",
         clip_id_prefix: str = "",
+        content_hint: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         rendered_clips: List[Dict[str, Any]] = []
 
@@ -586,7 +598,7 @@ class VerdandiADK:
             transcript_text, video_path, target_count, retention_summary,
             min_duration_sec, max_duration_sec, video_duration_sec,
             vision_mode=vision_mode, target_duration_sec=target_duration_sec,
-            window=transcript_window,
+            window=transcript_window, content_hint=content_hint,
         )
         safe_video_end_mmss = format_seconds_to_mmss(max(min_duration_sec, video_duration_sec - 1.0))
 
