@@ -24,6 +24,8 @@ Thumbs.db
 # Streamlit
 .streamlit/secrets.toml
 output_clips/
+output/
 sample_data/yt_input.mp4
 venv/
 *.part
+*_9x16.mp4
