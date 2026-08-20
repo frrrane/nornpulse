@@ -654,6 +654,7 @@ class VerdandiADK:
         max_duration_sec: float = 15.0,
         cut_energy: float = 0.5,
         auto_window_mode: str = "random",
+        content_hint: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Runs the full single-video pipeline once per URL in video_urls
@@ -711,6 +712,7 @@ class VerdandiADK:
                     cut_energy=cut_energy,
                     auto_window_mode=auto_window_mode,
                     clip_id_prefix=f"batch{i}_",
+                    content_hint=content_hint,
                 )
                 for clip in clips:
                     clip["source_url"] = url

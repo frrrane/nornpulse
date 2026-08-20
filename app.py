@@ -257,6 +257,10 @@ with nav_tab1:
                 "than Column 2's sliders, since those aren't set yet at this point in the layout."
             )
             batch_url = st.text_input("YouTube channel or playlist URL:", key="batch_url")
+            batch_content_hint = st.text_input(
+                "🎬 Creative Direction (optional)", key="batch_content_hint",
+                placeholder="e.g. a romantic moment, a tense confrontation...",
+            ).strip() or None
             if st.button("🗂️ Run Batch", key="run_batch"):
                 if not batch_url:
                     st.error("Enter a channel or playlist URL first.")
@@ -272,6 +276,7 @@ with nav_tab1:
                             try:
                                 batch_results = st.session_state.verdandi_adk.orchestrate_batch(
                                     video_urls=batch_urls, target_count_per_video=1,
+                                    content_hint=batch_content_hint,
                                 )
                                 st.session_state.current_generation = batch_results
                                 st.success(
@@ -368,6 +373,14 @@ with nav_tab1:
         )
         topic_focus = None if topic_choice == topic_options[0] else topic_choice
 
+        content_hint = st.text_input(
+            "🎬 Creative Direction (optional)",
+            key="content_hint",
+            placeholder="e.g. a romantic moment, a tense confrontation, a funny reaction...",
+            help="Free-text steer for WHICH moment gets picked. Verðandi prioritizes a genuine match "
+                 "over a marginally higher virality score — leave blank to let it pick freely.",
+        ).strip() or None
+
         st.markdown("<div class='workflow-header'>🎨 Caption Style</div>", unsafe_allow_html=True)
         warmth = st.slider(
             "🌡️ Warmth", min_value=0.0, max_value=1.0, value=0.5, step=0.05,
@@ -418,6 +431,7 @@ with nav_tab1:
                     cut_energy=cut_energy,
                     transcript_window=transcript_window,
                     auto_window_mode=auto_window_mode,
+                    content_hint=content_hint,
                 )
 
                 output_dir = Path("output_clips")
