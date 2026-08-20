@@ -45,8 +45,9 @@ In Norse mythology, the three Norns weave the threads of fate at the Well of Ur�
 - Supplies real-time statistical priors to Gemini 2.0 Flash.
 
 ### 2. `agent/verdandi_orchestrator.py` (ᚹ Verðandi — The Present)
-- Powered by the **Google GenAI SDK** using **Gemini 2.0 Flash** (`gemini-2.0-flash`).
+- Powered by the **Google GenAI SDK** using **Gemini** (`gemini-3.6-flash`).
 - Ingests timestamped video transcripts and retrieves Urðr's historical benchmarks.
+- The source video is always uploaded and attached too, transcript or not — Verðandi weighs the actual vocal delivery/energy it observes, not just transcript word content, when a hook_type implies a particular tone (a punchy `shock_stat` pick needs a delivery that actually lands as punchy).
 - Decides optimal start/end timestamps, hook titles, predicted 3s hold rates, completion rates, and social copy.
 
 ### 3. `agent/skuld_renderer.py` (ᛋ Skuld — The Future)

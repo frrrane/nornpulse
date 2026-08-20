@@ -357,9 +357,9 @@ class VerdandiADK:
 
         # No transcript (silent/instrumental/no-dialogue source): Verðandi
         # reasons directly over the attached video (uploaded via the Gemini
-        # Files API, see _upload_video_for_vision) instead of transcript
-        # text — timestamps come from what it actually sees/hears in the
-        # video rather than from transcript-anchored cues.
+        # Files API, see _upload_video) instead of transcript text —
+        # timestamps come from what it actually sees/hears in the video
+        # rather than from transcript-anchored cues.
         if vision_mode:
             content_instruction = (
                 "This source has no transcript — there is no spoken dialogue to analyze, or none could "
@@ -371,7 +371,18 @@ class VerdandiADK:
                 "type genuinely fits what's on screen."
             )
         else:
-            content_instruction = f"Analyze this transcript:\n{transcript_text}"
+            content_instruction = (
+                f"Analyze this transcript:\n{transcript_text}\n\n"
+                f"The full source video is also attached directly above this prompt — actually listen to "
+                f"the real vocal delivery in it, not just the transcript's word content. Judge whether the "
+                f"speaker's real tone, energy, and pacing in each candidate window genuinely supports the "
+                f"hook_type you're leaning toward: 'shock_stat' and 'contrarian_claim' need a punchy, "
+                f"urgent, or emphatic delivery to actually land as that hook — if the real speaker sounds "
+                f"flat, monotone, or hesitant in that specific window, prefer a hook_type the real delivery "
+                f"actually supports (e.g. 'metaphor_analogy' or 'story_in_medias_res' read calmly) over one "
+                f"that only fits on paper. The words and the delivery must both earn the hook_type, not just "
+                f"the words."
+            )
 
         window_instruction = ""
         if window is not None:
@@ -423,14 +434,18 @@ class VerdandiADK:
             f"The clip_id values in your JSON response MUST exactly match the clip_id values you passed to tool_execute_skuld_render."
         )
 
-    def _upload_video_for_vision(self, video_path: str, timeout_sec: float = 120.0) -> types.File:
+    def _upload_video(self, video_path: str, timeout_sec: float = 120.0) -> types.File:
         """
-        Uploads the source video to Gemini's Files API and blocks until it's
-        ACTIVE (processed and ready to reason over) or the timeout elapses.
-        Only called in vision mode (no usable transcript) — the text-only
-        path never pays this upload/processing latency.
+        Uploads the source video to Gemini's Files API and blocks until
+        it's ACTIVE (processed and ready to reason over) or the timeout
+        elapses. Called on every generation, not just vision mode (no
+        transcript) — Verðandi always gets the actual video/audio now, so
+        it can judge real vocal delivery/energy when picking hook_type,
+        not just word content from the transcript. This means every
+        generation pays the ~5-20s upload+processing latency vision-mode
+        clips already paid, and video-token billing instead of text-only.
         """
-        logger.info(f"No transcript available; uploading '{video_path}' to Gemini Files API for vision mode.")
+        logger.info(f"Uploading '{video_path}' to Gemini Files API...")
         file_obj = self.client.files.upload(file=video_path)
 
         _t0 = time.perf_counter()
@@ -446,7 +461,7 @@ class VerdandiADK:
             raise RuntimeError(f"Gemini Files API failed to process '{video_path}': {file_obj.state}")
 
         logger.info(
-            f"⏱️ Video upload + processing for vision mode took {time.perf_counter() - _t0:.1f}s "
+            f"⏱️ Video upload + processing took {time.perf_counter() - _t0:.1f}s "
             f"({file_obj.mime_type}, state={file_obj.state})"
         )
         return file_obj
@@ -501,11 +516,15 @@ class VerdandiADK:
         retention_summary = self.urdr.get_retention_intelligence_summary(topic_category=topic_focus)
         logger.info(f"⏱️ Retention summary fetch took {time.perf_counter() - _t0:.1f}s")
 
-        # No usable transcript (silent/instrumental source, or extraction
-        # failed/was skipped) -> fall back to vision mode: Gemini reasons
-        # directly over the uploaded video instead of transcript text.
+        # vision_mode still means "no usable transcript" (silent/
+        # instrumental source, or extraction failed) — Verðandi reasons
+        # entirely from the video/audio rather than transcript-anchored
+        # cues in that case. But the video itself is now ALWAYS uploaded
+        # and attached, transcript or not: even transcript-driven clips
+        # need Gemini to actually see/hear the real vocal delivery, not
+        # just judge hook_type fit from word content alone.
         vision_mode = not transcript_text or not transcript_text.strip()
-        video_file = self._upload_video_for_vision(video_path) if vision_mode else None
+        video_file = self._upload_video(video_path)
 
         tools = self._make_tools(
             transcript_text, rendered_clips, warmth, crazy, retention_summary,
@@ -531,7 +550,10 @@ class VerdandiADK:
                         f"selection in the Urðr retention intelligence provided in the prompt — prefer "
                         f"higher-virality hook types "
                         "when the source content genuinely fits that framing, rather than "
-                        "defaulting to the same hook type regardless of content. Always call "
+                        "defaulting to the same hook type regardless of content. You have the actual "
+                        "video attached, not just transcript text where one exists — weigh the real "
+                        "vocal delivery and energy you observe, not just word content, when a hook_type "
+                        "implies a particular tone. Always call "
                         "tool_execute_skuld_render and tool_log_urdr_telemetry with matching "
                         "hook_type values before reporting a clip as generated."
                     ),
@@ -547,8 +569,7 @@ class VerdandiADK:
             # tells you how much is Gemini's own reasoning/latency vs. the
             # actual rendering work.
             _t1 = time.perf_counter()
-            message = [video_file, prompt] if vision_mode else prompt
-            response = chat.send_message(message)
+            response = chat.send_message([video_file, prompt])
             logger.info(f"⏱️ Gemini reasoning + all tool calls took {time.perf_counter() - _t1:.1f}s total")
             text_output = response.text if response and response.text else ""
             parsed_metadata = self._parse_model_json(text_output)
