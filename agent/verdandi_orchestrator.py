@@ -206,6 +206,7 @@ class VerdandiADK:
     def _build_prompt(
         self, transcript_text: str, video_path: str, target_count: int, retention_summary: Dict[str, Any],
         min_duration_sec: float, max_duration_sec: float, video_duration_sec: float,
+        vision_mode: bool = False,
     ) -> str:
         grounding_json = json.dumps(retention_summary, indent=2)
         topic_focus = retention_summary.get("topic_focus")
@@ -226,16 +227,35 @@ class VerdandiADK:
         safe_video_end_mmss = format_seconds_to_mmss(safe_video_end)
         video_duration_mmss = format_seconds_to_mmss(video_duration_sec)
 
+        # No transcript (silent/instrumental/no-dialogue source): Verðandi
+        # reasons directly over the attached video (uploaded via the Gemini
+        # Files API, see _upload_video_for_vision) instead of transcript
+        # text — timestamps come from what it actually sees/hears in the
+        # video rather than from transcript-anchored cues.
+        if vision_mode:
+            content_instruction = (
+                "This source has no transcript — there is no spoken dialogue to analyze, or none could "
+                "be extracted. The full video is attached directly above this prompt. Watch it and choose "
+                "clip windows based on what you actually see and hear: cuts, motion, on-screen text, "
+                "color/lighting changes, sound design, musical beats/drops — whatever makes a moment "
+                "visually or sonically striking on its own, with no dialogue required. Favor hook_type "
+                "values that don't presuppose spoken narration (e.g. visual_disruption) unless another "
+                "type genuinely fits what's on screen."
+            )
+        else:
+            content_instruction = f"Analyze this transcript:\n{transcript_text}"
+
         return (
             f"Historical Urðr ClickHouse retention intelligence — ground your hook_type "
             f"selection in this real data, don't ignore it:\n{grounding_json}\n\n"
             f"{topic_instruction}"
-            f"Analyze this transcript:\n{transcript_text}\n\n"
+            f"{content_instruction}\n\n"
             f"Source Video Path: {video_path}\n"
             f"CRITICAL: The video is {video_duration_mmss} (MM:SS) long. Generate exactly {target_count} clips. "
-            f"You MUST choose a start_time and end_time strictly between 00:00 and {safe_video_end_mmss} that matches the transcript timestamps. "
-            f"For each clip, select a hook_type from the hook_taxonomies list above that genuinely fits the "
-            f"transcript content. Prefer hook types with higher avg_virality_score when the content honestly "
+            f"You MUST choose a start_time and end_time strictly between 00:00 and {safe_video_end_mmss}"
+            + (" that matches the transcript timestamps. " if not vision_mode else " based on what you observe directly in the attached video. ")
+            + f"For each clip, select a hook_type from the hook_taxonomies list above that genuinely fits the "
+            f"content. Prefer hook types with higher avg_virality_score when the content honestly "
             f"supports that framing — do not force a mismatched hook type merely to chase a higher score. "
             f"HARD CONSTRAINT: every clip's duration (end_time minus start_time) MUST be between "
             f"{min_duration_sec:.0f} and {max_duration_sec:.0f} seconds — this is a strict user-set range that "
@@ -249,6 +269,34 @@ class VerdandiADK:
             f"virality_score, start_time, end_time. "
             f"The clip_id values in your JSON response MUST exactly match the clip_id values you passed to tool_execute_skuld_render."
         )
+
+    def _upload_video_for_vision(self, video_path: str, timeout_sec: float = 120.0) -> types.File:
+        """
+        Uploads the source video to Gemini's Files API and blocks until it's
+        ACTIVE (processed and ready to reason over) or the timeout elapses.
+        Only called in vision mode (no usable transcript) — the text-only
+        path never pays this upload/processing latency.
+        """
+        logger.info(f"No transcript available; uploading '{video_path}' to Gemini Files API for vision mode.")
+        file_obj = self.client.files.upload(file=video_path)
+
+        _t0 = time.perf_counter()
+        while file_obj.state and file_obj.state.name == "PROCESSING":
+            if time.perf_counter() - _t0 > timeout_sec:
+                raise RuntimeError(
+                    f"Gemini Files API did not finish processing '{video_path}' within {timeout_sec:.0f}s."
+                )
+            time.sleep(2)
+            file_obj = self.client.files.get(name=file_obj.name)
+
+        if file_obj.state and file_obj.state.name == "FAILED":
+            raise RuntimeError(f"Gemini Files API failed to process '{video_path}': {file_obj.state}")
+
+        logger.info(
+            f"⏱️ Video upload + processing for vision mode took {time.perf_counter() - _t0:.1f}s "
+            f"({file_obj.mime_type}, state={file_obj.state})"
+        )
+        return file_obj
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     def orchestrate_generation(
@@ -280,6 +328,12 @@ class VerdandiADK:
         retention_summary = self.urdr.get_retention_intelligence_summary(topic_category=topic_focus)
         logger.info(f"⏱️ Retention summary fetch took {time.perf_counter() - _t0:.1f}s")
 
+        # No usable transcript (silent/instrumental source, or extraction
+        # failed/was skipped) -> fall back to vision mode: Gemini reasons
+        # directly over the uploaded video instead of transcript text.
+        vision_mode = not transcript_text or not transcript_text.strip()
+        video_file = self._upload_video_for_vision(video_path) if vision_mode else None
+
         tools = self._make_tools(
             transcript_text, rendered_clips, warmth, crazy, retention_summary,
             min_duration_sec, max_duration_sec, video_duration_sec,
@@ -287,6 +341,7 @@ class VerdandiADK:
         prompt = self._build_prompt(
             transcript_text, video_path, target_count, retention_summary,
             min_duration_sec, max_duration_sec, video_duration_sec,
+            vision_mode=vision_mode,
         )
         safe_video_end_mmss = format_seconds_to_mmss(max(min_duration_sec, video_duration_sec - 1.0))
 
@@ -300,7 +355,7 @@ class VerdandiADK:
                         f"00:00-{safe_video_end_mmss} range for this video. Ground every hook_type "
                         f"selection in the Urðr retention intelligence provided in the prompt — prefer "
                         f"higher-virality hook types "
-                        "when the transcript content genuinely fits that framing, rather than "
+                        "when the source content genuinely fits that framing, rather than "
                         "defaulting to the same hook type regardless of content. Always call "
                         "tool_execute_skuld_render and tool_log_urdr_telemetry with matching "
                         "hook_type values before reporting a clip as generated."
@@ -317,7 +372,8 @@ class VerdandiADK:
             # tells you how much is Gemini's own reasoning/latency vs. the
             # actual rendering work.
             _t1 = time.perf_counter()
-            response = chat.send_message(prompt)
+            message = [video_file, prompt] if vision_mode else prompt
+            response = chat.send_message(message)
             logger.info(f"⏱️ Gemini reasoning + all tool calls took {time.perf_counter() - _t1:.1f}s total")
             text_output = response.text if response and response.text else ""
             parsed_metadata = self._parse_model_json(text_output)

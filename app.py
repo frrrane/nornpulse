@@ -240,6 +240,12 @@ with nav_tab1:
                         st.error(f"Transcription failed: {e}")
 
         transcript_input = st.text_area("Timestamped Transcript:", key="transcript_input", height=160)
+        if not transcript_input.strip():
+            st.caption(
+                "🎥 No transcript — Verðandi will fall back to vision mode: Gemini watches the "
+                "uploaded video directly (no burned-in captions, since there's no dialogue to caption). "
+                "Works well for silent/instrumental sources; adds upload + processing latency."
+            )
         target_clips = st.slider("Target Iteration Count", min_value=1, max_value=3, value=1)
 
         st.markdown("<div class='workflow-header'>🎯 Topic Focus</div>", unsafe_allow_html=True)
@@ -268,19 +274,18 @@ with nav_tab1:
 
         if generate_clicked and not active_video_path:
             st.error("No video loaded — check the YouTube URL in Column 1.")
-        elif generate_clicked and not transcript_input.strip():
-            st.warning(
-                "⚠️ No transcript to work with. Verðandi currently reasons entirely from the "
-                "transcript text — Gemini isn't actually watching the video content yet — so "
-                "generation without one won't produce meaningful clip selections. Paste or edit "
-                "a transcript above, or wait for automatic extraction to finish."
-            )
-        elif generate_clicked and active_video_path and transcript_input.strip():
+        elif generate_clicked and active_video_path:
             loading_placeholder = st.empty()
+            loading_banner_text = (
+                "Verðandi is watching your video directly (vision mode) — grounding in Urðr, "
+                "rendering via Skuld..."
+                if not transcript_input.strip()
+                else "Verðandi is weaving your short — grounding in Urðr, rendering via Skuld..."
+            )
             loading_placeholder.markdown(
                 "<div class='norn-loading-banner'>"
                 "<span class='norn-loading-rune'>⚡</span>"
-                "Verðandi is weaving your short — grounding in Urðr, rendering via Skuld..."
+                f"{loading_banner_text}"
                 "</div>",
                 unsafe_allow_html=True,
             )
