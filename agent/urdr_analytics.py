@@ -886,7 +886,23 @@ class UrdrAnalytics:
         }
 
     def execute_custom_query(self, query: str) -> pd.DataFrame:
-        """Executes a custom SQL query against ClickHouse (for the explorer UI)."""
+        """
+        Executes a custom SQL query against ClickHouse (for the explorer
+        UI). This is user-typed SQL running with CLICKHOUSE_ALLOW_WRITE_ACCESS
+        enabled, so per clickhouse-best-practices' agent-query-safety rule
+        (CRITICAL), conservative scan/time caps are appended unless the
+        query already specifies its own SETTINGS clause — an unbounded
+        query (or a fat-fingered cross join) could otherwise scan without
+        limit, which matters more once this console is reachable from a
+        public deployment rather than just a local session.
+        """
         if not self.is_connected():
             raise ConnectionError("ClickHouse MCP server is not connected.")
-        return ch.run_query_df(query)
+        safe_query = query.strip().rstrip(";")
+        if "SETTINGS" not in safe_query.upper():
+            safe_query += (
+                " SETTINGS max_execution_time = 30, max_rows_to_read = 1000000000, "
+                "timeout_before_checking_execution_speed = 0, max_result_rows = 10000, "
+                "result_overflow_mode = 'break'"
+            )
+        return ch.run_query_df(safe_query)
