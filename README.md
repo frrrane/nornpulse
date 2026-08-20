@@ -69,6 +69,11 @@ In Norse mythology, the three Norns weave the threads of fate at the Well of Ur�
 - Unlike Bragi's tracks, never cached — each thumbnail is grounded in that specific clip's hook title, so there's no meaningful reuse across clips.
 - If the connected YouTube channel is phone-verified, the thumbnail is set as the video's custom cover automatically on publish.
 
+### 6. `agent/mimir_narrator.py` (🗣️ Mímir — Voice)
+- Generates an AI voiceover via Gemini's native TTS (`gemini-3.1-flash-tts-preview`), mixed into the clip under Bragi's score.
+- Two triggers: **fill silence** (vision-mode clips with no dialogue narrate their own hook line) and **enhance** (a transcript exists, but the clip's sliced audio measured too quiet to reliably follow — see `skuld_renderer.measure_audio_mean_volume` — so the actual transcript text for that window gets read back clearly instead).
+- Voice selection is grounded in the same `music_virality_benchmarks` row's `energy_level` Bragi and Heimdall already use.
+
 ---
 
 ## 📁 Repository Structure
@@ -82,7 +87,8 @@ nornpulse/
 │   ├── verdandi_orchestrator.py # ᚹ Verðandi: Gemini 2.0 Flash transcript reasoning
 │   ├── skuld_renderer.py       # ᛋ Skuld: FFmpeg 16:9 -> 9:16 vertical short renderer
 │   ├── bragi_composer.py       # 🎵 Bragi: Lyria 3 original scores, grounded in Urðr's music benchmarks
-│   └── heimdall_visualizer.py  # 👁️ Heimdall: Gemini-generated 9:16 cover thumbnails, same grounding as Bragi
+│   ├── heimdall_visualizer.py  # 👁️ Heimdall: Gemini-generated 9:16 cover thumbnails, same grounding as Bragi
+│   └── mimir_narrator.py       # 🗣️ Mímir: Gemini TTS narration — fill-silence or unintelligible-audio fallback
 ├── utils/
 │   ├── __init__.py
 │   └── sample_generator.py      # Synthetic 16:9 video and sample transcripts

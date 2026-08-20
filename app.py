@@ -402,6 +402,8 @@ with nav_tab1:
                     genre = item.get("music_genre") or "custom"
                     mood = item.get("music_mood") or ""
                     st.caption(f"🎵 Original score by Bragi (Lyria) — {genre}, {mood}".rstrip(", "))
+                if item.get("has_narration"):
+                    st.caption("🗣️ AI narration by Mímir (fills silence, or reads over hard-to-hear audio)")
 
                 hook_type = item.get("hook_type", "unknown")
                 top_hook = item.get("grounded_top_hook_type", "—")

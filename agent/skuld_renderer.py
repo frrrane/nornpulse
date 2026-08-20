@@ -79,6 +79,35 @@ def has_audio_stream(video_path: str | Path) -> bool:
     return bool(result.stdout.strip())
 
 
+# Below this mean volume (dB), a clip's original audio is treated as
+# likely too quiet to reliably follow, triggering Mimir's narration
+# fallback. This is a loudness heuristic, not a true speech-intelligibility
+# classifier — a loud but heavily mumbled or accented voice would still
+# measure fine here and wouldn't get flagged. Calibrated empirically
+# against the demo source: real, clearly-narrated speech throughout it
+# measures -29 to -35 dB; the same audio deliberately quietened to 5%
+# volume (genuinely hard to hear) measures -55.7 dB. -42 dB sits with
+# margin on both sides of that gap.
+NARRATION_FALLBACK_VOLUME_THRESHOLD_DB = -42.0
+
+
+def measure_audio_mean_volume(video_path: str | Path, start_time: str, end_time: str) -> Optional[float]:
+    """
+    Measures the mean audio volume (dB) of a specific time window via
+    FFmpeg's volumedetect filter. Returns None if the source has no audio
+    stream at all, or if FFmpeg's output couldn't be parsed.
+    """
+    if not has_audio_stream(video_path):
+        return None
+    cmd = [
+        "ffmpeg", "-ss", str(start_time), "-to", str(end_time),
+        "-i", str(video_path), "-af", "volumedetect", "-f", "null", "-",
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    match = re.search(r"mean_volume:\s*(-?\d+\.?\d*)\s*dB", result.stderr)
+    return float(match.group(1)) if match else None
+
+
 def seconds_to_ass_time(total_seconds: float) -> str:
     """Converts total seconds into ASS time format 'H:MM:SS.cs'."""
     if total_seconds < 0:
@@ -461,6 +490,7 @@ class SkuldRenderer:
         warmth: float = 0.5,
         crazy: float = 0.3,
         music_path: Optional[str | Path] = None,
+        narration_path: Optional[str | Path] = None,
     ) -> Dict[str, Any]:
         input_video_path = Path(input_video_path)
         if not input_video_path.exists():
@@ -496,29 +526,76 @@ class SkuldRenderer:
 
         vf += "[scaled]"
 
-        # Bragi's Lyria score (if any) gets mixed in under the source
-        # audio — ducked low so it never competes with dialogue — rather
-        # than replacing it outright. Input 1 is looped indefinitely so a
-        # ~29s Lyria clip still covers clips longer than that; atrim below
-        # cuts it back down to the exact clip length either way.
+        # Builds an N-way audio mix from whichever of {original source
+        # audio, Mimir's narration, Bragi's score} are actually present.
+        # When narration is present it's the stream actually carrying the
+        # information (either there was no dialogue to begin with, or the
+        # original audio measured too quiet to rely on — see
+        # measure_audio_mean_volume), so the original source audio gets
+        # ducked to near-ambience under it rather than staying at full
+        # presence, and the score ducks further under narration than it
+        # does under raw dialogue. Music inputs are looped indefinitely so
+        # a ~29s Lyria clip still covers longer clips; atrim below cuts
+        # every non-video stream back down to the exact clip length.
         has_music = bool(music_path) and Path(music_path).exists()
-        extra_inputs = ["-stream_loop", "-1", "-i", str(music_path)] if has_music else []
+        has_narration = bool(narration_path) and Path(narration_path).exists()
+        source_has_audio = has_audio_stream(input_video_path)
+
+        extra_inputs: List[str] = []
+        mix_parts: List[str] = []
+        mix_labels: List[str] = []
+        next_input_idx = 1
+
+        if has_narration:
+            extra_inputs += ["-i", str(narration_path)]
+            mix_parts.append(
+                f"[{next_input_idx}:a]atrim=0:{clip_duration_sec:.3f},asetpts=PTS-STARTPTS,volume=1.0[narr]"
+            )
+            mix_labels.append("[narr]")
+            next_input_idx += 1
+
+        if has_music:
+            extra_inputs += ["-stream_loop", "-1", "-i", str(music_path)]
+            music_vol = 0.10 if has_narration else (0.18 if source_has_audio else 0.9)
+            mix_parts.append(
+                f"[{next_input_idx}:a]atrim=0:{clip_duration_sec:.3f},asetpts=PTS-STARTPTS,volume={music_vol}[bragi]"
+            )
+            mix_labels.append("[bragi]")
+            next_input_idx += 1
+
+        if source_has_audio:
+            voice_vol = 0.05 if has_narration else 1.0
+            mix_parts.append(f"[0:a]volume={voice_vol}[voice]")
+            mix_labels.append("[voice]")
+
         filter_complex = vf
         audio_map = ["-map", "0:a?"]
-        if has_music:
-            if has_audio_stream(input_video_path):
+        if mix_labels:
+            filter_complex += ";" + ";".join(mix_parts)
+            if len(mix_labels) > 1:
+                # duration=longest, not first: narration is a short
+                # one-shot line (often just a few seconds), and it's
+                # frequently the FIRST stream added — with duration=first
+                # the mixed track would end when narration does, leaving
+                # the rest of the clip dead silent even though music (or
+                # source audio) had more to play. duration=longest instead
+                # extends short streams with silence to match whichever
+                # input actually runs the clip's full length.
                 filter_complex += (
-                    f";[0:a]volume=1.0[voice];"
-                    f"[1:a]atrim=0:{clip_duration_sec:.3f},asetpts=PTS-STARTPTS,volume=0.18[bragi];"
-                    f"[voice][bragi]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+                    f";{''.join(mix_labels)}amix=inputs={len(mix_labels)}:duration=longest:dropout_transition=2[premix]"
                 )
             else:
-                # No source audio at all (silent b-roll) — the Lyria track
-                # is the only audio, so it plays at full presence instead
-                # of duck-level volume.
-                filter_complex += (
-                    f";[1:a]atrim=0:{clip_duration_sec:.3f},asetpts=PTS-STARTPTS,volume=0.9[aout]"
-                )
+                # Single stream — relabel directly rather than amix with
+                # inputs=1, which behaves oddly on some FFmpeg builds.
+                filter_complex += f";{mix_labels[0]}anull[premix]"
+            # Belt-and-suspenders: pad (if every mixed stream happened to
+            # be shorter than the clip, e.g. narration alone with no
+            # music) then trim to exactly clip_duration_sec, so [aout]
+            # always matches the video's length regardless of which
+            # combination of streams fed the mix above.
+            filter_complex += (
+                f";[premix]apad=whole_dur={clip_duration_sec:.3f},atrim=0:{clip_duration_sec:.3f}[aout]"
+            )
             audio_map = ["-map", "[aout]"]
 
         cmd = [
@@ -553,6 +630,7 @@ class SkuldRenderer:
             "crop_mode": crop_mode,
             "has_subtitles": bool(transcript_text),
             "has_bragi_score": has_music,
+            "has_narration": has_narration,
             "warmth": warmth,
             "crazy": crazy,
             "success": True,

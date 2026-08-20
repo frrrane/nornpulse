@@ -18,10 +18,12 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from agent.skuld_renderer import (
     SkuldRenderer, parse_time_to_seconds, format_seconds_to_mmss, get_video_duration_seconds,
+    measure_audio_mean_volume, NARRATION_FALLBACK_VOLUME_THRESHOLD_DB,
 )
 from agent.urdr_analytics import UrdrAnalytics
 from agent.bragi_composer import BragiComposer
 from agent.heimdall_visualizer import HeimdallVisualizer
+from agent.mimir_narrator import MimirNarrator
 
 load_dotenv(override=True)
 logger = logging.getLogger("nornpulse.orchestrator")
@@ -50,6 +52,21 @@ def filter_transcript_by_window(transcript_text: str, window: Optional[Tuple[flo
     return "\n".join(kept)
 
 
+def _clean_transcript_window_text(transcript_slice: str) -> str:
+    """
+    Strips bracketed timestamps from a filter_transcript_by_window() slice
+    and joins the remaining lines into clean spoken-word prose, for
+    Mímir's narration fallback — the script it reads should be the actual
+    words, not raw "[00:16] text" transcript formatting.
+    """
+    lines = []
+    for line in transcript_slice.strip().split("\n"):
+        clean = re.sub(r"\[.*?\]", "", line).strip()
+        if clean:
+            lines.append(clean)
+    return " ".join(lines)
+
+
 class VerdandiADK:
     """
     Orchestrates Gemini-driven clip selection and delegates rendering to
@@ -70,6 +87,7 @@ class VerdandiADK:
         self.urdr = UrdrAnalytics()
         self.bragi = BragiComposer()
         self.heimdall = HeimdallVisualizer()
+        self.mimir = MimirNarrator()
 
     def _make_tools(
         self,
@@ -83,6 +101,7 @@ class VerdandiADK:
         video_duration_sec: float,
         topic_focus: Optional[str] = None,
         window: Optional[Tuple[float, float]] = None,
+        vision_mode: bool = False,
     ) -> List[Callable]:
         """Builds request-scoped tool functions closing over this call's state."""
 
@@ -179,6 +198,41 @@ class VerdandiADK:
                     output_dir=self.skuld.output_dir,
                 )
 
+            # Mímir narrates in two situations, both grounded in the same
+            # music_benchmark's energy_level for voice selection:
+            #  1. Fill silence — vision mode has no dialogue at all, so
+            #     the hook line itself becomes the script.
+            #  2. Enhance — a transcript exists, but this specific clip's
+            #     sliced audio measured too quiet to reliably follow, so
+            #     the actual transcript text for this window is narrated
+            #     back clearly rather than substituted with a hook line.
+            # A generation failure never blocks the clip — render simply
+            # proceeds without narration, same as Bragi/Heimdall.
+            narration_path = None
+            energy_level = float(music_benchmark.get("energy_level", 0.5)) if music_benchmark else 0.5
+            if vision_mode:
+                narration_path = self.mimir.narrate(
+                    clip_id=clip_id, script_text=hook_banner_text, energy_level=energy_level,
+                    output_dir=self.skuld.output_dir,
+                )
+            elif resolved_transcript:
+                mean_volume = measure_audio_mean_volume(input_video_path, start_time, end_time)
+                if mean_volume is not None and mean_volume < NARRATION_FALLBACK_VOLUME_THRESHOLD_DB:
+                    start_sec = parse_time_to_seconds(start_time)
+                    end_sec = parse_time_to_seconds(end_time)
+                    window_slice = filter_transcript_by_window(resolved_transcript, (start_sec, end_sec))
+                    window_text = _clean_transcript_window_text(window_slice)
+                    if window_text:
+                        logger.info(
+                            f"Clip '{clip_id}' audio measured {mean_volume:.1f}dB "
+                            f"(below {NARRATION_FALLBACK_VOLUME_THRESHOLD_DB}dB threshold) — "
+                            f"narrating via Mímir fallback."
+                        )
+                        narration_path = self.mimir.narrate(
+                            clip_id=clip_id, script_text=window_text, energy_level=energy_level,
+                            output_dir=self.skuld.output_dir,
+                        )
+
             result = self.skuld.render_vertical_short(
                 input_video_path=input_video_path,
                 start_time=start_time,
@@ -190,6 +244,7 @@ class VerdandiADK:
                 warmth=warmth,
                 crazy=crazy,
                 music_path=music_path,
+                narration_path=narration_path,
             )
             # Record ground-truth render output. This is what the UI will
             # ultimately trust, independent of whatever the model's final
@@ -203,6 +258,7 @@ class VerdandiADK:
                     "output_video_path": result["output_video_path"],
                     "has_subtitles": result["has_subtitles"],
                     "has_bragi_score": result.get("has_bragi_score", False),
+                    "has_narration": result.get("has_narration", False),
                     "thumbnail_path": thumbnail_path,
                     "music_genre": music_benchmark.get("genre") if music_benchmark else None,
                     "music_mood": music_benchmark.get("mood") if music_benchmark else None,
@@ -454,7 +510,7 @@ class VerdandiADK:
         tools = self._make_tools(
             transcript_text, rendered_clips, warmth, crazy, retention_summary,
             min_duration_sec, max_duration_sec, video_duration_sec,
-            topic_focus=topic_focus, window=transcript_window,
+            topic_focus=topic_focus, window=transcript_window, vision_mode=vision_mode,
         )
         prompt = self._build_prompt(
             transcript_text, video_path, target_count, retention_summary,
@@ -550,6 +606,7 @@ class VerdandiADK:
                     "output_video_path": clip["output_video_path"],
                     "has_subtitles": clip["has_subtitles"],
                     "has_bragi_score": clip.get("has_bragi_score", False),
+                    "has_narration": clip.get("has_narration", False),
                     "thumbnail_path": clip.get("thumbnail_path"),
                     "music_genre": clip.get("music_genre"),
                     "music_mood": clip.get("music_mood"),
