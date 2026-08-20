@@ -7,6 +7,7 @@ Built for Norn Labs (nornlabs.ai)
 import os
 import json
 import logging
+import random
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -18,7 +19,7 @@ from agent.verdandi_orchestrator import (
 )
 from agent.skuld_renderer import get_video_duration_seconds, format_seconds_to_mmss
 from agent.norn_publisher import NornPublisher, PublishError
-from utils.ingest import download_youtube_video, list_playlist_video_urls
+from utils.ingest import download_youtube_video, list_playlist_video_urls, get_youtube_duration
 from utils.transcribe import get_or_create_transcript
 from config import Config
 
@@ -201,15 +202,48 @@ with nav_tab1:
         active_video_path = None
 
         if yt_url:
+            # Check the video's real length BEFORE downloading anything —
+            # a long video gets a bounded window picked here and only
+            # THAT range is downloaded (yt-dlp download_ranges, confirmed
+            # live: a 30s slice of a 94-min video downloaded in ~15s as
+            # ~1.8MB instead of pulling the full ~180MB file). Auto-window
+            # bounding what Verðandi reasons over doesn't help if the
+            # whole file still has to be downloaded first.
+            try:
+                probed_duration = get_youtube_duration(yt_url)
+            except Exception as e:
+                probed_duration = None
+                st.warning(f"Could not check video length ahead of download ({e}); downloading normally.")
+
+            download_time_range = None
+            if probed_duration and probed_duration > AUTO_WINDOW_MAX_SEC:
+                window_pick = st.radio(
+                    f"🎬 Long video (~{int(probed_duration // 60)} min) — pick a "
+                    f"{int(AUTO_WINDOW_MAX_SEC // 60)}-min window to download:",
+                    options=["Random", "From Start"], horizontal=True,
+                    help="Only this window gets downloaded, not the whole video.",
+                )
+                window_start = (
+                    random.uniform(0.0, probed_duration - AUTO_WINDOW_MAX_SEC)
+                    if window_pick == "Random" else 0.0
+                )
+                download_time_range = (window_start, window_start + AUTO_WINDOW_MAX_SEC)
+
             @st.cache_data(show_spinner=True)
-            def cached_download(url: str):
-                return download_youtube_video(url)
+            def cached_download(url: str, time_range):
+                return download_youtube_video(url, time_range=time_range)
 
             with st.spinner("Ingesting stream..."):
                 try:
-                    active_video_path = cached_download(yt_url)
+                    active_video_path = cached_download(yt_url, download_time_range)
                     if active_video_path and os.path.exists(active_video_path):
                         st.video(active_video_path)
+                        if download_time_range:
+                            st.caption(
+                                f"✂️ Downloaded {format_seconds_to_mmss(download_time_range[0])}–"
+                                f"{format_seconds_to_mmss(download_time_range[1])} of the full "
+                                f"{format_seconds_to_mmss(probed_duration)} video."
+                            )
                     else:
                         st.error("Downloaded video path is invalid.")
                 except Exception as e:
@@ -309,16 +343,14 @@ with nav_tab1:
                         f"({line_count} transcript line{'s' if line_count != 1 else ''} in range, "
                         f"or vision mode within this window if none)."
                     )
-                elif video_duration_sec > AUTO_WINDOW_MAX_SEC:
-                    window_pick = st.radio(
-                        "🎬 Long video, no manual range set — pick a "
-                        f"{int(AUTO_WINDOW_MAX_SEC // 60)}-min window automatically:",
-                        options=["Random", "From Start"], horizontal=True,
-                        help="This video is longer than the auto-window size, and you haven't set a "
-                             "manual Cut range above — Verðandi will reason over one bounded window "
-                             "instead of the entire runtime in a single call.",
-                    )
-                    auto_window_mode = "random" if window_pick == "Random" else "start"
+                # No "video is long, pick a window" toggle here anymore —
+                # Column 1 already handles that at download time, so the
+                # video reaching this point is already ≤ AUTO_WINDOW_MAX_SEC
+                # for the normal YouTube-URL flow. orchestrate_generation's
+                # own auto-window fallback (auto_window_mode, still passed
+                # below) stays as a defensive backstop for paths that don't
+                # go through Column 1's pre-trimmed download — it just
+                # won't fire here.
             except Exception as e:
                 logging.getLogger("nornpulse.app").warning(f"Could not read video duration for cut range slider: {e}")
 

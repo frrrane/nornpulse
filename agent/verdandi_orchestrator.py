@@ -25,7 +25,7 @@ from agent.urdr_analytics import UrdrAnalytics
 from agent.bragi_composer import BragiComposer
 from agent.heimdall_visualizer import HeimdallVisualizer
 from agent.mimir_narrator import MimirNarrator
-from utils.ingest import download_youtube_video
+from utils.ingest import download_youtube_video, get_youtube_duration
 from utils.transcribe import get_or_create_transcript
 
 load_dotenv(override=True)
@@ -666,8 +666,26 @@ class VerdandiADK:
         all_clips: List[Dict[str, Any]] = []
         for i, url in enumerate(urls):
             try:
+                # Same fix as the single-video UI flow: check length before
+                # downloading anything, and download only a bounded window
+                # for a long video rather than the whole file just to
+                # window it down afterward.
+                download_time_range = None
+                try:
+                    probed_duration = get_youtube_duration(url)
+                    if probed_duration > AUTO_WINDOW_MAX_SEC:
+                        window_start = (
+                            random.uniform(0.0, probed_duration - AUTO_WINDOW_MAX_SEC)
+                            if auto_window_mode != "start" else 0.0
+                        )
+                        download_time_range = (window_start, window_start + AUTO_WINDOW_MAX_SEC)
+                except Exception as e:
+                    logger.warning(f"Could not check length of {url} ahead of download ({e}); downloading normally.")
+
                 logger.info(f"🗂️ Batch {i + 1}/{len(urls)}: downloading {url}")
-                video_path = download_youtube_video(url, output_filename=f"batch_{i}_input.mp4")
+                video_path = download_youtube_video(
+                    url, output_filename=f"batch_{i}_input.mp4", time_range=download_time_range,
+                )
                 transcript_text = get_or_create_transcript(video_path)
                 clips = self.orchestrate_generation(
                     transcript_text=transcript_text,
