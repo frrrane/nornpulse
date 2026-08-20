@@ -21,6 +21,7 @@ from agent.skuld_renderer import (
 )
 from agent.urdr_analytics import UrdrAnalytics
 from agent.bragi_composer import BragiComposer
+from agent.heimdall_visualizer import HeimdallVisualizer
 
 load_dotenv(override=True)
 logger = logging.getLogger("nornpulse.orchestrator")
@@ -68,6 +69,7 @@ class VerdandiADK:
         self.skuld = SkuldRenderer(output_dir="output_clips")
         self.urdr = UrdrAnalytics()
         self.bragi = BragiComposer()
+        self.heimdall = HeimdallVisualizer()
 
     def _make_tools(
         self,
@@ -165,6 +167,18 @@ class VerdandiADK:
             if music_benchmark:
                 music_path = self.bragi.compose_track(hook_type, music_benchmark)
 
+            # Heimdall composes a custom cover thumbnail grounded in the
+            # same music_benchmark row — the mood/genre/energy that suits
+            # this hook_type acoustically is the same signal that should
+            # drive its visual mood. A generation failure never blocks the
+            # clip — the render simply falls back to no custom thumbnail.
+            thumbnail_path = None
+            if music_benchmark:
+                thumbnail_path = self.heimdall.compose_thumbnail(
+                    clip_id=clip_id, hook_title=hook_banner_text, music_benchmark=music_benchmark,
+                    output_dir=self.skuld.output_dir,
+                )
+
             result = self.skuld.render_vertical_short(
                 input_video_path=input_video_path,
                 start_time=start_time,
@@ -189,6 +203,7 @@ class VerdandiADK:
                     "output_video_path": result["output_video_path"],
                     "has_subtitles": result["has_subtitles"],
                     "has_bragi_score": result.get("has_bragi_score", False),
+                    "thumbnail_path": thumbnail_path,
                     "music_genre": music_benchmark.get("genre") if music_benchmark else None,
                     "music_mood": music_benchmark.get("mood") if music_benchmark else None,
                     "crop_mode": result.get("crop_mode", "unknown"),
@@ -535,6 +550,7 @@ class VerdandiADK:
                     "output_video_path": clip["output_video_path"],
                     "has_subtitles": clip["has_subtitles"],
                     "has_bragi_score": clip.get("has_bragi_score", False),
+                    "thumbnail_path": clip.get("thumbnail_path"),
                     "music_genre": clip.get("music_genre"),
                     "music_mood": clip.get("music_mood"),
                     "hook_title": meta.get("hook_title", "Autonomous Core Insight"),

@@ -140,7 +140,8 @@ class NornPublisher:
         return creds
 
     def upload_to_youtube_shorts(
-        self, video_path: str | Path, title: str, description: str, privacy_status: str = "private"
+        self, video_path: str | Path, title: str, description: str, privacy_status: str = "private",
+        thumbnail_path: str | Path | None = None,
     ) -> Dict[str, Any]:
         """
         Publishes a vertical video to YouTube as a Short using the YouTube
@@ -151,6 +152,15 @@ class NornPublisher:
         internal testing. Returns a dict with video_id, url, and
         privacy_status on success. Raises PublishError with a specific
         cause on failure.
+
+        thumbnail_path, if given (Heimdall's generated cover image), is
+        set via thumbnails().set() after the upload succeeds. Setting a
+        custom thumbnail via the API requires the channel to be phone-
+        verified — on an unverified channel this call 403s. That failure
+        is logged and swallowed rather than raised, since the video
+        itself already published successfully at that point; losing the
+        custom thumbnail shouldn't be treated as the whole publish
+        failing.
         """
         if privacy_status not in ("private", "unlisted", "public"):
             raise PublishError(f"Invalid privacy_status '{privacy_status}'; must be private, unlisted, or public.")
@@ -196,7 +206,23 @@ class NornPublisher:
             url = f"https://youtube.com/shorts/{video_id}"
             privacy_status = response.get("status", {}).get("privacyStatus", "unknown")
             logger.info(f"✨ Successfully published YouTube Short! {url} (privacy: {privacy_status})")
-            return {"video_id": video_id, "url": url, "privacy_status": privacy_status}
+
+            thumbnail_set = False
+            if thumbnail_path and Path(thumbnail_path).exists():
+                try:
+                    youtube.thumbnails().set(
+                        videoId=video_id,
+                        media_body=MediaFileUpload(str(thumbnail_path), mimetype="image/jpeg"),
+                    ).execute()
+                    thumbnail_set = True
+                    logger.info(f"👁️ Set Heimdall-composed custom thumbnail for {video_id}.")
+                except Exception as e:
+                    logger.warning(
+                        f"Could not set custom thumbnail for {video_id} (channel may not be phone-verified "
+                        f"for custom thumbnails): {e}"
+                    )
+
+            return {"video_id": video_id, "url": url, "privacy_status": privacy_status, "thumbnail_set": thumbnail_set}
 
         except PublishError:
             raise

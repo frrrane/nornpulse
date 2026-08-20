@@ -388,9 +388,13 @@ with nav_tab1:
                     # Constrained to a phone-shaped preview width — a 9:16
                     # video rendered at full column width (like the 16:9
                     # source clip in Column 1) looks disproportionately huge.
-                    vid_col, _ = st.columns([2, 1])
+                    vid_col, thumb_col = st.columns([2, 1])
                     with vid_col:
                         st.video(str(c_path), width=280)
+                    thumbnail_path = item.get("thumbnail_path")
+                    if thumbnail_path and Path(thumbnail_path).exists():
+                        with thumb_col:
+                            st.image(thumbnail_path, width=90, caption="👁️ Heimdall cover")
                 st.metric("Virality Score", f"{item.get('virality_score', 90.0)}/100")
                 if item.get("has_subtitles"):
                     st.caption("💬 Kinetic subtitles burned in")
@@ -430,7 +434,8 @@ with nav_tab1:
                         with st.spinner("Publishing..."):
                             try:
                                 result = st.session_state.publisher.upload_to_youtube_shorts(
-                                    c_path, t_val, d_val, privacy_status=privacy_choice
+                                    c_path, t_val, d_val, privacy_status=privacy_choice,
+                                    thumbnail_path=item.get("thumbnail_path"),
                                 )
 
                                 # Log the prediction-side row now, so Tab 3's
@@ -457,7 +462,8 @@ with nav_tab1:
                                     "url": result["url"],
                                     "privacy_status": result["privacy_status"],
                                 })
-                                st.success(f"✨ Published: [{result['url']}]({result['url']}) · {result['privacy_status']}")
+                                thumb_note = " · 👁️ custom thumbnail set" if result.get("thumbnail_set") else ""
+                                st.success(f"✨ Published: [{result['url']}]({result['url']}) · {result['privacy_status']}{thumb_note}")
                                 st.session_state.published_count += 1
                                 _cached_published_outcomes.clear()
                                 c_path.unlink(missing_ok=True)
