@@ -14,6 +14,7 @@ ClickHouse track requirement.
 
 import logging
 import datetime
+import math
 from typing import Dict, Any, List, Optional
 import pandas as pd
 from dotenv import load_dotenv
@@ -183,6 +184,26 @@ DEFAULT_MUSIC_BENCHMARKS = [
     {"hook_type": "metaphor_analogy", "genre": "cinematic ambient", "mood": "thoughtful", "bpm": 95, "energy_level": 0.6, "avg_virality_score": 85.8, "sample_size_views": 250000, "topic_category": "data_infra"},
     {"hook_type": "metaphor_analogy", "genre": "jazz fusion", "mood": "smooth", "bpm": 100, "energy_level": 0.55, "avg_virality_score": 80.2, "sample_size_views": 130000, "topic_category": "data_infra"},
 ]
+
+
+def _compute_actual_virality_score(view_count: int, like_count: int, comment_count: int) -> float:
+    """
+    Heuristic 0-100 virality proxy from real YouTube stats, scaled to sit
+    in roughly the same range as the synthetic seed benchmarks. There's no
+    single industry-standard "virality score", so this is a documented
+    heuristic, not a validated metric: a log-scaled view-count component
+    (rewards reach, with diminishing returns — 30 at ~1K views, 50 at
+    ~100K, capping at 60 around 1M+) blended with an engagement-rate
+    component (likes + 3x comments, since a comment is rarer/costs more
+    effort than a like, relative to views; capped at 40, reached around a
+    ~10% weighted engagement rate). Raw view count alone can't distinguish
+    a clip that genuinely resonated from one that was merely shown to a
+    lot of people, so both terms matter.
+    """
+    view_component = min(60.0, 10.0 * math.log10(max(view_count, 0) + 1))
+    engagement_rate = (like_count + 3 * comment_count) / max(view_count, 1)
+    engagement_component = min(40.0, engagement_rate * 400.0)
+    return round(min(100.0, view_component + engagement_component), 2)
 
 
 class UrdrAnalytics:
@@ -565,9 +586,113 @@ class UrdrAnalytics:
             )
             ch.run_query(query)
             logger.info(f"Synced actual stats for {youtube_video_id}: {view_count} views.")
+
+            # Close the loop: feed this real outcome back into
+            # video_hook_retention so future hook_type grounding reflects
+            # what actually performed, not just synthetic seed data and
+            # the prediction made at generation time. A failure here
+            # doesn't fail the sync itself — the cross-validation display
+            # already has what it needs from the insert above.
+            self.log_actual_outcome_to_benchmarks(
+                clip_id=row["clip_id"], hook_type=row["hook_type"],
+                view_count=view_count, like_count=like_count, comment_count=comment_count,
+            )
             return True
         except Exception as e:
             logger.error(f"Failed to sync actual stats: {e}")
+            return False
+
+    def log_actual_outcome_to_benchmarks(
+        self, clip_id: str, hook_type: str, view_count: int, like_count: int, comment_count: int,
+    ) -> bool:
+        """
+        Converts a clip's real published performance into a genuine data
+        point in video_hook_retention (see _compute_actual_virality_score
+        for the scoring heuristic), tagged topic_category='actual_outcome'
+        and video_id=f"actual_{clip_id}" so it's distinguishable from
+        synthetic seed rows and the predicted-at-generation-time row for
+        the same clip. get_hook_type_benchmarks' AVG(virality_score)
+        GROUP BY hook_type then blends real outcomes in over time —
+        hook types that actually perform well accumulate real high-
+        virality samples, genuinely shifting what Verðandi is grounded in
+        rather than the benchmarks staying static forever.
+
+        Idempotent per clip: only the first successful call for a given
+        clip_id inserts a row, so re-syncing the same video's stats
+        repeatedly (each sync appends a fresh published_clip_outcomes row
+        by design) doesn't multiply that one clip's weight in the
+        aggregate — later syncs still update the cross-validation display,
+        they just don't re-feed the benchmark.
+        """
+        if not self.is_connected():
+            return False
+
+        actual_video_id = f"actual_{clip_id}"
+        try:
+            already_logged = ch.run_query_df(
+                f"SELECT video_id FROM video_hook_retention WHERE video_id = {ch.sql_literal(actual_video_id)} LIMIT 1"
+            )
+            if not already_logged.empty:
+                logger.info(f"Actual outcome for {clip_id} already fed into benchmarks; skipping re-insert.")
+                return True
+
+            # Carry over hook_text/duration/retention-curve fields from the
+            # original prediction row (logged at generation time under
+            # video_id=clip_id) — the YouTube Data API doesn't expose 3s/
+            # 15s/30s retention curves (that needs YouTube Analytics API
+            # with a different OAuth scope), so those stay as the model's
+            # own predictions; only virality_score and sample_size_views
+            # get replaced with real, measured values below.
+            original = ch.run_query_df(f"""
+                SELECT hook_text, duration_sec, avg_3s_retention_pct,
+                       avg_15s_retention_pct, avg_30s_retention_pct,
+                       completion_rate_pct, crop_mode
+                FROM video_hook_retention
+                WHERE video_id = {ch.sql_literal(clip_id)}
+                ORDER BY created_at DESC
+                LIMIT 1
+            """)
+            if original.empty:
+                logger.warning(f"No original generation record for clip_id '{clip_id}'; logging actual outcome with defaults.")
+                orig = {
+                    "hook_text": "", "duration_sec": 10.0, "avg_3s_retention_pct": 0.0,
+                    "avg_15s_retention_pct": 0.0, "avg_30s_retention_pct": 0.0,
+                    "completion_rate_pct": 0.0, "crop_mode": "unknown",
+                }
+            else:
+                orig = original.iloc[0].to_dict()
+
+            actual_virality_score = _compute_actual_virality_score(view_count, like_count, comment_count)
+
+            query = (
+                "INSERT INTO video_hook_retention "
+                "(video_id, hook_type, hook_text, duration_sec, avg_3s_retention_pct, "
+                "avg_15s_retention_pct, avg_30s_retention_pct, completion_rate_pct, "
+                "virality_score, topic_category, sample_size_views, crop_mode) VALUES ("
+                + ", ".join([
+                    ch.sql_literal(actual_video_id),
+                    ch.sql_literal(hook_type),
+                    ch.sql_literal(orig["hook_text"]),
+                    ch.sql_literal(float(orig["duration_sec"])),
+                    ch.sql_literal(float(orig["avg_3s_retention_pct"])),
+                    ch.sql_literal(float(orig["avg_15s_retention_pct"])),
+                    ch.sql_literal(float(orig["avg_30s_retention_pct"])),
+                    ch.sql_literal(float(orig["completion_rate_pct"])),
+                    ch.sql_literal(actual_virality_score),
+                    ch.sql_literal("actual_outcome"),
+                    ch.sql_literal(int(view_count)),
+                    ch.sql_literal(orig["crop_mode"]),
+                ]) + ")"
+            )
+            ch.run_query(query)
+            logger.info(
+                f"✨ Closed feedback loop: logged real outcome for {clip_id} (hook_type={hook_type}) "
+                f"with actual_virality_score={actual_virality_score:.1f} ({view_count} views, "
+                f"{like_count} likes, {comment_count} comments)."
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to log actual outcome to benchmarks: {e}")
             return False
 
     def get_published_outcomes(self, limit: int = 50) -> pd.DataFrame:
