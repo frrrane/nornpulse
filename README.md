@@ -151,6 +151,7 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 4. **Manual Cut Range**: Optionally restrict generation to a portion of the source video via a range slider — Verðandi only sees (and can only render from) that window, enforced both in the prompt and as a hard code-level clamp. Pair with **Cut Energy** to bias clip length toward the calm/long or snappy/short end of the duration range.
 5. **Long-Video Auto-Window**: Sources longer than 10 minutes with no manual Cut Range set get one bounded window auto-selected instead of Verðandi reasoning over the entire runtime in a single call — toggle **Random** (fresh offset each run) or **From Start**.
 6. **Batch Mode**: Point it at a YouTube channel or playlist URL instead of a single video — runs the full pipeline once per video (capped at 3), then ranks every resulting clip by predicted virality score in the Review & Publish column.
+7. **Caption Translation**: Optionally burn in captions translated into a different language than the source (e.g. a Turkish-language drama captioned in English for a Shorts audience). Translation happens line-by-line, preserving each line's original `[MM:SS]` timestamp exactly — only the words change, so kinetic caption timing is unaffected. Verðandi's own reasoning and Mímir's enhance-narration fallback both still use the original-language transcript; only the on-screen text is translated.
 
 ---
 

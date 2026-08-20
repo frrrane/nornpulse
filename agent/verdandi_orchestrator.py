@@ -105,6 +105,49 @@ class VerdandiADK:
         self.bragi = BragiComposer()
         self.heimdall = HeimdallVisualizer()
         self.mimir = MimirNarrator()
+        # Keyed by (transcript_text, target_language) — the same window's
+        # transcript is typically reused across every clip in a single
+        # generation run, so translating it once per language instead of
+        # once per clip avoids redundant Gemini calls.
+        self._translation_cache: Dict[Tuple[str, str], str] = {}
+
+    def translate_transcript(self, transcript_text: str, target_language: str) -> str:
+        """
+        Translates each transcript line into target_language while
+        preserving the exact same [MM:SS] timestamp prefix and line
+        structure — so the result is a drop-in replacement for the
+        original-language transcript when fed into Skuld's subtitle
+        renderer (generate_rebased_ass_subtitle_file), which keys caption
+        timing purely off those timestamps. Only the burned-in captions
+        change; Verðandi still reasons over (and Mímir's enhance-narration
+        fallback still reads back) the original-language text.
+        A translation failure falls back to the original text rather than
+        blocking the render.
+        """
+        cache_key = (transcript_text, target_language)
+        if cache_key in self._translation_cache:
+            return self._translation_cache[cache_key]
+
+        prompt = (
+            f"Translate the spoken text on each line below into {target_language}. "
+            "Keep the exact same line order and the exact same [MM:SS] (or "
+            "[MM:SS]-[MM:SS]) timestamp prefix on every line — only replace the "
+            "words after the timestamp with their translation. Output one line "
+            "per input line, nothing else: no headers, no notes, no commentary.\n\n"
+            f"{transcript_text}"
+        )
+        try:
+            response = self.client.models.generate_content(model="gemini-3.6-flash", contents=prompt)
+            translated = (response.text or "").strip()
+            if not translated:
+                logger.warning("Transcript translation returned empty text; falling back to original.")
+                translated = transcript_text
+        except Exception as e:
+            logger.warning(f"Transcript translation to '{target_language}' failed ({e}); falling back to original.")
+            translated = transcript_text
+
+        self._translation_cache[cache_key] = translated
+        return translated
 
     def _make_tools(
         self,
@@ -120,6 +163,7 @@ class VerdandiADK:
         window: Optional[Tuple[float, float]] = None,
         vision_mode: bool = False,
         clip_id_prefix: str = "",
+        caption_language: Optional[str] = None,
     ) -> List[Callable]:
         """Builds request-scoped tool functions closing over this call's state."""
 
@@ -203,6 +247,15 @@ class VerdandiADK:
                 else transcript_text
             )
 
+            # Burned-in captions can be translated into a different
+            # language than the one Verðandi reasons in above and Mímir's
+            # enhance-narration fallback reads back below — only the text
+            # that actually gets rendered onto screen changes. Timestamps
+            # are preserved line-for-line, so chunk timing is unaffected.
+            caption_transcript = resolved_transcript
+            if caption_language and resolved_transcript:
+                caption_transcript = self.translate_transcript(resolved_transcript, caption_language)
+
             # Ground Bragi's Lyria prompt in real ClickHouse virality data
             # for this hook_type, then compose (or reuse a cached) track.
             # A composition failure never blocks the clip — render simply
@@ -266,7 +319,7 @@ class VerdandiADK:
                 clip_id=clip_id,
                 crop_mode=crop_mode,
                 hook_banner_text=hook_banner_text,
-                transcript_text=resolved_transcript,
+                transcript_text=caption_transcript,
                 warmth=warmth,
                 crazy=crazy,
                 music_path=music_path,
@@ -285,6 +338,7 @@ class VerdandiADK:
                     "has_subtitles": result["has_subtitles"],
                     "has_bragi_score": result.get("has_bragi_score", False),
                     "has_narration": result.get("has_narration", False),
+                    "caption_language": caption_language,
                     "thumbnail_path": thumbnail_path,
                     "music_genre": music_benchmark.get("genre") if music_benchmark else None,
                     "music_mood": music_benchmark.get("mood") if music_benchmark else None,
@@ -523,6 +577,7 @@ class VerdandiADK:
         auto_window_mode: str = "random",
         clip_id_prefix: str = "",
         content_hint: Optional[str] = None,
+        caption_language: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         rendered_clips: List[Dict[str, Any]] = []
 
@@ -592,7 +647,7 @@ class VerdandiADK:
             transcript_text, rendered_clips, warmth, crazy, retention_summary,
             min_duration_sec, max_duration_sec, video_duration_sec,
             topic_focus=topic_focus, window=transcript_window, vision_mode=vision_mode,
-            clip_id_prefix=clip_id_prefix,
+            clip_id_prefix=clip_id_prefix, caption_language=caption_language,
         )
         prompt = self._build_prompt(
             transcript_text, video_path, target_count, retention_summary,
@@ -655,6 +710,7 @@ class VerdandiADK:
         cut_energy: float = 0.5,
         auto_window_mode: str = "random",
         content_hint: Optional[str] = None,
+        caption_language: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Runs the full single-video pipeline once per URL in video_urls
@@ -713,6 +769,7 @@ class VerdandiADK:
                     auto_window_mode=auto_window_mode,
                     clip_id_prefix=f"batch{i}_",
                     content_hint=content_hint,
+                    caption_language=caption_language,
                 )
                 for clip in clips:
                     clip["source_url"] = url

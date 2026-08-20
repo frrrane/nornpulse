@@ -261,6 +261,10 @@ with nav_tab1:
                 "🎬 Creative Direction (optional)", key="batch_content_hint",
                 placeholder="e.g. a romantic moment, a tense confrontation...",
             ).strip() or None
+            batch_caption_language = st.text_input(
+                "🌐 Translate Captions (optional)", key="batch_caption_language",
+                placeholder="e.g. English — leave blank to keep the source language",
+            ).strip() or None
             if st.button("🗂️ Run Batch", key="run_batch"):
                 if not batch_url:
                     st.error("Enter a channel or playlist URL first.")
@@ -277,6 +281,7 @@ with nav_tab1:
                                 batch_results = st.session_state.verdandi_adk.orchestrate_batch(
                                     video_urls=batch_urls, target_count_per_video=1,
                                     content_hint=batch_content_hint,
+                                    caption_language=batch_caption_language,
                                 )
                                 st.session_state.current_generation = batch_results
                                 st.success(
@@ -381,6 +386,15 @@ with nav_tab1:
                  "over a marginally higher virality score — leave blank to let it pick freely.",
         ).strip() or None
 
+        caption_language = st.text_input(
+            "🌐 Translate Captions (optional)",
+            key="caption_language",
+            placeholder="e.g. English, Spanish — leave blank to keep the source language",
+            help="Burns in captions translated into this language instead of the source transcript's "
+                 "own language. Timing is unaffected — only the on-screen words change. Verðandi's "
+                 "reasoning and Mímir's narration fallback still use the original-language transcript.",
+        ).strip() or None
+
         st.markdown("<div class='workflow-header'>🎨 Caption Style</div>", unsafe_allow_html=True)
         warmth = st.slider(
             "🌡️ Warmth", min_value=0.0, max_value=1.0, value=0.5, step=0.05,
@@ -432,6 +446,7 @@ with nav_tab1:
                     transcript_window=transcript_window,
                     auto_window_mode=auto_window_mode,
                     content_hint=content_hint,
+                    caption_language=caption_language,
                 )
 
                 output_dir = Path("output_clips")
@@ -489,7 +504,11 @@ with nav_tab1:
                             st.image(thumbnail_path, width=90, caption="👁️ Heimdall cover")
                 st.metric("Virality Score", f"{item.get('virality_score', 90.0)}/100")
                 if item.get("has_subtitles"):
-                    st.caption("💬 Kinetic subtitles burned in")
+                    caption_lang = item.get("caption_language")
+                    st.caption(
+                        f"💬 Kinetic subtitles burned in — translated to {caption_lang}" if caption_lang
+                        else "💬 Kinetic subtitles burned in"
+                    )
                 if item.get("has_bragi_score"):
                     genre = item.get("music_genre") or "custom"
                     mood = item.get("music_mood") or ""
