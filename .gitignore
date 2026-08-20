@@ -11,6 +11,9 @@ htmlcov/
 .env
 .env.local
 .env.*.local
+client_secrets.json
+.credentials/
+.nornpulse_last_session.json
 
 # IDE & OS
 .DS_Store

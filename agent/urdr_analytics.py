@@ -4,11 +4,13 @@ Part of NornPulse: Autonomous Media Engine by Norn Labs (nornlabs.ai)
 
 Urðr weaves the thread of the past. This module queries ClickHouse for historical
 video hook retention metrics, drop-off curves, and virality benchmarks to ground
-AI clip decisions in empirical audience behavioral data.
+AI clip decisions in empirical audience behavioral data. It also logs new generation
+telemetry to close the autonomous feedback loop.
 """
 
 import os
 import logging
+import datetime
 from typing import Dict, Any, List, Optional
 import pandas as pd
 from dotenv import load_dotenv
@@ -294,6 +296,64 @@ class UrdrAnalytics:
         except Exception as e:
             logger.error(f"Failed to seed benchmarks into ClickHouse: {e}")
             return 0
+            
+    def log_generated_clip(
+        self, 
+        clip_id: str, 
+        hook_type: str, 
+        hook_text: str, 
+        duration_sec: float, 
+        predicted_3s: float, 
+        predicted_completion: float,
+        virality_score: float,
+        topic_category: str = "generated_clip"
+    ) -> bool:
+        """
+        Closes the loop by logging newly generated clips and their predicted 
+        telemetry back into the ClickHouse database.
+        """
+        if not self.is_connected():
+            logger.warning("ClickHouse disconnected; unable to log generated clip.")
+            return False
+            
+        try:
+            # We seed new rows with 0 sample_size until actual telemetry is retrieved
+            row = (
+                clip_id,
+                hook_type,
+                hook_text,
+                float(duration_sec),
+                float(predicted_3s),
+                0.0, # 15s prediction placeholder
+                0.0, # 30s prediction placeholder
+                float(predicted_completion),
+                float(virality_score),
+                topic_category,
+                0, # Sample size views starts at 0
+            )
+            
+            self.client.insert(
+                "video_hook_retention",
+                [row],
+                column_names=[
+                    "video_id",
+                    "hook_type",
+                    "hook_text",
+                    "duration_sec",
+                    "avg_3s_retention_pct",
+                    "avg_15s_retention_pct",
+                    "avg_30s_retention_pct",
+                    "completion_rate_pct",
+                    "virality_score",
+                    "topic_category",
+                    "sample_size_views",
+                ],
+            )
+            logger.info(f"Logged generated clip {clip_id} prediction telemetry to ClickHouse.")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to log generated clip to ClickHouse: {e}")
+            return False
 
     def query_hook_retention(
         self,

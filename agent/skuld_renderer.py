@@ -1,126 +1,244 @@
+# agent/skuld_renderer.py
 """
-Skuld Renderer (ᛋ - Skuld / The Future)
-Part of NornPulse: Autonomous Media Engine by Norn Labs (nornlabs.ai)
+⚡ NornPulse: Skuld Video Studio Renderer (skuld_renderer.py)
+Norn Labs (nornlabs.ai)
+
+Responsible for compiling 16:9 source videos into viral 9:16 vertical shorts,
+applying dynamic kinetic subtitles with relative timeline re-basing, crop
+positioning, and hook title banners.
 """
 
-import os
 import re
 import subprocess
 import logging
-from typing import Optional, Dict, Any
 from pathlib import Path
-
-from config import Config
+from typing import Dict, Any, Optional, Literal
 
 logger = logging.getLogger("nornpulse.skuld")
 
-class SkuldRenderer:
-    def __init__(self, output_dir: str = "output_clips"):
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self._verify_ffmpeg()
+CropMode = Literal["center_crop", "blurred_background"]
 
-    def _verify_ffmpeg(self) -> bool:
-        try:
-            res = subprocess.run(["ffmpeg", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            return res.returncode == 0
-        except FileNotFoundError:
-            return False
 
-    @staticmethod
-    def parse_time_to_seconds(time_str: str) -> float:
-        if isinstance(time_str, (int, float)): return float(time_str)
-        parts = str(time_str).strip().split(":")
-        try:
-            if len(parts) == 1: return float(parts[0])
-            if len(parts) == 2: return float(parts[0]) * 60 + float(parts[1])
-            if len(parts) == 3: return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
-        except: pass
-        return 0.0
+def parse_time_to_seconds(time_str: str) -> float:
+    """Converts HH:MM:SS, MM:SS, or SS.ms into float seconds."""
+    parts = time_str.replace(",", ".").split(":")
+    if len(parts) == 3:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+    elif len(parts) == 2:
+        return int(parts[0]) * 60 + float(parts[1])
+    return float(parts[0])
 
-    def render_vertical_short(
-        self, input_video_path: str, start_time: str, end_time: str,
-        clip_id: str = "short_clip", crop_mode: str = "center_crop",
-        target_width: int = 1080, target_height: int = 1920,
-        hook_banner_text: Optional[str] = None,
-        max_duration_override: Optional[float] = None,
-    ) -> Dict[str, Any]:
-        """Render a 9:16 vertical short from a source video.
 
-        Duration is derived from ``end_time - start_time`` and then clamped:
-          • lower bound : ``Config.MIN_VIDEO_DURATION_SEC``
-          • upper bound : ``max_duration_override`` if provided, otherwise
-                          ``Config.EFFECTIVE_MAX_DURATION_SEC``
-                          (which already respects ``EXTENDED_DURATION_MODE``).
+def seconds_to_ass_time(total_seconds: float) -> str:
+    """Converts total seconds into ASS time format 'H:MM:SS.cs'."""
+    if total_seconds < 0:
+        total_seconds = 0
+    h = int(total_seconds // 3600)
+    m = int((total_seconds % 3600) // 60)
+    s = int(total_seconds % 60)
+    cs = int(round((total_seconds - int(total_seconds)) * 100))
+    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
-        No magic numbers are used here – all bounds come from Config.
-        """
-        input_path = Path(input_video_path)
-        start_sec = self.parse_time_to_seconds(start_time)
-        end_sec   = self.parse_time_to_seconds(end_time)
 
-        # Derive duration from the clip window
-        raw_duration = end_sec - start_sec
+def _escape_ass_text(text: str) -> str:
+    """
+    Escapes characters libass interprets as override-tag delimiters, so a
+    literal '{' or '}' in transcript text doesn't get parsed as an ASS
+    styling directive and corrupt or hide the line.
+    """
+    return text.replace("{", "\\{").replace("}", "\\}")
 
-        # Determine the effective ceiling for this render call
-        ceiling = (
-            float(max_duration_override)
-            if max_duration_override is not None
-            else Config.EFFECTIVE_MAX_DURATION_SEC
+
+def _escape_drawtext(text: str) -> str:
+    """
+    Escapes characters FFmpeg's drawtext filter treats as special:
+    colon (option separator), percent (strftime expansion), backslash
+    and single quote (escape characters).
+    """
+    text = text.encode("ascii", "ignore").decode("ascii")
+    text = text.replace("\\", "\\\\")
+    text = text.replace(":", "\\:")
+    text = text.replace("%", "\\%")
+    text = text.replace("'", "\u2019")  # swap to a typographic apostrophe rather than dropping it
+    return text
+
+
+def generate_rebased_ass_subtitle_file(
+    transcript_text: str,
+    output_ass_path: str | Path,
+    clip_start_sec: float,
+    clip_end_sec: float,
+) -> Path:
+    """
+    Parses transcript lines, rebases timestamps relative to the clip window
+    starting at 0, and generates an ASS subtitle file for FFmpeg.
+    """
+    output_ass_path = Path(output_ass_path)
+    output_ass_path.parent.mkdir(parents=True, exist_ok=True)
+
+    ass_content = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: KineticViral,sans-serif,54,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,2,2,50,50,300,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"""
+
+    clip_duration = clip_end_sec - clip_start_sec
+    lines_written = 0
+
+    for line in transcript_text.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+
+        times = re.findall(r"(?:\[)?(\d{1,2}:\d{2}(?:[:.]\d+)?)(?:\])?", line)
+        if not times:
+            continue
+
+        abs_start = parse_time_to_seconds(times[0])
+        abs_end = parse_time_to_seconds(times[1]) if len(times) >= 2 else abs_start + 4.0
+
+        # Inclusive overlap check: catches any line overlapping the clip window
+        if max(abs_start, clip_start_sec) >= min(abs_end, clip_end_sec):
+            continue
+
+        rel_start = max(0.0, abs_start - clip_start_sec)
+        rel_end = min(clip_duration, abs_end - clip_start_sec)
+
+        start_ass = seconds_to_ass_time(rel_start)
+        end_ass = seconds_to_ass_time(rel_end)
+
+        # Strip bracketed timestamp tags, e.g. "[00:12 - 00:16]"
+        clean_text = re.sub(r"\[.*?\]", "", line)
+        # Strip any leftover raw timestamps, e.g. "00:12:03,450"
+        clean_text = re.sub(r"\d{1,2}:\d{2}(?:[:.]\d+)?", "", clean_text)
+        # Strip only an SRT-style arrow separator, never bare words
+        clean_text = re.sub(r"-->", "", clean_text)
+        # Strip a lone connecting hyphen only when isolated by whitespace
+        # (leftover from "00:12 - 00:16"); never touches hyphens inside
+        # real words like "well-known"
+        clean_text = re.sub(r"(?<=\s)-(?=\s)", "", clean_text)
+        clean_text = clean_text.strip(" []:")
+        clean_text = _escape_ass_text(clean_text)
+
+        if not clean_text:
+            continue
+
+        ass_content += f"Dialogue: 0,{start_ass},{end_ass},KineticViral,,0,0,0,,{clean_text}\n"
+        lines_written += 1
+
+    if lines_written == 0:
+        logger.warning(
+            f"No subtitle lines matched clip window {clip_start_sec}-{clip_end_sec}s. "
+            f"Check that transcript timestamps overlap this range."
         )
 
-        # Clamp to [MIN, ceiling]; fall back to DEFAULT when window is degenerate
-        if raw_duration <= 0:
-            logger.warning(
-                f"Clip '{clip_id}': end_time ({end_time}) <= start_time ({start_time}). "
-                f"Falling back to DEFAULT_VIDEO_DURATION_SEC={Config.DEFAULT_VIDEO_DURATION_SEC}s."
-            )
-            clip_duration = Config.DEFAULT_VIDEO_DURATION_SEC
-        else:
-            clip_duration = max(Config.MIN_VIDEO_DURATION_SEC, min(raw_duration, ceiling))
+    with open(output_ass_path, "w", encoding="utf-8-sig") as f:
+        f.write(ass_content)
 
-        if clip_duration != raw_duration and raw_duration > 0:
-            logger.info(
-                f"Clip '{clip_id}': requested {raw_duration:.1f}s clamped to "
-                f"{clip_duration:.1f}s (min={Config.MIN_VIDEO_DURATION_SEC}s, "
-                f"max={ceiling}s, extended={Config.EXTENDED_DURATION_MODE})."
-            )
+    return output_ass_path
 
-        clean_id = re.sub(r'[^a-zA-Z0-9_-]', '_', clip_id)
-        output_path = self.output_dir / f"{clean_id}_9x16.mp4"
 
-        # Build Filter Graph without boxradius
+class SkuldRenderer:
+    """
+    Executes FFmpeg rendering pipelines to transform 16:9 videos into 9:16 shorts.
+    """
+
+    def __init__(self, output_dir: str | Path = "output_clips"):
+        # Resolve to an absolute path up front so the FFmpeg subprocess
+        # (which may run with a different CWD) always finds the .ass file.
+        self.output_dir = Path(output_dir).resolve()
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _build_crop_filter(self, crop_mode: CropMode) -> str:
         if crop_mode == "blurred_background":
-            filter_graph = f"[0:v]scale={target_width}:{target_height}:force_original_aspect_ratio=increase,crop={target_width}:{target_height},boxblur=28:5[bg];[0:v]scale={target_width}:-2[fg];[bg][fg]overlay=0:(H-h)/2"
-        else:
-            filter_graph = f"crop=ih*(9/16):ih:(iw-ow)/2:0,scale={target_width}:{target_height}:flags=lanczos"
+            return (
+                f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,boxblur=40:10[bg];"
+                f"[0:v]scale=1080:-1:force_original_aspect_ratio=decrease[fg];"
+                f"[bg][fg]overlay=(W-w)/2:(H-h)/2"
+            )
+        return f"[0:v]crop=ih*9/16:ih,scale=1080:1920"
+
+    def _build_banner_filter(self, hook_banner_text: str) -> str:
+        safe_text = _escape_drawtext(hook_banner_text)
+        return (
+            f",drawbox=x=40:y=80:w=1000:h=100:color=0x000000@0.75:t=fill,"
+            f"drawtext=text='{safe_text}':fontcolor=white:fontsize=42:x=(w-text_w)/2:y=108"
+        )
+
+    def render_vertical_short(
+        self,
+        input_video_path: str | Path,
+        start_time: str,
+        end_time: str,
+        clip_id: str,
+        crop_mode: CropMode = "center_crop",
+        hook_banner_text: Optional[str] = None,
+        transcript_text: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        input_video_path = Path(input_video_path)
+        if not input_video_path.exists():
+            raise FileNotFoundError(f"Input video not found: {input_video_path}")
+
+        output_video_path = self.output_dir / f"{clip_id}_9x16.mp4"
+        logger.info(
+            f"Rendering short '{clip_id}' from {start_time} to {end_time} -> {output_video_path.name}"
+        )
+
+        vf = self._build_crop_filter(crop_mode)
 
         if hook_banner_text:
-            safe_text = str(hook_banner_text).replace("'", "").replace(":", "\\:")
-            # Strictly compatible parameters only
-            text_filter = f",drawtext=text='{safe_text}':fontcolor=white:fontsize=56:box=1:boxcolor=black@0.65:boxborderw=24:x=(w-text_w)/2:y=180"
-            filter_graph += text_filter
+            vf += self._build_banner_filter(hook_banner_text)
 
-        if crop_mode == "blurred_background" or hook_banner_text:
-            if "overlay" in filter_graph and not filter_graph.endswith("[v_out]"): filter_graph += "[v_out]"
-            elif not filter_graph.endswith("[v_out]"): filter_graph = f"[0:v]{filter_graph}[v_out]"
-            v_map = "[v_out]"
-        else:
-            v_map = None
+        if transcript_text:
+            clip_start_sec = parse_time_to_seconds(start_time)
+            clip_end_sec = parse_time_to_seconds(end_time)
+            sub_path = self.output_dir / f"{clip_id}_subs.ass"
+            generate_rebased_ass_subtitle_file(
+                transcript_text, sub_path, clip_start_sec, clip_end_sec
+            )
+            # Only the forward-slash swap is needed for cross-platform paths.
+            # Wrapping in single quotes already handles ffmpeg's filtergraph
+            # escaping — manually escaping ':' on top of that produces a
+            # literal backslash in the filename libass tries to open.
+            sub_path_str = str(sub_path).replace("\\", "/")
+            vf += f",ass=filename='{sub_path_str}'"
 
-        cmd = ["ffmpeg", "-y", "-ss", str(start_sec), "-i", str(input_path), "-t", str(clip_duration)]
-        if v_map: cmd.extend(["-filter_complex", filter_graph, "-map", v_map, "-map", "0:a?"])
-        else: cmd.extend(["-vf", filter_graph])
-        
-        cmd.extend(["-c:v", "libx264", "-preset", "fast", "-crf", "22", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", str(output_path)])
-        
-        process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        if process.returncode != 0:
-            raise RuntimeError(f"FFmpeg failed: {process.stderr}")
+        vf += "[scaled]"
 
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start_time),
+            "-to", str(end_time),
+            "-i", str(input_video_path),
+            "-filter_complex", vf,
+            "-map", "[scaled]",
+            "-map", "0:a?",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            str(output_video_path),
+        ]
+
+        logger.debug(f"FFmpeg command: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            logger.error(f"FFmpeg render failed: {result.stderr}")
+            raise RuntimeError(f"FFmpeg failed with code {result.returncode}: {result.stderr}")
+
+        logger.info(f"✨ Successfully rendered vertical short: {output_video_path}")
         return {
-            "status": "success",
-            "output_video_path": str(output_path),
-            "clip_duration_sec": clip_duration,
-            "extended_mode": Config.EXTENDED_DURATION_MODE,
+            "output_video_path": str(output_video_path),
+            "clip_id": clip_id,
+            "crop_mode": crop_mode,
+            "has_subtitles": bool(transcript_text),
+            "success": True,
         }
