@@ -7,6 +7,7 @@ Built for Norn Labs (nornlabs.ai)
 import os
 import json
 import logging
+import random
 import re
 import time
 from typing import Callable, List, Dict, Any, Optional, Tuple
@@ -24,9 +25,25 @@ from agent.urdr_analytics import UrdrAnalytics
 from agent.bragi_composer import BragiComposer
 from agent.heimdall_visualizer import HeimdallVisualizer
 from agent.mimir_narrator import MimirNarrator
+from utils.ingest import download_youtube_video
+from utils.transcribe import get_or_create_transcript
 
 load_dotenv(override=True)
 logger = logging.getLogger("nornpulse.orchestrator")
+
+# Above this length, a video with no manually-set transcript_window gets
+# one auto-picked (see orchestrate_generation's auto_window_mode) instead
+# of Verðandi reasoning over the entire runtime in one call — bounds both
+# the semantic "needle in a haystack" problem of picking 1-3 good moments
+# out of a very long transcript, and (via the existing transcript_window
+# machinery) the video/audio Gemini has to actually attend to.
+AUTO_WINDOW_MAX_SEC = 600.0  # 10 minutes
+
+# Batch/channel mode caps at this many videos per run, with no UI control
+# to raise it — each one is a full generation run (Gemini + Lyria + image
+# + TTS calls), so an uncapped "whole channel" run could mean dozens of
+# those in one go.
+BATCH_MAX_VIDEOS = 3
 
 
 def filter_transcript_by_window(transcript_text: str, window: Optional[Tuple[float, float]]) -> str:
@@ -102,6 +119,7 @@ class VerdandiADK:
         topic_focus: Optional[str] = None,
         window: Optional[Tuple[float, float]] = None,
         vision_mode: bool = False,
+        clip_id_prefix: str = "",
     ) -> List[Callable]:
         """Builds request-scoped tool functions closing over this call's state."""
 
@@ -169,6 +187,14 @@ class VerdandiADK:
             Lyria-composed background score in Urðr's
             music_virality_benchmarks for that hook type.
             """
+            # Namespaced so batch mode (independent orchestrate_generation
+            # calls, one per source video) can't collide: Gemini often
+            # picks generic clip_id values like "clip_1" on its own, and
+            # without a prefix, two different videos' "clip_1" would
+            # silently overwrite each other's rendered file. Gemini itself
+            # never sees the prefix — it keeps calling both tools with
+            # whatever plain clip_id it chose.
+            clip_id = f"{clip_id_prefix}{clip_id}"
             logger.info(f"Executing Skuld render for clip_id: {clip_id} ({start_time} to {end_time})")
             start_time, end_time = _clamp_duration(start_time, end_time)
             resolved_transcript = (
@@ -277,6 +303,10 @@ class VerdandiADK:
             placeholder numbers — closing the retention feedback loop the
             Three Norns architecture is built around.
             """
+            # Same namespacing as tool_execute_skuld_render, so the
+            # rendered_clips lookup below actually matches — Gemini calls
+            # this with the same plain clip_id it originally chose.
+            clip_id = f"{clip_id_prefix}{clip_id}"
             logger.info(f"Logging Urðr telemetry for clip_id: {clip_id}, hook_type: {hook_type}")
 
             match = next((c for c in rendered_clips if c["clip_id"] == clip_id), None)
@@ -479,6 +509,8 @@ class VerdandiADK:
         max_duration_sec: float = 15.0,
         cut_energy: float = 0.5,
         transcript_window: Optional[Tuple[float, float]] = None,
+        auto_window_mode: str = "random",
+        clip_id_prefix: str = "",
     ) -> List[Dict[str, Any]]:
         rendered_clips: List[Dict[str, Any]] = []
 
@@ -491,7 +523,25 @@ class VerdandiADK:
             logger.warning(f"Could not detect video duration via ffprobe ({e}); falling back to 53.0s assumption.")
             video_duration_sec = 53.0
 
-        # A manually-narrowed transcript window is a hard constraint,
+        # Long video, no manual window set: auto-pick one (random offset,
+        # or from the start) rather than reasoning over the entire
+        # runtime in a single call. Only kicks in when the caller hasn't
+        # already narrowed things down themselves.
+        if transcript_window is None and video_duration_sec > AUTO_WINDOW_MAX_SEC:
+            if auto_window_mode == "start":
+                window_start = 0.0
+            else:
+                window_start = random.uniform(0.0, video_duration_sec - AUTO_WINDOW_MAX_SEC)
+            window_end = window_start + AUTO_WINDOW_MAX_SEC
+            transcript_window = (window_start, window_end)
+            logger.info(
+                f"Video is {video_duration_sec:.0f}s (> {AUTO_WINDOW_MAX_SEC:.0f}s) with no manual window set — "
+                f"auto-selected a {AUTO_WINDOW_MAX_SEC:.0f}s window via '{auto_window_mode}' mode: "
+                f"{format_seconds_to_mmss(window_start)}-{format_seconds_to_mmss(window_end)}."
+            )
+
+        # A manually-narrowed (or now, possibly auto-selected) transcript
+        # window is a hard constraint,
         # enforced twice: here (so the model's own context only contains
         # lines it's allowed to pick from) and again in _clamp_duration
         # (so even a model that ignores this still can't render outside
@@ -530,6 +580,7 @@ class VerdandiADK:
             transcript_text, rendered_clips, warmth, crazy, retention_summary,
             min_duration_sec, max_duration_sec, video_duration_sec,
             topic_focus=topic_focus, window=transcript_window, vision_mode=vision_mode,
+            clip_id_prefix=clip_id_prefix,
         )
         prompt = self._build_prompt(
             transcript_text, video_path, target_count, retention_summary,
@@ -578,7 +629,69 @@ class VerdandiADK:
             logger.error(f"Verðandi orchestration execution failed: {e}")
             raise e
 
-        return self._reconcile_metadata(parsed_metadata, rendered_clips)
+        return self._reconcile_metadata(parsed_metadata, rendered_clips, clip_id_prefix=clip_id_prefix)
+
+    def orchestrate_batch(
+        self,
+        video_urls: List[str],
+        target_count_per_video: int = 1,
+        warmth: float = 0.5,
+        crazy: float = 0.3,
+        topic_focus: Optional[str] = None,
+        min_duration_sec: float = 8.0,
+        max_duration_sec: float = 15.0,
+        cut_energy: float = 0.5,
+        auto_window_mode: str = "random",
+    ) -> List[Dict[str, Any]]:
+        """
+        Runs the full single-video pipeline once per URL in video_urls
+        (capped at BATCH_MAX_VIDEOS — extra URLs are ignored, not queued),
+        downloading and transcribing each one exactly like the single-
+        video UI flow does, then returns every resulting clip's metadata
+        sorted by predicted virality_score descending — a ranked slate
+        across multiple source videos instead of reviewing one video's
+        results at a time. No new capability per video: this is the same
+        orchestrate_generation() call already used everywhere else, just
+        looped, with results merged and ranked at the end.
+
+        A failure on any single video (download, transcription, or
+        generation) is logged and that video is skipped rather than
+        aborting the whole batch — one bad URL in a playlist shouldn't
+        cost the videos that were fine.
+        """
+        urls = video_urls[:BATCH_MAX_VIDEOS]
+        if len(video_urls) > BATCH_MAX_VIDEOS:
+            logger.info(f"Batch capped at {BATCH_MAX_VIDEOS} videos ({len(video_urls)} were provided).")
+
+        all_clips: List[Dict[str, Any]] = []
+        for i, url in enumerate(urls):
+            try:
+                logger.info(f"🗂️ Batch {i + 1}/{len(urls)}: downloading {url}")
+                video_path = download_youtube_video(url, output_filename=f"batch_{i}_input.mp4")
+                transcript_text = get_or_create_transcript(video_path)
+                clips = self.orchestrate_generation(
+                    transcript_text=transcript_text,
+                    video_path=video_path,
+                    target_count=target_count_per_video,
+                    warmth=warmth,
+                    crazy=crazy,
+                    topic_focus=topic_focus,
+                    min_duration_sec=min_duration_sec,
+                    max_duration_sec=max_duration_sec,
+                    cut_energy=cut_energy,
+                    auto_window_mode=auto_window_mode,
+                    clip_id_prefix=f"batch{i}_",
+                )
+                for clip in clips:
+                    clip["source_url"] = url
+                all_clips.extend(clips)
+            except Exception as e:
+                logger.error(f"Batch item {i + 1}/{len(urls)} ({url}) failed, skipping: {e}")
+                continue
+
+        all_clips.sort(key=lambda c: c.get("virality_score", 0.0), reverse=True)
+        logger.info(f"🗂️ Batch complete: {len(all_clips)} clips from {len(urls)} videos, ranked by virality_score.")
+        return all_clips
 
     def _parse_model_json(self, text_output: str) -> List[Dict[str, Any]]:
         """
@@ -600,7 +713,8 @@ class VerdandiADK:
             return []
 
     def _reconcile_metadata(
-        self, parsed_metadata: List[Dict[str, Any]], rendered_clips: List[Dict[str, Any]]
+        self, parsed_metadata: List[Dict[str, Any]], rendered_clips: List[Dict[str, Any]],
+        clip_id_prefix: str = "",
     ) -> List[Dict[str, Any]]:
         """
         Merges the model's descriptive metadata (hook_title, social_caption,
@@ -609,12 +723,21 @@ class VerdandiADK:
         by clip_id. This guarantees the UI never points at a file that
         doesn't exist, and always shows real alignment data rather than
         whatever the model's closing text happened to say.
+
+        parsed_metadata's clip_id values are Gemini's own plain (unprefixed)
+        choice, while rendered_clips' are namespaced with clip_id_prefix
+        (see tool_execute_skuld_render) — the same prefix is applied here
+        so the two actually match up instead of every clip falling back to
+        generic defaults.
         """
         if not rendered_clips:
             logger.error("No clips were actually rendered by Skuld this run.")
             return []
 
-        by_id = {m.get("clip_id"): m for m in parsed_metadata if isinstance(m, dict)}
+        by_id = {
+            f"{clip_id_prefix}{m.get('clip_id')}": m
+            for m in parsed_metadata if isinstance(m, dict)
+        }
         final: List[Dict[str, Any]] = []
 
         for clip in rendered_clips:

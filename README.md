@@ -149,6 +149,8 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 2. **Urðr Analytics Hub**: Interactive ClickHouse charts showing 3s drop-off benchmarks, duration sweet spots, and an interactive SQL query console.
 3. **Verðandi AI Playground**: Inspect raw Gemini 2.0 Flash responses and structured output schemas.
 4. **Manual Cut Range**: Optionally restrict generation to a portion of the source video via a range slider — Verðandi only sees (and can only render from) that window, enforced both in the prompt and as a hard code-level clamp. Pair with **Cut Energy** to bias clip length toward the calm/long or snappy/short end of the duration range.
+5. **Long-Video Auto-Window**: Sources longer than 10 minutes with no manual Cut Range set get one bounded window auto-selected instead of Verðandi reasoning over the entire runtime in a single call — toggle **Random** (fresh offset each run) or **From Start**.
+6. **Batch Mode**: Point it at a YouTube channel or playlist URL instead of a single video — runs the full pipeline once per video (capped at 3), then ranks every resulting clip by predicted virality score in the Review & Publish column.
 
 ---
 

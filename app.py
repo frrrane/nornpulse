@@ -13,10 +13,12 @@ import streamlit as st
 from pathlib import Path
 from dotenv import load_dotenv
 
-from agent.verdandi_orchestrator import VerdandiADK, filter_transcript_by_window
+from agent.verdandi_orchestrator import (
+    VerdandiADK, filter_transcript_by_window, AUTO_WINDOW_MAX_SEC, BATCH_MAX_VIDEOS,
+)
 from agent.skuld_renderer import get_video_duration_seconds, format_seconds_to_mmss
 from agent.norn_publisher import NornPublisher, PublishError
-from utils.ingest import download_youtube_video
+from utils.ingest import download_youtube_video, list_playlist_video_urls
 from utils.transcribe import get_or_create_transcript
 from config import Config
 
@@ -213,6 +215,38 @@ with nav_tab1:
                 except Exception as e:
                     st.error(f"Download failed: {e}")
 
+        with st.expander(f"🗂️ Batch Mode (channel/playlist, up to {BATCH_MAX_VIDEOS} videos)"):
+            st.caption(
+                f"Runs the full pipeline once per video (capped at {BATCH_MAX_VIDEOS} — each is a real "
+                "Gemini + Lyria + image + TTS generation), then ranks every resulting clip by predicted "
+                "virality score in the Review & Publish column. Uses its own fixed style defaults rather "
+                "than Column 2's sliders, since those aren't set yet at this point in the layout."
+            )
+            batch_url = st.text_input("YouTube channel or playlist URL:", key="batch_url")
+            if st.button("🗂️ Run Batch", key="run_batch"):
+                if not batch_url:
+                    st.error("Enter a channel or playlist URL first.")
+                else:
+                    with st.spinner(f"Enumerating up to {BATCH_MAX_VIDEOS} videos..."):
+                        try:
+                            batch_urls = list_playlist_video_urls(batch_url, max_videos=BATCH_MAX_VIDEOS)
+                        except Exception as e:
+                            batch_urls = []
+                            st.error(f"Could not enumerate videos from that URL: {e}")
+                    if batch_urls:
+                        with st.spinner(f"Running batch across {len(batch_urls)} video(s)... this takes a while."):
+                            try:
+                                batch_results = st.session_state.verdandi_adk.orchestrate_batch(
+                                    video_urls=batch_urls, target_count_per_video=1,
+                                )
+                                st.session_state.current_generation = batch_results
+                                st.success(
+                                    f"✨ Batch complete: {len(batch_results)} clip(s) from "
+                                    f"{len(batch_urls)} video(s), ranked by virality score — see Review & Publish."
+                                )
+                            except Exception as e:
+                                st.error(f"Batch run failed: {e}")
+
         if st.session_state.recently_published:
             st.markdown("<div class='workflow-header'>📤 Recently Published</div>", unsafe_allow_html=True)
             for pub in reversed(st.session_state.recently_published[-5:]):
@@ -249,6 +283,7 @@ with nav_tab1:
             )
 
         transcript_window = None
+        auto_window_mode = "random"
         if active_video_path and os.path.exists(active_video_path):
             @st.cache_data(show_spinner=False)
             def _cached_duration(video_path: str) -> float:
@@ -274,6 +309,16 @@ with nav_tab1:
                         f"({line_count} transcript line{'s' if line_count != 1 else ''} in range, "
                         f"or vision mode within this window if none)."
                     )
+                elif video_duration_sec > AUTO_WINDOW_MAX_SEC:
+                    window_pick = st.radio(
+                        "🎬 Long video, no manual range set — pick a "
+                        f"{int(AUTO_WINDOW_MAX_SEC // 60)}-min window automatically:",
+                        options=["Random", "From Start"], horizontal=True,
+                        help="This video is longer than the auto-window size, and you haven't set a "
+                             "manual Cut range above — Verðandi will reason over one bounded window "
+                             "instead of the entire runtime in a single call.",
+                    )
+                    auto_window_mode = "random" if window_pick == "Random" else "start"
             except Exception as e:
                 logging.getLogger("nornpulse.app").warning(f"Could not read video duration for cut range slider: {e}")
 
@@ -340,6 +385,7 @@ with nav_tab1:
                     topic_focus=topic_focus,
                     cut_energy=cut_energy,
                     transcript_window=transcript_window,
+                    auto_window_mode=auto_window_mode,
                 )
 
                 output_dir = Path("output_clips")
