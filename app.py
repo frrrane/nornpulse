@@ -223,6 +223,36 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Global ClickHouse health banner, deliberately ABOVE the tabs so it's
+# visible no matter which tab is open. Urðr degrades to in-memory
+# fallback benchmarks when ClickHouse is unreachable, which keeps the app
+# usable — but also makes a misconfigured instance look completely
+# healthy while quietly serving synthetic data. That's a silent-wrong
+# failure, and for the ClickHouse track it's the one state that must
+# never go unnoticed, so it gets an unmissable banner with the actual
+# reason and a retry rather than a small badge buried in Tab 3.
+_urdr_health = st.session_state.verdandi_adk.urdr
+if not _urdr_health.is_connected():
+    st.error(
+        "🔴 **ClickHouse is NOT connected** — Urðr is serving in-memory fallback "
+        "benchmarks, so nothing you generate is grounded in (or logged to) real "
+        "ClickHouse data.\n\n"
+        f"**Reason:** {_urdr_health.connection_error or 'unknown'}"
+    )
+    if st.button("🔄 Retry ClickHouse Connection", key="retry_clickhouse"):
+        with st.spinner("Reconnecting to ClickHouse via mcp-clickhouse..."):
+            reconnected = _urdr_health.connect()
+        if reconnected:
+            # Fallback-mode results are now stale — drop them so the
+            # charts repopulate from the real database.
+            _cached_hook_benchmarks.clear()
+            _cached_crop_benchmarks.clear()
+            _cached_published_outcomes.clear()
+            _cached_topic_categories.clear()
+            st.rerun()
+        else:
+            st.warning("Still unable to reach ClickHouse — see the reason above.")
+
 nav_tab1, nav_tab2, nav_tab3 = st.tabs(["🚀 Pipeline & Staging", "📚 Library & Archives", "📊 ClickHouse Analytics"])
 
 # =========================================================================
@@ -665,7 +695,13 @@ with nav_tab3:
     connected = urdr.is_connected()
 
     if not connected:
-        st.warning("⚠️ ClickHouse is unreachable — showing resilient in-memory fallback benchmarks.")
+        # The global banner above the tabs already carries the reason and
+        # the retry; this is the local reminder that every chart below is
+        # synthetic fallback data rather than anything real.
+        st.error(
+            "🔴 **Every chart on this tab is in-memory fallback data, not real ClickHouse data.** "
+            "See the reason and retry at the top of the page."
+        )
 
     benchmarks_df = _cached_hook_benchmarks(urdr)
 

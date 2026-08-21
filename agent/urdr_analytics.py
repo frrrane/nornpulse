@@ -249,27 +249,42 @@ class UrdrAnalytics:
 
     def __init__(self):
         self._connected = False
+        # Human-readable reason the last connect() failed (None when
+        # healthy) — surfaced by the UI so a degraded instance announces
+        # itself instead of quietly serving fallback data.
+        self.connection_error: Optional[str] = None
         self._fallback_df = pd.DataFrame(DEFAULT_HOOK_BENCHMARKS)
         self._fallback_music_df = pd.DataFrame(DEFAULT_MUSIC_BENCHMARKS)
         self._fallback_visual_df = pd.DataFrame(DEFAULT_VISUAL_BENCHMARKS)
         self.connect()
 
     def connect(self) -> bool:
-        """Verifies the ClickHouse MCP server can reach ClickHouse, and initializes schema."""
+        """
+        Verifies the ClickHouse MCP server can reach ClickHouse, and
+        initializes schema. On failure the reason is kept in
+        self.connection_error so callers (the UI in particular) can show
+        WHY it's degraded rather than only that it is — a silent fallback
+        makes a misconfigured deployment look perfectly healthy, which is
+        the failure mode this whole path is guarding against.
+        """
         import time
         _t0 = time.perf_counter()
         try:
-            if ch.check_connection():
+            problem = ch.describe_connection()
+            if problem is None:
                 self._connected = True
+                self.connection_error = None
                 logger.info(f"⚡ Urðr successfully connected to ClickHouse via mcp-clickhouse ({time.perf_counter() - _t0:.1f}s — this is a one-time cold-start cost per app process, includes MCP subprocess spawn and any ClickHouse Cloud idle-resume delay).")
                 self.init_schema()
                 logger.info(f"⏱️ Total connect() + init_schema() took {time.perf_counter() - _t0:.1f}s")
                 return True
             self._connected = False
-            logger.warning("⚠️ Urðr ClickHouse MCP connection check failed. Operating in resilient fallback mode.")
+            self.connection_error = problem
+            logger.warning(f"⚠️ Urðr ClickHouse MCP unavailable. Operating in resilient fallback mode. Reason: {problem}")
             return False
         except Exception as e:
             self._connected = False
+            self.connection_error = str(e)
             logger.warning(f"⚠️ Urðr ClickHouse MCP connection unavailable ({e}). Operating in resilient fallback mode.")
             return False
 

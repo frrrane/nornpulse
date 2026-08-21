@@ -138,7 +138,9 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
-This also installs the `mcp-clickhouse` CLI into the venv — Urðr launches it as a stdio subprocess on every ClickHouse call, so it must be importable/on `PATH` (activating the venv is enough; no separate install step needed).
+This also installs the `mcp-clickhouse` CLI into the venv — Urðr launches it as a stdio subprocess on every ClickHouse call. It's resolved by absolute path relative to the running interpreter (see `clickhouse_mcp_client.resolve_mcp_command`), so it works whether or not the venv is activated: `venv/bin/streamlit run app.py`, a systemd unit, and a container entrypoint are all fine, not just `source venv/bin/activate`.
+
+If ClickHouse ever *is* unreachable, the app degrades to in-memory fallback benchmarks rather than crashing — but it says so loudly, with a red banner above the tabs naming the specific cause and offering a retry. Fallback mode is never silent, because a generation run grounded in synthetic data instead of real ClickHouse history looks identical to a healthy one otherwise.
 
 ### 4. Launch the Dashboard
 ```bash

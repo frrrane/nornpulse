@@ -28,13 +28,63 @@ import datetime
 import json
 import logging
 import os
-from typing import Any, Dict, List
+import shutil
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 logger = logging.getLogger("nornpulse.clickhouse_mcp")
+
+
+class ClickHouseUnavailable(RuntimeError):
+    """
+    Raised when the MCP server can't be launched or reached at all — as
+    opposed to a query that ran and failed. Carries a human-readable
+    reason so the UI can tell the user WHY ClickHouse is unavailable
+    instead of just showing a generic fallback badge.
+    """
+
+
+def resolve_mcp_command() -> str:
+    """
+    Resolves the absolute path to the mcp-clickhouse executable.
+
+    Why this isn't just the bare string "mcp-clickhouse": the MCP SDK
+    launches the server as a subprocess whose PATH comes from
+    mcp.client.stdio.get_default_environment(), which inherits the
+    PARENT process's PATH. When the app is started without activating
+    the venv -- `venv/bin/streamlit run app.py`, a systemd unit, a
+    Docker CMD, a Cloud Run entrypoint -- venv/bin is NOT on PATH, the
+    bare name doesn't resolve, and every ClickHouse call fails with
+    "No such file or directory: 'mcp-clickhouse'". The app then
+    silently degrades to in-memory fallback while still appearing to
+    work, which for a ClickHouse-track submission is the worst possible
+    failure mode. (Confirmed live: the exact same checkout connects
+    fine when launched from an activated venv and fails when launched
+    via venv/bin/streamlit directly.)
+
+    Looking beside sys.executable first fixes this for every launch
+    style, since console scripts are installed into the same directory
+    as the interpreter running them.
+    """
+    candidate = Path(sys.executable).parent / "mcp-clickhouse"
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return str(candidate)
+
+    found = shutil.which("mcp-clickhouse")
+    if found:
+        return found
+
+    raise ClickHouseUnavailable(
+        "The 'mcp-clickhouse' executable could not be found next to the running "
+        f"Python interpreter ({Path(sys.executable).parent}) or anywhere on PATH. "
+        "Install it with `pip install -r requirements.txt` into the same "
+        "environment that runs the app."
+    )
 
 
 def _server_params() -> StdioServerParameters:
@@ -52,7 +102,7 @@ def _server_params() -> StdioServerParameters:
     port = os.getenv("CLICKHOUSE_PORT")
     if port:
         env["CLICKHOUSE_PORT"] = port
-    return StdioServerParameters(command="mcp-clickhouse", args=[], env=env)
+    return StdioServerParameters(command=resolve_mcp_command(), args=[], env=env)
 
 
 async def _call_tool_async(tool_name: str, arguments: Dict[str, Any]) -> str:
@@ -135,10 +185,62 @@ def list_databases() -> List[str]:
         return []
 
 
+def _unwrap_exception(exc: BaseException, _depth: int = 0) -> str:
+    """
+    Digs the real cause out of an ExceptionGroup. The MCP stdio client
+    runs its plumbing inside an asyncio TaskGroup, so any genuine error
+    (bad host, refused connection, auth rejection) surfaces to callers
+    as the useless string "unhandled errors in a TaskGroup (1
+    sub-exception)" with the actual failure buried one or more levels
+    down. Reporting that raw string to a user tells them nothing about
+    what to fix.
+    """
+    if isinstance(exc, BaseExceptionGroup) and exc.exceptions and _depth < 5:
+        return _unwrap_exception(exc.exceptions[0], _depth + 1)
+    message = str(exc).strip()
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
+
 def check_connection() -> bool:
+    """
+    Boolean connectivity probe, kept for callers that only need yes/no.
+    Prefer describe_connection() when the reason for a failure matters —
+    a silent False is what let a misconfigured deployment look healthy.
+    """
+    return describe_connection() is None
+
+
+def describe_connection() -> Optional[str]:
+    """
+    Probes ClickHouse and returns None when healthy, or a human-readable
+    explanation of what went wrong. The distinct failure modes get
+    distinct messages, because "ClickHouse is unavailable" is not
+    actionable while "the binary is missing" and "the credentials were
+    rejected" point at completely different fixes.
+    """
+    try:
+        resolve_mcp_command()
+    except ClickHouseUnavailable as e:
+        logger.warning(f"ClickHouse MCP unavailable: {e}")
+        return str(e)
+
     try:
         result = run_query("SELECT 1")
-        return bool(result.get("rows"))
     except Exception as e:
-        logger.warning(f"ClickHouse MCP connection check failed: {e}")
-        return False
+        host = os.getenv("CLICKHOUSE_HOST", "localhost")
+        cause = _unwrap_exception(e)
+        logger.warning(f"ClickHouse MCP connection check failed: {cause}")
+        return (
+            f"The mcp-clickhouse server started, but querying ClickHouse at "
+            f"'{host}' failed: {cause}. Check CLICKHOUSE_HOST / CLICKHOUSE_USER / "
+            f"CLICKHOUSE_PASSWORD / CLICKHOUSE_SECURE in your .env, and that the "
+            f"instance is running and reachable."
+        )
+
+    if not result.get("rows"):
+        return (
+            "The mcp-clickhouse server responded, but the 'SELECT 1' health check "
+            "returned no rows — the server is reachable but not answering queries "
+            "as expected."
+        )
+    return None
