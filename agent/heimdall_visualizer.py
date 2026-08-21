@@ -24,6 +24,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from agent.api_retry import retry_on_transient
 
 load_dotenv()
 logger = logging.getLogger("nornpulse.heimdall")
@@ -56,6 +57,24 @@ class HeimdallVisualizer:
             f"a short-form vertical video."
         )
 
+    @retry_on_transient()
+    def _generate(self, prompt: str):
+        """
+        The raw image call, isolated so it can be retried on transient
+        errors (503 "high demand", 429, timeouts) without also retrying
+        the surrounding prompt-building and file-writing. A real batch
+        run lost all three thumbnails to a transient 503; the caller's
+        except-branch still handles permanent failure gracefully.
+        """
+        return self.client.models.generate_content(
+            model=IMAGE_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["IMAGE"],
+                image_config=types.ImageConfig(aspect_ratio="9:16"),
+            ),
+        )
+
     def compose_thumbnail(
         self, clip_id: str, hook_title: str, music_benchmark: dict,
         output_dir: str | Path = "output_clips",
@@ -74,14 +93,7 @@ class HeimdallVisualizer:
 
         try:
             logger.info(f"👁️ Heimdall composing thumbnail for {clip_id} ({genre}/{mood})...")
-            response = self.client.models.generate_content(
-                model=IMAGE_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_modalities=["IMAGE"],
-                    image_config=types.ImageConfig(aspect_ratio="9:16"),
-                ),
-            )
+            response = self._generate(prompt)
             parts = response.candidates[0].content.parts if response.candidates else []
             image_part = next((p for p in parts if getattr(p, "inline_data", None)), None)
             if image_part is None:

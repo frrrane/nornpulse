@@ -206,3 +206,75 @@ def test_clamp_produces_a_valid_range_across_window_positions(clamp_builder, win
     assert e > s
     assert s >= window[0] - 1e-6
     assert e <= window[1] + 1e-6
+
+
+# --------------------------------------------------------------------------
+# Metadata reconciliation
+# --------------------------------------------------------------------------
+
+def _reconcile(rendered, parsed, prefix=""):
+    adk = VerdandiADK.__new__(VerdandiADK)
+    return VerdandiADK._reconcile_metadata(adk, parsed, rendered, clip_id_prefix=prefix)
+
+
+_RENDERED = [{
+    "clip_id": "batch0_clip_001", "start_time": "00:10", "end_time": "00:22",
+    "output_video_path": "/out/batch0_clip_001_9x16.mp4",
+    "has_subtitles": True, "has_bragi_score": True, "has_narration": False,
+    "caption_language": "English",
+    "thumbnail_path": "/out/thumb.png",
+    "music_genre": "synthwave", "music_mood": "mysterious",
+    "crop_mode": "cinematic_letterbox", "motion_effect": "shake",
+    "color_grade": "cool_desaturated",
+    "hook_type": "contrarian_claim", "hook_rank": 1, "is_top_tier_hook": True,
+    "grounded_top_hook_type": "contrarian_claim",
+}]
+
+
+def test_reconcile_carries_every_render_field_through():
+    """
+    Regression test. _reconcile_metadata used to rebuild the output dict
+    field by field, silently dropping anything not explicitly listed —
+    crop_mode, motion_effect, color_grade and caption_language all
+    arrived as None, so the UI's "translated to X" badge could never
+    render even for a genuinely translated clip. Found by a real batch run.
+    """
+    out, = _reconcile(_RENDERED, [{"clip_id": "clip_001", "hook_title": "T",
+                                   "social_caption": "C", "virality_score": 91.0}],
+                      prefix="batch0_")
+    for field, expected in [
+        ("caption_language", "English"),
+        ("crop_mode", "cinematic_letterbox"),
+        ("motion_effect", "shake"),
+        ("color_grade", "cool_desaturated"),
+        ("music_genre", "synthwave"),
+        ("thumbnail_path", "/out/thumb.png"),
+    ]:
+        assert out[field] == expected, f"{field} was dropped by reconciliation"
+
+
+def test_reconcile_applies_the_prefix_when_matching_model_metadata():
+    """Gemini emits unprefixed clip_ids; render records are namespaced."""
+    out, = _reconcile(_RENDERED, [{"clip_id": "clip_001", "hook_title": "Real Title",
+                                   "social_caption": "c", "virality_score": 88.0}],
+                      prefix="batch0_")
+    assert out["hook_title"] == "Real Title"
+    assert out["virality_score"] == 88.0
+
+
+def test_reconcile_falls_back_when_model_metadata_is_missing():
+    """A malformed closing JSON must never orphan a clip that really rendered."""
+    out, = _reconcile(_RENDERED, [])
+    assert out["output_video_path"] == "/out/batch0_clip_001_9x16.mp4"
+    assert out["hook_title"]           # a default, not a crash
+    assert out["crop_mode"] == "cinematic_letterbox"
+
+
+def test_reconcile_prefers_render_record_over_model_for_factual_fields():
+    out, = _reconcile(_RENDERED, [{"clip_id": "clip_001", "hook_type": "WRONG"}],
+                      prefix="batch0_")
+    assert out["hook_type"] == "contrarian_claim"
+
+
+def test_reconcile_returns_empty_when_nothing_rendered():
+    assert _reconcile([], [{"clip_id": "clip_1", "hook_title": "x"}]) == []

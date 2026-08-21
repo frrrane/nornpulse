@@ -936,26 +936,26 @@ class VerdandiADK:
 
         for clip in rendered_clips:
             meta = by_id.get(clip["clip_id"], {})
-            final.append(
-                {
-                    "clip_id": clip["clip_id"],
-                    "start_time": clip["start_time"],
-                    "end_time": clip["end_time"],
-                    "output_video_path": clip["output_video_path"],
-                    "has_subtitles": clip["has_subtitles"],
-                    "has_bragi_score": clip.get("has_bragi_score", False),
-                    "has_narration": clip.get("has_narration", False),
-                    "thumbnail_path": clip.get("thumbnail_path"),
-                    "music_genre": clip.get("music_genre"),
-                    "music_mood": clip.get("music_mood"),
-                    "hook_title": meta.get("hook_title", "Autonomous Core Insight"),
-                    "social_caption": meta.get("social_caption", "Engineered by NornPulse"),
-                    "virality_score": meta.get("virality_score", 90.0),
-                    "hook_type": clip.get("hook_type", meta.get("hook_type", "unknown")),
-                    "hook_rank": clip.get("hook_rank"),
-                    "is_top_tier_hook": clip.get("is_top_tier_hook", False),
-                    "grounded_top_hook_type": clip.get("grounded_top_hook_type"),
-                }
-            )
+            # Start from the render record wholesale rather than copying
+            # fields across one by one. The previous field-by-field build
+            # silently dropped anything not explicitly listed, so
+            # crop_mode, motion_effect, color_grade and caption_language
+            # all arrived as None in the UI and in the saved
+            # {clip_id}_metadata.json -- the caption_language badge
+            # ("translated to X") could therefore never render, even for
+            # a genuinely translated clip. Spreading the dict means any
+            # field added to rendered_clips in future flows through
+            # automatically instead of needing a second edit here.
+            merged = dict(clip)
+            # The model supplies only descriptive copy; everything factual
+            # stays owned by the render/telemetry records above.
+            merged.update({
+                "hook_title": meta.get("hook_title", "Autonomous Core Insight"),
+                "social_caption": meta.get("social_caption", "Engineered by NornPulse"),
+                "virality_score": meta.get("virality_score", 90.0),
+                "hook_type": clip.get("hook_type", meta.get("hook_type", "unknown")),
+                "is_top_tier_hook": clip.get("is_top_tier_hook", False),
+            })
+            final.append(merged)
 
         return final

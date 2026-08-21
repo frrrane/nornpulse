@@ -24,6 +24,7 @@ from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 from google import genai
+from agent.api_retry import retry_on_transient
 
 load_dotenv()
 logger = logging.getLogger("nornpulse.bragi")
@@ -64,6 +65,16 @@ class BragiComposer:
             f"loopable energy throughout, no jarring silences or drops."
         )
 
+    @retry_on_transient()
+    def _compose(self, prompt: str):
+        """
+        The raw Lyria call, isolated so a transient failure (503 "high
+        demand", 429, timeout) is retried rather than silently costing
+        the clip its score. Permanent failures still fall through to the
+        caller's except-branch, which renders the clip without music.
+        """
+        return self.client.interactions.create(model=LYRIA_MODEL, input=prompt)
+
     def compose_track(
         self, hook_type: str, music_benchmark: Dict[str, Any], force_regenerate: bool = False,
     ) -> Optional[str]:
@@ -89,7 +100,7 @@ class BragiComposer:
         prompt = self._build_prompt(genre, mood, bpm, energy_level)
         try:
             logger.info(f"🎵 Bragi composing new track for {hook_type} ({genre}/{mood}/{bpm}bpm) via Lyria...")
-            interaction = self.client.interactions.create(model=LYRIA_MODEL, input=prompt)
+            interaction = self._compose(prompt)
             if not interaction.output_audio or not interaction.output_audio.data:
                 logger.warning(f"Lyria returned no audio for hook_type '{hook_type}'.")
                 return None

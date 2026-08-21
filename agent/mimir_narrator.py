@@ -25,6 +25,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from agent.api_retry import retry_on_transient
 
 load_dotenv()
 logger = logging.getLogger("nornpulse.mimir")
@@ -57,6 +58,26 @@ class MimirNarrator:
             return "Kore"  # neutral, clear
         return "Charon"  # calmer, lower register
 
+    @retry_on_transient()
+    def _synthesize(self, script_text: str, voice_name: str):
+        """
+        The raw TTS call, isolated for retry on transient errors so a
+        momentary 503/429 doesn't cost the clip its narration. Permanent
+        failures still fall through to graceful degradation.
+        """
+        return self.client.models.generate_content(
+            model=TTS_MODEL,
+            contents=script_text,
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
+                    )
+                ),
+            ),
+        )
+
     def narrate(
         self, clip_id: str, script_text: str, energy_level: float = 0.5,
         output_dir: str | Path = "output_clips",
@@ -75,18 +96,7 @@ class MimirNarrator:
         voice_name = self._pick_voice(energy_level)
         try:
             logger.info(f"🗣️ Mímir narrating clip_id '{clip_id}' (voice={voice_name}): \"{script_text[:80]}\"")
-            response = self.client.models.generate_content(
-                model=TTS_MODEL,
-                contents=script_text,
-                config=types.GenerateContentConfig(
-                    response_modalities=["AUDIO"],
-                    speech_config=types.SpeechConfig(
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
-                        )
-                    ),
-                ),
-            )
+            response = self._synthesize(script_text, voice_name)
             parts = response.candidates[0].content.parts if response.candidates else []
             audio_part = next((p for p in parts if getattr(p, "inline_data", None)), None)
             if audio_part is None:
