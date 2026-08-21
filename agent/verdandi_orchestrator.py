@@ -208,8 +208,18 @@ class VerdandiADK:
 
             if window is not None:
                 window_start, window_end = window
-                start_sec = max(start_sec, window_start)
-                end_sec = min(end_sec, window_end)
+                # Pin the start inside the window AND far enough from its
+                # end that a minimum-length clip still fits. Clamping
+                # start and end independently is not enough: for a range
+                # entirely outside the window (say 05:00-05:02 against a
+                # 02:00-03:00 window) start clamps UP to the window start
+                # while end clamps DOWN to the window end, and the two
+                # cross -- yielding end BEFORE start and handing FFmpeg an
+                # invalid "-ss 05:00 -to 03:00". Found by the property
+                # test in tests/test_verdandi_orchestrator.py.
+                latest_start = max(window_start, window_end - min_duration_sec)
+                start_sec = min(max(start_sec, window_start), latest_start)
+                end_sec = min(max(end_sec, start_sec), window_end)
 
             duration = end_sec - start_sec
             if duration > max_duration_sec:
@@ -220,6 +230,12 @@ class VerdandiADK:
             end_sec = min(end_sec, safe_video_end_sec)  # never exceed the actual source video's length
             if window is not None:
                 end_sec = min(end_sec, window[1])
+
+            # Final invariant: a clip must always have positive length,
+            # whatever combination of caps was applied above.
+            if end_sec <= start_sec:
+                start_sec = max(0.0, min(start_sec, end_sec - min_duration_sec))
+                end_sec = max(end_sec, start_sec + min(min_duration_sec, safe_video_end_sec - start_sec))
 
             new_start = format_seconds_to_mmss(start_sec)
             new_end = format_seconds_to_mmss(end_sec)

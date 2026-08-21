@@ -1,0 +1,4 @@
+# Development-only dependencies. The runtime image (see Dockerfile)
+# installs requirements.txt alone and does not need these.
+-r requirements.txt
+pytest>=9.0

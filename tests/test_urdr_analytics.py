@@ -1,0 +1,253 @@
+"""
+Unit tests for Urðr's pure logic and the ClickHouse MCP bridge's
+failure handling.
+
+Nothing here touches a real ClickHouse instance: the bridge module is
+monkeypatched, and the in-memory fallback path is exercised directly.
+That keeps the suite fast and runnable with no credentials, while still
+covering the parts most likely to break silently — SQL literal escaping,
+the visual-dimension whitelist, connection diagnostics, and the
+UNION ALL result splitting.
+"""
+
+import datetime
+
+import pandas as pd
+import pytest
+
+import agent.clickhouse_mcp_client as ch
+from agent.urdr_analytics import UrdrAnalytics, _compute_actual_virality_score
+
+
+# --------------------------------------------------------------------------
+# SQL literal escaping — the injection boundary
+# --------------------------------------------------------------------------
+# Urðr builds INSERTs by string concatenation because the MCP run_query
+# tool takes raw SQL rather than parameters, so sql_literal is the only
+# thing standing between transcript/hook text and the database.
+
+def test_sql_literal_escapes_single_quotes():
+    assert ch.sql_literal("it's") == "'it\\'s'"
+
+
+def test_sql_literal_escapes_backslashes_before_quotes():
+    # Order matters: escaping quotes first would leave a backslash that
+    # then gets doubled, changing the string.
+    assert ch.sql_literal("a\\b") == "'a\\\\b'"
+
+
+def test_sql_literal_neutralises_a_statement_break_attempt():
+    hostile = "'); DROP TABLE video_hook_retention; --"
+    literal = ch.sql_literal(hostile)
+    # The closing quote of the injected prefix must be escaped, so the
+    # whole payload stays one string literal.
+    assert literal.startswith("'") and literal.endswith("'")
+    assert "\\'" in literal
+    assert literal.count("'") - literal.count("\\'") == 2  # only the outer pair is live
+
+
+@pytest.mark.parametrize("value,expected", [
+    (None, "NULL"),
+    (True, "1"),
+    (False, "0"),
+    (42, "42"),
+    (3.5, "3.5"),
+])
+def test_sql_literal_scalars(value, expected):
+    assert ch.sql_literal(value) == expected
+
+
+def test_sql_literal_datetime_uses_clickhouse_format():
+    dt = datetime.datetime(2026, 8, 21, 14, 30, 5)
+    assert ch.sql_literal(dt) == "'2026-08-21 14:30:05'"
+
+
+# --------------------------------------------------------------------------
+# Connection diagnostics
+# --------------------------------------------------------------------------
+
+def test_unwrap_exception_digs_through_exception_groups():
+    """
+    The MCP stdio client runs inside an asyncio TaskGroup, so real
+    errors surface as "unhandled errors in a TaskGroup (1 sub-exception)"
+    with the actual cause nested inside. Reporting that raw string tells
+    a user nothing about what to fix.
+    """
+    real = ConnectionRefusedError("connection refused")
+    wrapped = BaseExceptionGroup("unhandled errors in a TaskGroup", [real])
+    nested = BaseExceptionGroup("outer", [wrapped])
+    assert "connection refused" in ch._unwrap_exception(nested)
+    assert "TaskGroup" not in ch._unwrap_exception(nested)
+
+
+def test_unwrap_exception_on_a_plain_exception():
+    assert ch._unwrap_exception(ValueError("boom")) == "ValueError: boom"
+
+
+def test_describe_connection_reports_a_missing_binary_actionably(monkeypatch):
+    monkeypatch.setattr(ch, "resolve_mcp_command", lambda: (_ for _ in ()).throw(
+        ch.ClickHouseUnavailable("The 'mcp-clickhouse' executable could not be found")
+    ))
+    problem = ch.describe_connection()
+    assert problem is not None
+    assert "mcp-clickhouse" in problem
+
+
+def test_describe_connection_reports_query_failure_with_the_host(monkeypatch):
+    monkeypatch.setattr(ch, "resolve_mcp_command", lambda: "/fake/mcp-clickhouse")
+    monkeypatch.setattr(ch, "run_query", lambda q: (_ for _ in ()).throw(RuntimeError("dns boom")))
+    monkeypatch.setenv("CLICKHOUSE_HOST", "db.example.invalid")
+    problem = ch.describe_connection()
+    assert "db.example.invalid" in problem
+    assert "dns boom" in problem
+    # Should point at the settings a user can actually change.
+    assert "CLICKHOUSE_HOST" in problem
+
+
+def test_describe_connection_returns_none_when_healthy(monkeypatch):
+    monkeypatch.setattr(ch, "resolve_mcp_command", lambda: "/fake/mcp-clickhouse")
+    monkeypatch.setattr(ch, "run_query", lambda q: {"columns": ["1"], "rows": [[1]]})
+    assert ch.describe_connection() is None
+
+
+def test_check_connection_is_a_thin_wrapper(monkeypatch):
+    monkeypatch.setattr(ch, "describe_connection", lambda: None)
+    assert ch.check_connection() is True
+    monkeypatch.setattr(ch, "describe_connection", lambda: "broken")
+    assert ch.check_connection() is False
+
+
+# --------------------------------------------------------------------------
+# Virality scoring heuristic
+# --------------------------------------------------------------------------
+
+def test_virality_score_is_bounded():
+    assert 0.0 <= _compute_actual_virality_score(0, 0, 0) <= 100.0
+    assert _compute_actual_virality_score(10_000_000, 1_000_000, 500_000) <= 100.0
+
+
+def test_virality_score_rewards_reach_with_diminishing_returns():
+    low = _compute_actual_virality_score(1_000, 0, 0)
+    mid = _compute_actual_virality_score(100_000, 0, 0)
+    high = _compute_actual_virality_score(10_000_000, 0, 0)
+    assert low < mid < high
+    # Log-scaled: the first 100x of reach should buy more than the next.
+    assert (mid - low) > (high - mid)
+
+
+def test_virality_score_rewards_engagement_at_equal_reach():
+    plain = _compute_actual_virality_score(10_000, 0, 0)
+    engaged = _compute_actual_virality_score(10_000, 1_000, 200)
+    assert engaged > plain
+
+
+def test_virality_score_weights_comments_above_likes():
+    """A comment costs more effort than a like, so it should count for more."""
+    likes = _compute_actual_virality_score(10_000, 300, 0)
+    comments = _compute_actual_virality_score(10_000, 0, 300)
+    assert comments > likes
+
+
+def test_virality_score_handles_zero_views_without_dividing_by_zero():
+    assert _compute_actual_virality_score(0, 5, 5) >= 0.0
+
+
+# --------------------------------------------------------------------------
+# Visual dimension handling
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def offline_urdr(monkeypatch):
+    """An Urðr that never touches ClickHouse (fallback mode)."""
+    monkeypatch.setattr(ch, "check_connection", lambda: False)
+    monkeypatch.setattr(ch, "describe_connection", lambda: "offline for tests")
+    return UrdrAnalytics()
+
+
+def test_unknown_visual_dimension_is_rejected(offline_urdr):
+    """
+    The dimension becomes a column name interpolated into SQL, which
+    can't be passed as a literal — so it must be whitelisted.
+    """
+    with pytest.raises(ValueError, match="Unknown visual dimension"):
+        offline_urdr.get_visual_dimension_benchmarks("crop_mode; DROP TABLE x")
+
+
+@pytest.mark.parametrize("dimension", UrdrAnalytics.VISUAL_DIMENSIONS)
+def test_known_visual_dimensions_are_accepted(offline_urdr, dimension):
+    # Offline returns an empty frame rather than raising.
+    assert offline_urdr.get_visual_dimension_benchmarks(dimension).empty
+
+
+def test_get_all_visual_benchmarks_returns_all_keys_when_offline(offline_urdr):
+    result = offline_urdr.get_all_visual_benchmarks()
+    assert set(result) == set(UrdrAnalytics.VISUAL_DIMENSIONS)
+    assert all(df.empty for df in result.values())
+
+
+def test_get_all_visual_benchmarks_splits_the_union_result(offline_urdr, monkeypatch):
+    """
+    The combined query returns one frame tagged by `dimension`; it must
+    be split back into per-dimension frames whose column is named after
+    the dimension, matching what the single-dimension query returns.
+    """
+    combined = pd.DataFrame([
+        {"dimension": "crop_mode", "value": "center_crop", "total_samples": 5,
+         "avg_3s_retention": 90.0, "avg_completion_rate": 60.0, "avg_virality_score": 88.0},
+        {"dimension": "motion_effect", "value": "shake", "total_samples": 2,
+         "avg_3s_retention": 80.0, "avg_completion_rate": 50.0, "avg_virality_score": 70.0},
+        {"dimension": "color_grade", "value": "warm_glow", "total_samples": 3,
+         "avg_3s_retention": 85.0, "avg_completion_rate": 55.0, "avg_virality_score": 77.0},
+    ])
+    monkeypatch.setattr(offline_urdr, "_connected", True)
+    monkeypatch.setattr(ch, "run_query_df", lambda q: combined)
+
+    result = offline_urdr.get_all_visual_benchmarks()
+    assert list(result["crop_mode"].columns)[0] == "crop_mode"
+    assert result["crop_mode"].iloc[0]["crop_mode"] == "center_crop"
+    assert result["motion_effect"].iloc[0]["motion_effect"] == "shake"
+    assert result["color_grade"].iloc[0]["color_grade"] == "warm_glow"
+    # The tagging column must not leak into the per-dimension frames.
+    assert all("dimension" not in df.columns for df in result.values())
+
+
+def test_get_all_visual_benchmarks_wraps_the_union_before_ordering(offline_urdr, monkeypatch):
+    """
+    Regression test. A trailing ORDER BY on a bare UNION ALL binds to
+    only the final SELECT, so results came back in the wrong order and
+    charts read worst-to-best. The union must be wrapped in a subquery.
+    """
+    captured = {}
+
+    def _capture(query):
+        captured["sql"] = query
+        return pd.DataFrame()
+
+    monkeypatch.setattr(offline_urdr, "_connected", True)
+    monkeypatch.setattr(ch, "run_query_df", _capture)
+    offline_urdr.get_all_visual_benchmarks()
+
+    sql = " ".join(captured["sql"].split())
+    assert "UNION ALL" in sql
+    order_pos = sql.upper().rindex("ORDER BY")
+    close_paren = sql.rindex(")")
+    assert close_paren < order_pos, "ORDER BY must sit outside the wrapped union"
+
+
+def test_offline_fallback_still_serves_a_visual_benchmark(offline_urdr):
+    """
+    Fallback mode must still return a concrete treatment so rendering
+    never blocks on ClickHouse being down.
+    """
+    bench = offline_urdr.get_top_visual_benchmark("shock_stat")
+    assert bench is not None
+    assert bench["crop_mode"] and bench["motion_effect"] and bench["color_grade"]
+
+
+def test_unknown_hook_type_falls_back_rather_than_returning_none(offline_urdr):
+    assert offline_urdr.get_top_visual_benchmark("not_a_real_hook_type") is not None
+
+
+def test_connection_error_is_recorded_when_offline(offline_urdr):
+    assert offline_urdr.is_connected() is False
+    assert offline_urdr.connection_error  # a reason, not just a bare False

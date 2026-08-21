@@ -1,0 +1,334 @@
+"""
+Unit tests for Skuld's pure rendering logic — time parsing, caption
+chunking/timing, colour interpolation, and FFmpeg filter-graph
+construction.
+
+Deliberately excludes anything that shells out to FFmpeg or calls an
+API: these run in milliseconds so they're cheap to run on every change,
+which is the point. Several cases here pin down bugs that were found by
+live testing and fixed (caption overlap, the crop-vs-zoompan filter
+choice, the oversized blurred-background canvas) so they can't silently
+come back.
+"""
+
+import re
+
+import pytest
+
+from agent.skuld_renderer import (
+    SkuldRenderer,
+    _chunk_words,
+    _distribute_chunk_times,
+    _escape_drawtext,
+    _lerp_rgb_via_hsv,
+    _words_per_chunk,
+    format_seconds_to_mmss,
+    generate_rebased_ass_subtitle_file,
+    parse_time_to_seconds,
+)
+
+
+# --------------------------------------------------------------------------
+# Time parsing / formatting
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("text,expected", [
+    ("00:00", 0.0),
+    ("01:30", 90.0),
+    ("10:05", 605.0),
+    ("1:00:00", 3600.0),
+    ("01:02:03", 3723.0),
+])
+def test_parse_time_to_seconds(text, expected):
+    assert parse_time_to_seconds(text) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("seconds,expected", [
+    (0.0, "00:00"),
+    (90.0, "01:30"),
+    (605.0, "10:05"),
+])
+def test_format_seconds_to_mmss(seconds, expected):
+    assert format_seconds_to_mmss(seconds) == expected
+
+
+def test_time_round_trip_is_stable():
+    for seconds in (0.0, 7.0, 63.0, 599.0, 3599.0):
+        assert parse_time_to_seconds(format_seconds_to_mmss(seconds)) == pytest.approx(seconds)
+
+
+# --------------------------------------------------------------------------
+# Caption chunking and timing
+# --------------------------------------------------------------------------
+
+def test_words_per_chunk_shrinks_as_crazy_rises():
+    """Higher 'crazy' means faster reveals, i.e. fewer words per chunk."""
+    calm, wild = _words_per_chunk(0.0), _words_per_chunk(1.0)
+    assert calm > wild >= 1
+
+
+def test_chunk_words_preserves_every_word_in_order():
+    text = "the quick brown fox jumps over the lazy dog"
+    chunks = _chunk_words(text, 3)
+    assert " ".join(chunks).split() == text.split()
+
+
+def test_chunk_words_respects_chunk_size():
+    chunks = _chunk_words("a b c d e f g", 3)
+    assert all(len(c.split()) <= 3 for c in chunks)
+
+
+def test_chunk_words_handles_empty_and_single():
+    assert _chunk_words("", 3) == [] or _chunk_words("", 3) == [""]
+    assert _chunk_words("solo", 3) == ["solo"]
+
+
+def test_distribute_chunk_times_spans_window_without_overlap():
+    times = _distribute_chunk_times(["alpha", "bravo", "charlie", "delta"], 10.0, 14.0)
+    assert len(times) == 4
+    # Each chunk starts no earlier than the previous one ends.
+    for (_, prev_end), (next_start, _) in zip(times, times[1:]):
+        assert next_start >= prev_end - 1e-6
+    assert times[0][0] == pytest.approx(10.0)
+    assert times[-1][1] == pytest.approx(14.0, abs=0.01)
+
+
+def test_distribute_chunk_times_single_chunk_uses_whole_window():
+    (start, end), = _distribute_chunk_times(["only"], 2.0, 5.0)
+    assert start == pytest.approx(2.0)
+    assert end == pytest.approx(5.0, abs=0.01)
+
+
+def test_distribute_chunk_times_longer_chunks_get_more_time():
+    """Timing is proportional to character count, standing in for real ASR timing."""
+    (_, short_end), (long_start, long_end) = _distribute_chunk_times(["hi", "a much longer chunk"], 0.0, 10.0)
+    assert (long_end - long_start) > short_end
+
+
+def test_distribute_chunk_times_never_runs_past_the_line():
+    """Even with many tiny chunks, the min-duration floor must be scaled back."""
+    times = _distribute_chunk_times(["a"] * 20, 0.0, 1.0)
+    assert times[-1][1] <= 1.0 + 1e-6
+
+
+# --------------------------------------------------------------------------
+# Colour handling
+# --------------------------------------------------------------------------
+
+def test_hsv_lerp_endpoints_are_exact():
+    cyan, orange = (110, 210, 255), (255, 70, 20)
+    assert _lerp_rgb_via_hsv(cyan, orange, 0.0) == cyan
+    assert _lerp_rgb_via_hsv(cyan, orange, 1.0) == orange
+
+
+def test_hsv_lerp_midpoint_stays_saturated():
+    """
+    The reason this uses HSV rather than a straight RGB average: cyan and
+    orange-red are far enough apart in hue that lerping channelwise
+    produces a washed-out grey midpoint. The accent colour has to stay
+    vivid to read as an accent at all.
+    """
+    mid = _lerp_rgb_via_hsv((110, 210, 255), (255, 70, 20), 0.5)
+    spread = max(mid) - min(mid)
+    naive_rgb_mid = tuple((a + b) // 2 for a, b in zip((110, 210, 255), (255, 70, 20)))
+    naive_spread = max(naive_rgb_mid) - min(naive_rgb_mid)
+    assert spread > naive_spread
+
+
+def test_escape_drawtext_neutralises_ffmpeg_metacharacters():
+    escaped = _escape_drawtext("it's 100%: a 'test'")
+    # The characters that would otherwise terminate or re-parse a
+    # drawtext= argument must not survive unescaped.
+    assert "\\'" in escaped or "'" not in escaped.replace("\\'", "")
+    assert ":" not in escaped.replace("\\:", "")
+
+
+# --------------------------------------------------------------------------
+# ASS subtitle generation
+# --------------------------------------------------------------------------
+
+TRANSCRIPT = """[00:10] First line here.
+[00:14] Second line follows.
+[00:20] Third line much later.
+"""
+
+
+def _dialogue_lines(ass_text: str):
+    return [ln for ln in ass_text.splitlines() if ln.startswith("Dialogue:")]
+
+
+def _dialogue_times(line: str):
+    parts = line.split(",")
+    return parse_time_to_seconds(parts[1]), parse_time_to_seconds(parts[2])
+
+
+def test_ass_only_includes_lines_overlapping_the_clip(tmp_path):
+    out = generate_rebased_ass_subtitle_file(
+        TRANSCRIPT, tmp_path / "s.ass", clip_start_sec=10.0, clip_end_sec=18.0,
+    )
+    body = out.read_text(encoding="utf-8")
+    # Assert on single words, not multi-word phrases: one word per chunk
+    # is wrapped in a colour override tag, so "First line" is not
+    # necessarily contiguous in the output even when both words are present.
+    assert "First" in body
+    assert "Second" in body
+    # Starts at 00:20, i.e. after the clip ends at 18s.
+    assert "Third" not in body
+
+
+def test_ass_is_empty_when_no_dialogue_falls_in_window(tmp_path):
+    """
+    A clip covering a stretch before any speech should produce zero
+    caption events rather than mistimed ones — this is exactly the
+    "why are there no subtitles?" case, and the answer is that it's
+    correct behaviour.
+    """
+    out = generate_rebased_ass_subtitle_file(
+        TRANSCRIPT, tmp_path / "s.ass", clip_start_sec=0.0, clip_end_sec=8.0,
+    )
+    assert _dialogue_lines(out.read_text(encoding="utf-8")) == []
+
+
+def test_ass_timestamps_are_rebased_to_clip_start(tmp_path):
+    out = generate_rebased_ass_subtitle_file(
+        TRANSCRIPT, tmp_path / "s.ass", clip_start_sec=10.0, clip_end_sec=18.0,
+    )
+    starts = [_dialogue_times(ln)[0] for ln in _dialogue_lines(out.read_text(encoding="utf-8"))]
+    # First caption must begin at (or very near) zero, not at 10s.
+    assert min(starts) == pytest.approx(0.0, abs=0.05)
+
+
+def test_ass_captions_never_overlap(tmp_path):
+    """
+    Regression test. Lines without an explicit end time used to get a
+    flat guessed duration that could run past the next line's start,
+    rendering two captions stacked on screen at once. The fix caps a
+    guessed end at the following line's start.
+    """
+    fast = "\n".join(f"[00:{10 + i:02d}] line {i}" for i in range(6))
+    out = generate_rebased_ass_subtitle_file(
+        fast, tmp_path / "s.ass", clip_start_sec=10.0, clip_end_sec=16.0,
+    )
+    spans = sorted(_dialogue_times(ln) for ln in _dialogue_lines(out.read_text(encoding="utf-8")))
+    for (_, prev_end), (next_start, _) in zip(spans, spans[1:]):
+        assert next_start >= prev_end - 1e-6, f"captions overlap: {spans}"
+
+
+def test_ass_never_emits_zero_or_negative_duration(tmp_path):
+    duplicate_starts = "[00:10] one\n[00:10] two\n[00:11] three\n"
+    out = generate_rebased_ass_subtitle_file(
+        duplicate_starts, tmp_path / "s.ass", clip_start_sec=10.0, clip_end_sec=15.0,
+    )
+    for line in _dialogue_lines(out.read_text(encoding="utf-8")):
+        start, end = _dialogue_times(line)
+        assert end > start
+
+
+def test_ass_escapes_literal_braces_from_transcript(tmp_path):
+    """
+    Braces are ASS override-tag syntax. A transcript containing them
+    must not be able to inject styling — but the tags the renderer
+    itself injects still have to work.
+    """
+    out = generate_rebased_ass_subtitle_file(
+        "[00:10] use {b1} to embolden\n", tmp_path / "s.ass",
+        clip_start_sec=10.0, clip_end_sec=14.0,
+    )
+    body = out.read_text(encoding="utf-8")
+    assert "{b1}" not in body
+
+
+# --------------------------------------------------------------------------
+# FFmpeg filter-graph construction
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def skuld(tmp_path):
+    return SkuldRenderer(output_dir=tmp_path)
+
+
+@pytest.mark.parametrize("crop_mode", [
+    "center_crop", "blurred_background", "top_anchored_crop", "cinematic_letterbox",
+])
+def test_every_crop_mode_targets_the_1080x1920_canvas(skuld, crop_mode):
+    graph = skuld._build_crop_filter(crop_mode)
+    assert "1080" in graph and "1920" in graph
+
+
+@pytest.mark.parametrize("crop_mode", ["blurred_background", "top_anchored_crop"])
+def test_blurred_modes_crop_back_to_canvas_before_overlay(skuld, crop_mode):
+    """
+    Regression test. force_original_aspect_ratio=increase deliberately
+    OVERSHOOTS the canvas to cover it (a 16:9 source becomes 3413x1920).
+    Without a crop back down, libx264 rejects the odd width outright
+    ("width not divisible by 2"), and blurring the oversized image was
+    also measured ~3x slower.
+    """
+    graph = skuld._build_crop_filter(crop_mode)
+    assert "force_original_aspect_ratio=increase" in graph
+    assert "crop=1080:1920" in graph
+    # The crop must precede the blur, which is what made it fast.
+    assert graph.index("crop=1080:1920") < graph.index("boxblur")
+
+
+@pytest.mark.parametrize("crop_mode", ["blurred_background", "top_anchored_crop"])
+def test_two_layer_modes_split_a_named_input_pad(skuld, crop_mode):
+    """
+    A bare demuxer pad like [0:v] can be consumed many times, but a
+    named filter pad is a one-consumer link — referencing [zoomed] twice
+    without split=2 raises "Invalid stream specifier".
+    """
+    from_named = skuld._build_crop_filter(crop_mode, video_label="[zoomed]")
+    assert "split=2" in from_named
+    from_raw = skuld._build_crop_filter(crop_mode, video_label="[0:v]")
+    assert "split=2" not in from_raw
+
+
+def test_zoom_effects_use_zoompan_not_time_varying_crop(skuld):
+    """
+    crop evaluates w/h once at init, so a t-dependent size throws at
+    startup; the scale+eval=frame alternative was measured 10-50x slower
+    than a normal encode. zoompan is the filter built for this.
+    """
+    for effect in ("ken_burns_zoom", "punch_in_zoom"):
+        stage = skuld._build_zoom_prestage(effect, 8.0, 0.5, 1920, 1080, 30.0)
+        assert "zoompan" in stage
+        assert stage.endswith("[zoomed];")
+        assert "s=1920x1080" in stage, "zoom must run at the source's native size"
+
+
+def test_zoom_prestage_is_empty_for_non_zoom_effects(skuld):
+    for effect in ("none", "shake"):
+        assert skuld._build_zoom_prestage(effect, 8.0, 0.5, 1920, 1080, 30.0) == ""
+
+
+def test_punch_in_zoom_is_more_aggressive_than_ken_burns(skuld):
+    def peak_zoom(stage: str) -> float:
+        return max(float(m) for m in re.findall(r"1\+([0-9.]+)\*", stage))
+
+    ken = skuld._build_zoom_prestage("ken_burns_zoom", 8.0, 0.5, 1920, 1080, 30.0)
+    punch = skuld._build_zoom_prestage("punch_in_zoom", 8.0, 0.5, 1920, 1080, 30.0)
+    assert peak_zoom(punch) > peak_zoom(ken)
+
+
+def test_shake_amplitude_scales_with_crazy(skuld):
+    def amplitude(graph: str) -> float:
+        return max(float(m) for m in re.findall(r"\+([0-9.]+)\*sin", graph))
+
+    assert amplitude(skuld._build_motion_filter("shake", 1.0)) > \
+           amplitude(skuld._build_motion_filter("shake", 0.0))
+
+
+def test_motion_filter_empty_for_none(skuld):
+    assert skuld._build_motion_filter("none", 0.5) == ""
+
+
+@pytest.mark.parametrize("grade", ["cool_desaturated", "warm_glow", "vibrant_punch"])
+def test_colour_grades_emit_a_chainable_eq_filter(skuld, grade):
+    graph = skuld._build_color_grade_filter(grade)
+    assert graph.startswith(","), "must chain onto the preceding filter"
+    assert "eq=" in graph
+
+
+def test_neutral_grade_is_a_no_op(skuld):
+    assert skuld._build_color_grade_filter("neutral") == ""
