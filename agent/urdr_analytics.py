@@ -334,6 +334,21 @@ class UrdrAnalytics:
             ADD COLUMN IF NOT EXISTS crop_mode LowCardinality(String) DEFAULT 'unknown'
             """)
 
+            # The other two visual dimensions Skuld now applies per clip
+            # (grounded in visual_style_benchmarks alongside crop_mode).
+            # Without these, motion and grade would be write-only: chosen
+            # and rendered every run, but never recorded, so the feedback
+            # loop could never learn which of them actually performs.
+            # Same non-destructive ALTER pattern as crop_mode above.
+            ch.run_query("""
+            ALTER TABLE video_hook_retention
+            ADD COLUMN IF NOT EXISTS motion_effect LowCardinality(String) DEFAULT 'unknown'
+            """)
+            ch.run_query("""
+            ALTER TABLE video_hook_retention
+            ADD COLUMN IF NOT EXISTS color_grade LowCardinality(String) DEFAULT 'unknown'
+            """)
+
             # Cross-validation table: real YouTube outcomes for clips this
             # pipeline actually published, so predictions can be checked
             # against ground truth rather than only synthetic benchmarks.
@@ -603,6 +618,8 @@ class UrdrAnalytics:
         virality_score: float,
         topic_category: str = "generated_clip",
         crop_mode: str = "unknown",
+        motion_effect: str = "unknown",
+        color_grade: str = "unknown",
     ) -> bool:
         """
         Closes the loop by logging newly generated clips and their predicted
@@ -617,7 +634,8 @@ class UrdrAnalytics:
                 "INSERT INTO video_hook_retention "
                 "(video_id, hook_type, hook_text, duration_sec, avg_3s_retention_pct, "
                 "avg_15s_retention_pct, avg_30s_retention_pct, completion_rate_pct, "
-                "virality_score, topic_category, sample_size_views, crop_mode) VALUES ("
+                "virality_score, topic_category, sample_size_views, crop_mode, "
+                "motion_effect, color_grade) VALUES ("
                 + ", ".join([
                     ch.sql_literal(clip_id),
                     ch.sql_literal(hook_type),
@@ -631,6 +649,8 @@ class UrdrAnalytics:
                     ch.sql_literal(topic_category),
                     ch.sql_literal(0),  # sample_size_views starts at 0
                     ch.sql_literal(crop_mode),
+                    ch.sql_literal(motion_effect),
+                    ch.sql_literal(color_grade),
                 ]) + ")"
             )
             ch.run_query(query)
@@ -791,7 +811,7 @@ class UrdrAnalytics:
             original = ch.run_query_df(f"""
                 SELECT hook_text, duration_sec, avg_3s_retention_pct,
                        avg_15s_retention_pct, avg_30s_retention_pct,
-                       completion_rate_pct, crop_mode
+                       completion_rate_pct, crop_mode, motion_effect, color_grade
                 FROM video_hook_retention
                 WHERE video_id = {ch.sql_literal(clip_id)}
                 ORDER BY created_at DESC
@@ -803,6 +823,7 @@ class UrdrAnalytics:
                     "hook_text": "", "duration_sec": 10.0, "avg_3s_retention_pct": 0.0,
                     "avg_15s_retention_pct": 0.0, "avg_30s_retention_pct": 0.0,
                     "completion_rate_pct": 0.0, "crop_mode": "unknown",
+                    "motion_effect": "unknown", "color_grade": "unknown",
                 }
             else:
                 orig = original.iloc[0].to_dict()
@@ -813,7 +834,8 @@ class UrdrAnalytics:
                 "INSERT INTO video_hook_retention "
                 "(video_id, hook_type, hook_text, duration_sec, avg_3s_retention_pct, "
                 "avg_15s_retention_pct, avg_30s_retention_pct, completion_rate_pct, "
-                "virality_score, topic_category, sample_size_views, crop_mode) VALUES ("
+                "virality_score, topic_category, sample_size_views, crop_mode, "
+                "motion_effect, color_grade) VALUES ("
                 + ", ".join([
                     ch.sql_literal(actual_video_id),
                     ch.sql_literal(hook_type),
@@ -827,6 +849,8 @@ class UrdrAnalytics:
                     ch.sql_literal("actual_outcome"),
                     ch.sql_literal(int(view_count)),
                     ch.sql_literal(orig["crop_mode"]),
+                    ch.sql_literal(orig.get("motion_effect", "unknown")),
+                    ch.sql_literal(orig.get("color_grade", "unknown")),
                 ]) + ")"
             )
             ch.run_query(query)
@@ -904,32 +928,100 @@ class UrdrAnalytics:
             df = df[df["hook_type"] == hook_category]
         return df.sort_values(by="virality_score", ascending=False).head(limit)
 
-    def get_crop_mode_benchmarks(self) -> pd.DataFrame:
+    # The three visual dimensions Skuld applies per clip, all grounded in
+    # visual_style_benchmarks. Whitelisted rather than interpolated freely
+    # into SQL, since the column name can't be passed as a literal.
+    VISUAL_DIMENSIONS = ("crop_mode", "motion_effect", "color_grade")
+
+    def get_visual_dimension_benchmarks(self, dimension: str = "crop_mode") -> pd.DataFrame:
         """
-        Aggregates performance by crop_mode (center_crop, blurred_background,
-        top_anchored_crop, cinematic_letterbox). Rows logged before this
-        column existed, and
-        seed benchmark data, fall under 'unknown' — this view starts
-        genuinely useful once a handful of real clips have been generated
-        with different crop modes.
+        Aggregates observed performance by one visual dimension —
+        crop_mode, motion_effect, or color_grade. Rows logged before that
+        column existed, plus seed benchmark data, fall under 'unknown';
+        each view starts genuinely useful once a handful of real clips
+        have been generated with differing treatments.
+
+        Note this reports what actually happened to generated clips,
+        which is a different thing from visual_style_benchmarks (the
+        prior Skuld *chooses* from). Comparing the two is the point: it's
+        how you see whether the grounded choice is paying off.
         """
+        if dimension not in self.VISUAL_DIMENSIONS:
+            raise ValueError(
+                f"Unknown visual dimension '{dimension}'; expected one of {self.VISUAL_DIMENSIONS}."
+            )
         if not self.is_connected():
             return pd.DataFrame()
         try:
-            return ch.run_query_df("""
+            return ch.run_query_df(f"""
             SELECT
-                crop_mode,
+                {dimension},
                 count() as total_samples,
                 round(avg(avg_3s_retention_pct), 2) as avg_3s_retention,
                 round(avg(completion_rate_pct), 2) as avg_completion_rate,
                 round(avg(virality_score), 2) as avg_virality_score
             FROM video_hook_retention
-            GROUP BY crop_mode
+            GROUP BY {dimension}
             ORDER BY avg_virality_score DESC
             """)
         except Exception as e:
-            logger.error(f"ClickHouse crop_mode aggregation query failed: {e}")
+            logger.error(f"ClickHouse {dimension} aggregation query failed: {e}")
             return pd.DataFrame()
+
+    def get_all_visual_benchmarks(self) -> Dict[str, pd.DataFrame]:
+        """
+        Returns {dimension: DataFrame} for all three visual dimensions in
+        a SINGLE ClickHouse round-trip, via UNION ALL.
+
+        Worth the extra SQL because every call through the MCP bridge
+        spawns and tears down its own mcp-clickhouse subprocess (see
+        clickhouse_mcp_client's module docstring). Querying the three
+        dimensions separately meant three subprocess spawns per cache
+        miss on a tab Streamlit re-executes on every rerun; this makes it
+        one.
+        """
+        if not self.is_connected():
+            return {d: pd.DataFrame() for d in self.VISUAL_DIMENSIONS}
+
+        union_sql = " UNION ALL ".join(
+            f"""
+            SELECT '{dim}' AS dimension, {dim} AS value, count() AS total_samples,
+                   round(avg(avg_3s_retention_pct), 2) AS avg_3s_retention,
+                   round(avg(completion_rate_pct), 2) AS avg_completion_rate,
+                   round(avg(virality_score), 2) AS avg_virality_score
+            FROM video_hook_retention GROUP BY {dim}
+            """
+            for dim in self.VISUAL_DIMENSIONS
+        )
+        # The UNION must be wrapped in a subquery before ORDER BY. A
+        # trailing ORDER BY on a bare UNION ALL binds to only the FINAL
+        # SELECT, not the combined result -- caught by diffing this
+        # against the per-dimension queries, which came back correctly
+        # sorted while this one silently returned crop_mode ascending
+        # (85.63 before 92.02), i.e. charts reading worst-to-best.
+        try:
+            combined = ch.run_query_df(
+                f"SELECT * FROM ({union_sql}) ORDER BY dimension, avg_virality_score DESC"
+            )
+        except Exception as e:
+            logger.error(f"ClickHouse combined visual-dimension query failed: {e}")
+            return {d: pd.DataFrame() for d in self.VISUAL_DIMENSIONS}
+
+        results: Dict[str, pd.DataFrame] = {}
+        for dim in self.VISUAL_DIMENSIONS:
+            if combined.empty:
+                results[dim] = pd.DataFrame()
+                continue
+            # Split back out per dimension, renaming the generic 'value'
+            # column to the dimension's own name so each frame looks
+            # exactly like get_visual_dimension_benchmarks() returned it.
+            part = combined[combined["dimension"] == dim].drop(columns=["dimension"])
+            results[dim] = part.rename(columns={"value": dim}).reset_index(drop=True)
+        return results
+
+    def get_crop_mode_benchmarks(self) -> pd.DataFrame:
+        """Back-compat alias for get_visual_dimension_benchmarks('crop_mode')."""
+        return self.get_visual_dimension_benchmarks("crop_mode")
 
     def get_distinct_topic_categories(self) -> List[str]:
         """Returns known topic_category values, for the Topic Focus UI dropdown."""

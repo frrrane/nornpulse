@@ -448,6 +448,8 @@ class VerdandiADK:
                 virality_score=virality_score,
                 topic_category="generated_clip",
                 crop_mode=match.get("crop_mode", "unknown") if match else "unknown",
+                motion_effect=match.get("motion_effect", "unknown") if match else "unknown",
+                color_grade=match.get("color_grade", "unknown") if match else "unknown",
             )
             return json.dumps({"logged": success, "clip_id": clip_id, "hook_rank": hook_rank, "is_top_tier": is_top_tier})
 
@@ -772,6 +774,7 @@ class VerdandiADK:
         auto_window_mode: str = "random",
         content_hint: Optional[str] = None,
         caption_language: Optional[str] = None,
+        progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Runs the full single-video pipeline once per URL in video_urls
@@ -793,6 +796,19 @@ class VerdandiADK:
         if len(video_urls) > BATCH_MAX_VIDEOS:
             logger.info(f"Batch capped at {BATCH_MAX_VIDEOS} videos ({len(video_urls)} were provided).")
 
+        # Batch runs the whole pipeline once per video, so without this the
+        # UI sits silent for many minutes. Each per-video stage message is
+        # prefixed with "Video i/N" and the inner orchestrate_generation's
+        # own stage messages are re-emitted with the same prefix, so the
+        # stepper shows both which video and which Norn is working.
+        def _emit(stage: str, message: str) -> None:
+            if progress_callback is None:
+                return
+            try:
+                progress_callback(stage, message)
+            except Exception as e:
+                logger.debug(f"progress_callback raised (ignored): {e}")
+
         all_clips: List[Dict[str, Any]] = []
         for i, url in enumerate(urls):
             try:
@@ -812,11 +828,21 @@ class VerdandiADK:
                 except Exception as e:
                     logger.warning(f"Could not check length of {url} ahead of download ({e}); downloading normally.")
 
+                label = f"Video {i + 1}/{len(urls)}"
                 logger.info(f"🗂️ Batch {i + 1}/{len(urls)}: downloading {url}")
+                _emit("download", f"🗂️ {label}: downloading source...")
                 video_path = download_youtube_video(
                     url, output_filename=f"batch_{i}_input.mp4", time_range=download_time_range,
                 )
+                _emit("transcribe", f"🗂️ {label}: extracting transcript...")
                 transcript_text = get_or_create_transcript(video_path)
+
+                # Re-emit the inner pipeline's stage events with the batch
+                # prefix, so the stepper keeps lighting up the right Norn
+                # while also saying which video it's on.
+                def _relay(stage: str, message: str, _label: str = label) -> None:
+                    _emit(stage, f"🗂️ {_label} · {message}")
+
                 clips = self.orchestrate_generation(
                     transcript_text=transcript_text,
                     video_path=video_path,
@@ -831,6 +857,7 @@ class VerdandiADK:
                     clip_id_prefix=f"batch{i}_",
                     content_hint=content_hint,
                     caption_language=caption_language,
+                    progress_callback=_relay,
                 )
                 for clip in clips:
                     clip["source_url"] = url
@@ -841,6 +868,7 @@ class VerdandiADK:
 
         all_clips.sort(key=lambda c: c.get("virality_score", 0.0), reverse=True)
         logger.info(f"🗂️ Batch complete: {len(all_clips)} clips from {len(urls)} videos, ranked by virality_score.")
+        _emit("done", f"✨ Batch complete: {len(all_clips)} clip(s) from {len(urls)} video(s).")
         return all_clips
 
     def _parse_model_json(self, text_output: str) -> List[Dict[str, Any]]:

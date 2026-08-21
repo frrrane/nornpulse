@@ -129,10 +129,19 @@ PIPELINE_STAGES = [
     ("urdr_log", "📊 Log"),
 ]
 
+# Batch mode does its own per-video download + transcription before
+# handing off to the same inner pipeline, so it shows two extra leading
+# pills. Single-video mode does that work in Column 1 instead, before
+# generation is ever triggered, which is why it doesn't need them.
+BATCH_PIPELINE_STAGES = [
+    ("download", "⬇️ Download"),
+    ("transcribe", "📝 Transcript"),
+] + PIPELINE_STAGES
 
-def _render_pipeline_stepper(active_stage: str, seen_stages: set, message: str) -> str:
+
+def _render_pipeline_stepper(active_stage: str, seen_stages: set, message: str, stages=None) -> str:
     pills = []
-    for key, label in PIPELINE_STAGES:
+    for key, label in (stages or PIPELINE_STAGES):
         if key == active_stage:
             cls = "np-step-active"
         elif key in seen_stages:
@@ -183,8 +192,9 @@ def _cached_hook_benchmarks(_urdr):
 
 
 @st.cache_data(ttl=30, show_spinner=False)
-def _cached_crop_benchmarks(_urdr):
-    return _urdr.get_crop_mode_benchmarks()
+def _cached_visual_benchmarks(_urdr):
+    """All three visual dimensions in one ClickHouse round-trip."""
+    return _urdr.get_all_visual_benchmarks()
 
 
 @st.cache_data(ttl=15, show_spinner=False)
@@ -246,7 +256,7 @@ if not _urdr_health.is_connected():
             # Fallback-mode results are now stale — drop them so the
             # charts repopulate from the real database.
             _cached_hook_benchmarks.clear()
-            _cached_crop_benchmarks.clear()
+            _cached_visual_benchmarks.clear()
             _cached_published_outcomes.clear()
             _cached_topic_categories.clear()
             st.rerun()
@@ -342,20 +352,42 @@ with nav_tab1:
                             batch_urls = []
                             st.error(f"Could not enumerate videos from that URL: {e}")
                     if batch_urls:
-                        with st.spinner(f"Running batch across {len(batch_urls)} video(s)... this takes a while."):
-                            try:
-                                batch_results = st.session_state.verdandi_adk.orchestrate_batch(
-                                    video_urls=batch_urls, target_count_per_video=1,
-                                    content_hint=batch_content_hint,
-                                    caption_language=batch_caption_language,
-                                )
-                                st.session_state.current_generation = batch_results
-                                st.success(
-                                    f"✨ Batch complete: {len(batch_results)} clip(s) from "
-                                    f"{len(batch_urls)} video(s), ranked by virality score — see Review & Publish."
-                                )
-                            except Exception as e:
-                                st.error(f"Batch run failed: {e}")
+                        # Same live stepper as the single-video flow, with
+                        # the two extra leading stages batch does per video.
+                        # A batch is 3x the full pipeline, so this is where
+                        # silent waiting hurt most.
+                        batch_progress = st.empty()
+                        batch_seen: set = set()
+
+                        def _update_batch_progress(stage: str, message: str) -> None:
+                            if stage != "done":
+                                batch_seen.add(stage)
+                            batch_progress.markdown(
+                                _render_pipeline_stepper(
+                                    stage, batch_seen, message, stages=BATCH_PIPELINE_STAGES,
+                                ),
+                                unsafe_allow_html=True,
+                            )
+
+                        _update_batch_progress(
+                            "download", f"Queued — starting batch across {len(batch_urls)} video(s)...",
+                        )
+                        try:
+                            batch_results = st.session_state.verdandi_adk.orchestrate_batch(
+                                video_urls=batch_urls, target_count_per_video=1,
+                                content_hint=batch_content_hint,
+                                caption_language=batch_caption_language,
+                                progress_callback=_update_batch_progress,
+                            )
+                            st.session_state.current_generation = batch_results
+                            batch_progress.empty()
+                            st.success(
+                                f"✨ Batch complete: {len(batch_results)} clip(s) from "
+                                f"{len(batch_urls)} video(s), ranked by virality score — see Review & Publish."
+                            )
+                        except Exception as e:
+                            batch_progress.empty()
+                            st.error(f"Batch run failed: {e}")
 
         if st.session_state.recently_published:
             st.markdown("<div class='workflow-header'>📤 Recently Published</div>", unsafe_allow_html=True)
@@ -538,7 +570,7 @@ with nav_tab1:
                 # force Tab 3's benchmark charts to reflect them immediately
                 # instead of waiting out the cache TTL.
                 _cached_hook_benchmarks.clear()
-                _cached_crop_benchmarks.clear()
+                _cached_visual_benchmarks.clear()
 
                 _save_last_session(yt_url, transcript_input)
                 st.session_state.current_generation = final_metadata
@@ -752,21 +784,44 @@ with nav_tab3:
         )
         st.plotly_chart(curve_fig, width='stretch')
 
-        # Crop-mode performance — starts as a single 'unknown' bucket
-        # (seed data + pre-tracking rows) and fills in with real
-        # center_crop vs blurred_background comparisons as you generate
-        # more clips with different crop modes selected.
-        crop_df = _cached_crop_benchmarks(urdr)
-        if not crop_df.empty and len(crop_df) > 1:
-            st.markdown("<div class='workflow-header'>✂️ Crop Mode Performance</div>", unsafe_allow_html=True)
-            crop_fig = px.bar(
-                crop_df, x="crop_mode", y=["avg_3s_retention", "avg_completion_rate", "avg_virality_score"],
-                barmode="group", template="plotly_dark",
-                labels={"value": "Score / Percent", "crop_mode": "Crop Mode", "variable": "Metric"},
-            )
-            st.plotly_chart(crop_fig, width='stretch')
-        elif not crop_df.empty:
-            st.caption(f"Crop mode data is all '{crop_df.iloc[0]['crop_mode']}' so far — generate clips with different crop modes to compare.")
+        # Observed performance per visual dimension. All three treatments
+        # Skuld applies (framing, camera motion, color grade) are now
+        # logged per clip, so each gets its own tab here. Each starts as a
+        # single 'unknown' bucket — seed data and rows logged before the
+        # column existed — and fills in as clips accumulate across
+        # differing hook types, since the treatment is derived from
+        # hook_type via visual_style_benchmarks.
+        st.markdown("<div class='workflow-header'>🎬 Visual Treatment Performance</div>", unsafe_allow_html=True)
+        st.caption(
+            "What actually happened to generated clips, per visual dimension — as opposed to "
+            "`visual_style_benchmarks`, which is the prior Skuld *chooses* from. Comparing the two "
+            "is how you tell whether the grounded choice is paying off."
+        )
+        _visual_frames = _cached_visual_benchmarks(urdr)
+        _dim_tabs = st.tabs(["✂️ Crop Mode", "🎥 Camera Motion", "🎨 Color Grade"])
+        for _tab, (_dim, _label) in zip(
+            _dim_tabs,
+            [("crop_mode", "Crop Mode"), ("motion_effect", "Camera Motion"), ("color_grade", "Color Grade")],
+        ):
+            with _tab:
+                _df = _visual_frames.get(_dim, pd.DataFrame())
+                if _df.empty:
+                    st.caption(f"No {_label.lower()} data recorded yet.")
+                elif len(_df) > 1:
+                    st.plotly_chart(
+                        px.bar(
+                            _df, x=_dim,
+                            y=["avg_3s_retention", "avg_completion_rate", "avg_virality_score"],
+                            barmode="group", template="plotly_dark",
+                            labels={"value": "Score / Percent", _dim: _label, "variable": "Metric"},
+                        ),
+                        width='stretch',
+                    )
+                else:
+                    st.caption(
+                        f"{_label} data is all '{_df.iloc[0][_dim]}' so far — generate clips across "
+                        f"different hook types to build a comparison."
+                    )
     else:
         st.info("No benchmark data available yet.")
 
