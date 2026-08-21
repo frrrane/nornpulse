@@ -1,0 +1,48 @@
+# Keep secrets, local state, and heavy generated media out of the image.
+# Anything listed here that the app genuinely needs at runtime must be
+# supplied as an environment variable or mounted secret instead.
+
+# --- Secrets: never bake these into an image that gets pushed anywhere ---
+.env
+.env.*
+!.env.example
+client_secrets.json
+.credentials/
+*.pem
+*.key
+
+# --- Local state ---
+.nornpulse_last_session.json
+output/
+output_clips/
+*_9x16.mp4
+*_subs.ass
+*_metadata.json
+
+# --- Sample/generated media (multi-MB, regenerated on demand) ---
+sample_data/*.mp4
+sample_data/*.webm
+sample_data/*.wav
+sample_data/*.mp3
+
+# --- Python / tooling ---
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- VCS / editor / CI ---
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# --- Docs and container files not needed inside the image ---
+Dockerfile
+.dockerignore
+docker-compose.yml

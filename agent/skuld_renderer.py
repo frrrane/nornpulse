@@ -15,6 +15,7 @@ per render. Subtitle and banner styling is driven by two directional sliders:
 """
 
 import colorsys
+import os
 import re
 import subprocess
 import logging
@@ -23,6 +24,22 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Literal, Tuple, List
 
 logger = logging.getLogger("nornpulse.skuld")
+
+# Caption typeface. Must name a real heavy/display weight rather than a
+# generic "sans-serif" left for fontconfig to resolve however the host
+# happens to be configured -- burned-in captions over video live or die
+# on that weight.
+#
+# It's an env var because the right answer differs per environment and
+# getting it wrong is SILENT: libass substitutes without warning. On a
+# dev box with MS core fonts, "Arial Black" resolves correctly. In the
+# container it does not exist, and fontconfig was measured falling all
+# the way back to `DejaVu Sans "Book"` -- i.e. REGULAR weight, visibly
+# lighter than intended, with nothing logged anywhere. The Dockerfile
+# installs Roboto Black and sets CAPTION_FONT accordingly.
+#
+# Verify a host's resolution with: fc-match "<font name>"
+CAPTION_FONT = os.getenv("CAPTION_FONT", "Arial Black")
 
 CropMode = Literal["center_crop", "blurred_background", "top_anchored_crop", "cinematic_letterbox"]
 MotionEffect = Literal["none", "ken_burns_zoom", "punch_in_zoom", "shake"]
@@ -371,12 +388,8 @@ def _build_style_line(warmth: float, crazy: float) -> Tuple[str, str]:
     outline = 3 + round(2 * crazy)      # 3 -> 5
     shadow = 2 + round(2 * crazy)       # 2 -> 4
 
-    # Arial Black: a real heavy/display weight rather than a generic
-    # "sans-serif" name left for fontconfig to resolve however the host
-    # happens to have it configured. Falls back silently to whatever
-    # libass picks if a host doesn't have it installed.
     style_line = (
-        f"Style: KineticViral,Arial Black,{fontsize},{primary_ass},{secondary_ass},"
+        f"Style: KineticViral,{CAPTION_FONT},{fontsize},{primary_ass},{secondary_ass},"
         f"&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,{outline},{shadow},2,50,50,300,1"
     )
     return style_line, secondary_bgr_hex

@@ -132,6 +132,8 @@ Add your **Google Gemini API Key** to `.env`:
 GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
+Optional: `CAPTION_FONT` selects the burned-in caption typeface (default `Arial Black`). It must name a real heavy/display weight that exists on the host — libass substitutes **silently** when it doesn't, so captions quietly render at the wrong weight with nothing logged. Check a host with `fc-match "Arial Black"`. The container sets `CAPTION_FONT="Roboto Black"` for exactly this reason (see Docker below).
+
 ### 3. Install Dependencies
 ```bash
 python3 -m venv venv
@@ -161,6 +163,36 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 7. **Caption Translation**: Optionally burn in captions translated into a different language than the source (e.g. a Turkish-language drama captioned in English for a Shorts audience). Translation happens line-by-line, preserving each line's original `[MM:SS]` timestamp exactly — only the words change, so kinetic caption timing is unaffected. Verðandi's own reasoning and Mímir's enhance-narration fallback both still use the original-language transcript; only the on-screen text is translated.
 
 ---
+
+## 🐳 Docker / Cloud Run
+
+```bash
+docker build -t nornpulse .
+docker run -p 8080:8080 --env-file .env nornpulse
+```
+
+The image is built for Cloud Run: it listens on `$PORT` (default 8080) and binds `0.0.0.0`. Three things in it are load-bearing and fail *silently* if dropped, so the build guards two of them explicitly:
+
+- **ffmpeg/ffprobe** — Skuld shells out for every render and probe.
+- **`mcp-clickhouse`** — must land in the same environment that runs the app, since Urðr launches it as a subprocess resolved relative to `sys.executable`. Missing it would degrade the app to in-memory fallback benchmarks while still looking healthy, so the build fails instead.
+- **A black-weight caption font** — `Arial Black` doesn't exist on a slim Debian image, and fontconfig was measured falling all the way back to `DejaVu Sans "Book"`, i.e. *regular* weight, with nothing logged. The image installs Roboto Black, sets `CAPTION_FONT` to it, and fails the build if no black-weight face resolves.
+
+Secrets are never baked in — `.env`, `client_secrets.json` and `.credentials/` are excluded via `.dockerignore` and must be supplied as environment variables or mounted secrets.
+
+Note that **YouTube publishing does not work in the container as-is**: it needs `client_secrets.json` plus an interactive OAuth consent flow. Generation, rendering and analytics all work; publishing is expected to happen from a local run.
+
+## 🧪 Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+104 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, and Verðandi's duration/window clamp. They need no API keys, no ClickHouse and no FFmpeg, and run in about ten seconds.
+
+Several cases are regression guards for bugs found by live testing: caption overlap, the crop-before-blur ordering in `blurred_background`, the `split=2` rule for named filter pads, `ORDER BY` binding to only the last `SELECT` of a `UNION ALL`, and a clamp that could emit an end timestamp *before* its start when the model requested a range outside the user's Cut Range.
+
+`test_pipeline.py` and `test_hitl.py` at the repo root are separate — they are manual end-to-end runners that call the real Gemini / ClickHouse / YouTube APIs, and are excluded from the `pytest` suite.
 
 ## 📜 License
 
