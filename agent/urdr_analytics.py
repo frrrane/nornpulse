@@ -186,6 +186,36 @@ DEFAULT_MUSIC_BENCHMARKS = [
 ]
 
 
+# Default synthetic seed dataset correlating crop framing, camera motion,
+# and color grade with global YouTube Shorts virality, per hook_type --
+# grounds Skuld's visual treatment choice the same way DEFAULT_MUSIC_BENCHMARKS
+# grounds Bragi's Lyria prompt. Two rows per hook_type (a stronger and a
+# weaker performer), same rationale as the music benchmarks: a real choice
+# for the top-scoring lookup to make, not just one option.
+#
+# crop_mode: center_crop | blurred_background | top_anchored_crop | cinematic_letterbox
+# motion_effect: none | ken_burns_zoom | punch_in_zoom | shake
+# color_grade: neutral | cool_desaturated | warm_glow | vibrant_punch
+DEFAULT_VISUAL_BENCHMARKS = [
+    {"hook_type": "shock_stat", "crop_mode": "center_crop", "motion_effect": "punch_in_zoom", "color_grade": "vibrant_punch", "avg_virality_score": 94.8, "sample_size_views": 690000, "topic_category": "business_tech"},
+    {"hook_type": "shock_stat", "crop_mode": "cinematic_letterbox", "motion_effect": "shake", "color_grade": "cool_desaturated", "avg_virality_score": 87.1, "sample_size_views": 260000, "topic_category": "business_tech"},
+    {"hook_type": "curiosity_gap", "crop_mode": "blurred_background", "motion_effect": "ken_burns_zoom", "color_grade": "cool_desaturated", "avg_virality_score": 91.2, "sample_size_views": 540000, "topic_category": "tech_ai"},
+    {"hook_type": "curiosity_gap", "crop_mode": "center_crop", "motion_effect": "none", "color_grade": "neutral", "avg_virality_score": 82.4, "sample_size_views": 180000, "topic_category": "growth_hacks"},
+    {"hook_type": "contrarian_claim", "crop_mode": "cinematic_letterbox", "motion_effect": "shake", "color_grade": "cool_desaturated", "avg_virality_score": 88.9, "sample_size_views": 200000, "topic_category": "media_strategy"},
+    {"hook_type": "contrarian_claim", "crop_mode": "center_crop", "motion_effect": "punch_in_zoom", "color_grade": "vibrant_punch", "avg_virality_score": 76.5, "sample_size_views": 85000, "topic_category": "media_strategy"},
+    {"hook_type": "problem_agitation", "crop_mode": "cinematic_letterbox", "motion_effect": "shake", "color_grade": "cool_desaturated", "avg_virality_score": 80.7, "sample_size_views": 140000, "topic_category": "creator_tools"},
+    {"hook_type": "problem_agitation", "crop_mode": "blurred_background", "motion_effect": "ken_burns_zoom", "color_grade": "neutral", "avg_virality_score": 72.3, "sample_size_views": 75000, "topic_category": "creator_tools"},
+    {"hook_type": "story_in_medias_res", "crop_mode": "blurred_background", "motion_effect": "ken_burns_zoom", "color_grade": "warm_glow", "avg_virality_score": 90.1, "sample_size_views": 380000, "topic_category": "storytelling_ai"},
+    {"hook_type": "story_in_medias_res", "crop_mode": "cinematic_letterbox", "motion_effect": "none", "color_grade": "neutral", "avg_virality_score": 77.8, "sample_size_views": 110000, "topic_category": "storytelling_ai"},
+    {"hook_type": "visual_disruption", "crop_mode": "center_crop", "motion_effect": "shake", "color_grade": "vibrant_punch", "avg_virality_score": 87.0, "sample_size_views": 330000, "topic_category": "engineering"},
+    {"hook_type": "visual_disruption", "crop_mode": "cinematic_letterbox", "motion_effect": "punch_in_zoom", "color_grade": "cool_desaturated", "avg_virality_score": 81.6, "sample_size_views": 170000, "topic_category": "engineering"},
+    {"hook_type": "direct_question", "crop_mode": "top_anchored_crop", "motion_effect": "ken_burns_zoom", "color_grade": "warm_glow", "avg_virality_score": 75.0, "sample_size_views": 95000, "topic_category": "branding"},
+    {"hook_type": "direct_question", "crop_mode": "center_crop", "motion_effect": "none", "color_grade": "neutral", "avg_virality_score": 68.9, "sample_size_views": 55000, "topic_category": "branding"},
+    {"hook_type": "metaphor_analogy", "crop_mode": "blurred_background", "motion_effect": "ken_burns_zoom", "color_grade": "warm_glow", "avg_virality_score": 84.2, "sample_size_views": 230000, "topic_category": "data_infra"},
+    {"hook_type": "metaphor_analogy", "crop_mode": "cinematic_letterbox", "motion_effect": "none", "color_grade": "cool_desaturated", "avg_virality_score": 78.6, "sample_size_views": 125000, "topic_category": "data_infra"},
+]
+
+
 def _compute_actual_virality_score(view_count: int, like_count: int, comment_count: int) -> float:
     """
     Heuristic 0-100 virality proxy from real YouTube stats, scaled to sit
@@ -221,6 +251,7 @@ class UrdrAnalytics:
         self._connected = False
         self._fallback_df = pd.DataFrame(DEFAULT_HOOK_BENCHMARKS)
         self._fallback_music_df = pd.DataFrame(DEFAULT_MUSIC_BENCHMARKS)
+        self._fallback_visual_df = pd.DataFrame(DEFAULT_VISUAL_BENCHMARKS)
         self.connect()
 
     def connect(self) -> bool:
@@ -330,6 +361,29 @@ class UrdrAnalytics:
             music_count = music_count_result.get("rows", [[0]])[0][0] if music_count_result.get("rows") else 0
             if music_count == 0:
                 self.seed_music_benchmarks()
+
+            # Grounds Skuld's crop framing / camera motion / color grade per
+            # clip, the same way music_virality_benchmarks grounds Bragi's
+            # score -- correlates visual treatment with historical virality
+            # per hook_type, so the "sentiment" driving the edit is Urðr's
+            # real data rather than an ad hoc per-render model guess.
+            ch.run_query("""
+            CREATE TABLE IF NOT EXISTS visual_style_benchmarks (
+                hook_type LowCardinality(String),
+                crop_mode LowCardinality(String),
+                motion_effect LowCardinality(String),
+                color_grade LowCardinality(String),
+                avg_virality_score Float32,
+                sample_size_views UInt32,
+                topic_category LowCardinality(String),
+                created_at DateTime DEFAULT now()
+            ) ENGINE = MergeTree()
+            ORDER BY (hook_type, avg_virality_score);
+            """)
+            visual_count_result = ch.run_query("SELECT count() AS cnt FROM visual_style_benchmarks")
+            visual_count = visual_count_result.get("rows", [[0]])[0][0] if visual_count_result.get("rows") else 0
+            if visual_count == 0:
+                self.seed_visual_benchmarks()
         except Exception as e:
             logger.error(f"Error initializing ClickHouse schema: {e}")
 
@@ -402,6 +456,82 @@ class UrdrAnalytics:
         except Exception as e:
             logger.error(f"Failed to seed music benchmarks into ClickHouse: {e}")
             return 0
+
+    def seed_visual_benchmarks(self) -> int:
+        """Seeds the hook_type -> crop/motion/color-grade virality correlations Skuld grounds its visual treatment in."""
+        if not self.is_connected():
+            return len(self._fallback_visual_df)
+
+        try:
+            values_clauses = []
+            for b in DEFAULT_VISUAL_BENCHMARKS:
+                values_clauses.append(
+                    "(" + ", ".join([
+                        ch.sql_literal(b["hook_type"]),
+                        ch.sql_literal(b["crop_mode"]),
+                        ch.sql_literal(b["motion_effect"]),
+                        ch.sql_literal(b["color_grade"]),
+                        ch.sql_literal(b["avg_virality_score"]),
+                        ch.sql_literal(b["sample_size_views"]),
+                        ch.sql_literal(b["topic_category"]),
+                    ]) + ")"
+                )
+            query = (
+                "INSERT INTO visual_style_benchmarks "
+                "(hook_type, crop_mode, motion_effect, color_grade, avg_virality_score, "
+                "sample_size_views, topic_category) VALUES "
+                + ", ".join(values_clauses)
+            )
+            ch.run_query(query)
+            logger.info(f"Seeded {len(DEFAULT_VISUAL_BENCHMARKS)} visual style benchmark records into ClickHouse.")
+            return len(DEFAULT_VISUAL_BENCHMARKS)
+        except Exception as e:
+            logger.error(f"Failed to seed visual benchmarks into ClickHouse: {e}")
+            return 0
+
+    def get_top_visual_benchmark(self, hook_type: str, topic_category: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Returns the single highest-virality visual_style_benchmarks row for
+        hook_type -- the ClickHouse-grounded crop_mode/motion_effect/
+        color_grade Skuld renders with. Same progressive fallback as
+        get_top_music_benchmark (topic-scoped -> hook_type only -> global
+        top row), so a clip always gets a concrete, data-grounded visual
+        treatment even for a hook_type or topic_category outside the
+        seeded taxonomy.
+        """
+        def _query(where_clauses: List[str]) -> str:
+            where_str = " AND ".join(where_clauses) if where_clauses else "1=1"
+            return f"""
+            SELECT crop_mode, motion_effect, color_grade, avg_virality_score
+            FROM visual_style_benchmarks
+            WHERE {where_str}
+            ORDER BY avg_virality_score DESC
+            LIMIT 1
+            """
+
+        if self.is_connected():
+            try:
+                clauses = [f"hook_type = {ch.sql_literal(hook_type)}"]
+                if topic_category and topic_category != "all":
+                    clauses.append(f"topic_category = {ch.sql_literal(topic_category)}")
+                df = ch.run_query_df(_query(clauses))
+                if df.empty and topic_category:
+                    df = ch.run_query_df(_query([f"hook_type = {ch.sql_literal(hook_type)}"]))
+                if df.empty:
+                    df = ch.run_query_df(_query([]))
+                if not df.empty:
+                    return df.iloc[0].to_dict()
+            except Exception as e:
+                logger.error(f"Visual style benchmark query failed: {e}")
+
+        # In-memory fallback
+        fdf = self._fallback_visual_df
+        scoped = fdf[fdf["hook_type"] == hook_type]
+        if scoped.empty:
+            scoped = fdf
+        if scoped.empty:
+            return None
+        return scoped.sort_values("avg_virality_score", ascending=False).iloc[0].to_dict()
 
     def get_top_music_benchmark(self, hook_type: str, topic_category: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
@@ -761,8 +891,9 @@ class UrdrAnalytics:
 
     def get_crop_mode_benchmarks(self) -> pd.DataFrame:
         """
-        Aggregates performance by crop_mode (center_crop vs
-        blurred_background). Rows logged before this column existed, and
+        Aggregates performance by crop_mode (center_crop, blurred_background,
+        top_anchored_crop, cinematic_letterbox). Rows logged before this
+        column existed, and
         seed benchmark data, fall under 'unknown' — this view starts
         genuinely useful once a handful of real clips have been generated
         with different crop modes.

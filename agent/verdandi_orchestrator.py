@@ -216,20 +216,20 @@ class VerdandiADK:
             clip_id: str,
             hook_banner_text: str,
             hook_type: str,
-            crop_mode: str = "center_crop",
             transcript_text_override: str = "",
         ) -> str:
             """
             Renders a 9:16 vertical short with FFmpeg, burning in kinetic
             subtitles derived from the full source transcript. Always pass
-            a unique clip_id per clip. crop_mode must be either
-            'center_crop' or 'blurred_background'. Leave
-            transcript_text_override empty to automatically use the full
-            source transcript for subtitle generation. hook_type must be
-            the same value you will later pass to tool_log_urdr_telemetry
-            for this clip_id — it's used here up front to ground Bragi's
-            Lyria-composed background score in Urðr's
-            music_virality_benchmarks for that hook type.
+            a unique clip_id per clip. Leave transcript_text_override empty
+            to automatically use the full source transcript for subtitle
+            generation. hook_type must be the same value you will later
+            pass to tool_log_urdr_telemetry for this clip_id — it's used
+            here up front to ground Bragi's Lyria-composed background
+            score AND the clip's crop framing/camera motion/color grade in
+            Urðr's historical benchmarks for that hook type. There is no
+            crop_mode parameter to set: the visual treatment is looked up
+            from real ClickHouse data for this hook_type, not chosen ad hoc.
             """
             # Namespaced so batch mode (independent orchestrate_generation
             # calls, one per source video) can't collide: Gemini often
@@ -264,6 +264,16 @@ class VerdandiADK:
             music_benchmark = self.urdr.get_top_music_benchmark(hook_type=hook_type, topic_category=topic_focus)
             if music_benchmark:
                 music_path = self.bragi.compose_track(hook_type, music_benchmark)
+
+            # Ground the clip's crop framing, camera motion, and color grade
+            # in real ClickHouse virality data for this hook_type — same
+            # principle as Bragi's music choice above: rather than a crop
+            # style chosen ad hoc per render, the visual treatment is
+            # looked up from historical hook_type performance.
+            visual_benchmark = self.urdr.get_top_visual_benchmark(hook_type=hook_type, topic_category=topic_focus)
+            crop_mode = visual_benchmark.get("crop_mode", "center_crop") if visual_benchmark else "center_crop"
+            motion_effect = visual_benchmark.get("motion_effect", "none") if visual_benchmark else "none"
+            color_grade = visual_benchmark.get("color_grade", "neutral") if visual_benchmark else "neutral"
 
             # Heimdall composes a custom cover thumbnail grounded in the
             # same music_benchmark row — the mood/genre/energy that suits
@@ -318,6 +328,8 @@ class VerdandiADK:
                 end_time=end_time,
                 clip_id=clip_id,
                 crop_mode=crop_mode,
+                motion_effect=motion_effect,
+                color_grade=color_grade,
                 hook_banner_text=hook_banner_text,
                 transcript_text=caption_transcript,
                 warmth=warmth,
@@ -343,6 +355,8 @@ class VerdandiADK:
                     "music_genre": music_benchmark.get("genre") if music_benchmark else None,
                     "music_mood": music_benchmark.get("mood") if music_benchmark else None,
                     "crop_mode": result.get("crop_mode", "unknown"),
+                    "motion_effect": result.get("motion_effect", "none"),
+                    "color_grade": result.get("color_grade", "neutral"),
                 }
             )
             return json.dumps(result)

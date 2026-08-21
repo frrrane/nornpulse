@@ -5,8 +5,10 @@ Norn Labs (nornlabs.ai)
 
 Responsible for compiling 16:9 source videos into viral 9:16 vertical shorts,
 applying dynamic kinetic subtitles with relative timeline re-basing, crop
-positioning, and hook title banners. Subtitle and banner styling is driven
-by two directional sliders:
+positioning, camera motion, color grading, and hook title banners. crop_mode,
+motion_effect, and color_grade are Urðr-grounded per hook_type (see
+agent.urdr_analytics.get_top_visual_benchmark) rather than chosen ad hoc
+per render. Subtitle and banner styling is driven by two directional sliders:
 
   warmth (0.0-1.0): cool blue/white  ->  warm gold/orange color grade
   crazy  (0.0-1.0): subtle, static text  ->  bouncing, wobbling kinetic text
@@ -22,7 +24,9 @@ from typing import Dict, Any, Optional, Literal, Tuple, List
 
 logger = logging.getLogger("nornpulse.skuld")
 
-CropMode = Literal["center_crop", "blurred_background"]
+CropMode = Literal["center_crop", "blurred_background", "top_anchored_crop", "cinematic_letterbox"]
+MotionEffect = Literal["none", "ken_burns_zoom", "punch_in_zoom", "shake"]
+ColorGrade = Literal["neutral", "cool_desaturated", "warm_glow", "vibrant_punch"]
 RGB = Tuple[int, int, int]
 
 
@@ -59,6 +63,61 @@ def get_video_duration_seconds(video_path: str | Path) -> float:
     if result.returncode != 0 or not result.stdout.strip():
         raise RuntimeError(f"ffprobe failed to read duration for {video_path}: {result.stderr}")
     return float(result.stdout.strip())
+
+
+def get_video_dimensions(video_path: str | Path, default: Tuple[int, int] = (1920, 1080)) -> Tuple[int, int]:
+    """
+    Reads the source's native (width, height) via ffprobe. Needed for the
+    zoompan-based motion effects: zoompan's `s=` output size is a literal
+    WxH, not an expression that can reference the input's own iw/ih like
+    scale/crop can -- so the zoom pre-stage (see _build_zoom_prestage) has
+    to zoom at the source's own real resolution to avoid stretching it.
+    """
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=width,height",
+        "-of", "csv=p=0",
+        str(video_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    raw = result.stdout.strip()
+    if result.returncode != 0 or "," not in raw:
+        return default
+    try:
+        w_str, h_str = raw.split(",")[:2]
+        return int(w_str), int(h_str)
+    except ValueError:
+        return default
+
+
+def get_video_fps(video_path: str | Path, default: float = 30.0) -> float:
+    """
+    Reads the source's actual frame rate via ffprobe, for the zoompan-based
+    motion effects (see _build_motion_filter) -- zoompan takes an explicit
+    output fps, and mismatching it against the real source rate causes
+    frame interpolation/duplication that can visibly judder or drift the
+    clip's duration slightly. r_frame_rate comes back as a "num/den"
+    fraction (e.g. "30000/1001" for 29.97fps), not a plain float.
+    """
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=r_frame_rate",
+        "-of", "csv=p=0",
+        str(video_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    raw = result.stdout.strip()
+    if result.returncode != 0 or not raw:
+        return default
+    try:
+        if "/" in raw:
+            num, den = raw.split("/")
+            return float(num) / float(den) if float(den) != 0 else default
+        return float(raw)
+    except (ValueError, ZeroDivisionError):
+        return default
 
 
 def has_audio_stream(video_path: str | Path) -> bool:
@@ -458,14 +517,157 @@ class SkuldRenderer:
         self.output_dir = Path(output_dir).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def _build_crop_filter(self, crop_mode: CropMode) -> str:
+    def _build_crop_filter(self, crop_mode: CropMode, video_label: str = "[0:v]") -> str:
+        """
+        video_label is normally the raw decoded input ([0:v]), but when a
+        zoom motion effect is active, render_vertical_short instead pipes
+        in the already zoom-panned stream (see _build_zoom_prestage) so
+        every crop_mode composites from the zoomed footage rather than the
+        static original.
+
+        blurred_background/top_anchored_crop reference video_label twice
+        (once for the blurred bg layer, once for the sharp fg layer). A
+        bare demuxer stream like [0:v] can be referenced any number of
+        times for free — ffmpeg auto-taps it — but a named filter pad
+        like [zoomed] is a normal one-consumer link, so referencing it
+        twice without splitting first throws "Invalid stream specifier"
+        (confirmed live). Only split when video_label is actually such a
+        named pad.
+        """
+        needs_split = video_label != "[0:v]" and crop_mode in ("blurred_background", "top_anchored_crop")
+        if needs_split:
+            split_prefix = f"{video_label}split=2[_bgsrc][_fgsrc];"
+            bg_label, fg_label = "[_bgsrc]", "[_fgsrc]"
+        else:
+            split_prefix, bg_label, fg_label = "", video_label, video_label
+
+        # force_original_aspect_ratio=increase deliberately overflows one
+        # dimension to fully COVER the 1080x1920 box while preserving the
+        # source's aspect ratio (like CSS background-size:cover) -- for a
+        # 16:9 source that produces a 3413x1920 image, not 1080x1920.
+        # cropping down to 1080x1920 BEFORE blurring (not after) fixes two
+        # things found live: (1) libx264 otherwise rejects the
+        # (frequently odd) overflowed width outright -- "width not
+        # divisible by 2 (3413x1920)" -- and (2) blurring the full
+        # oversized 3413x1920 image cost ~72s for an 8s clip; blurring the
+        # already-cropped 1080x1920 image (~3.2x fewer pixels) cut that to
+        # ~25s. A lighter 20:6 radius (vs. the original 40:10) brought it
+        # down further to ~17s, in line with the other crop_modes, while
+        # still reading as clearly out-of-focus.
         if crop_mode == "blurred_background":
             return (
-                f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,boxblur=40:10[bg];"
-                f"[0:v]scale=1080:-1:force_original_aspect_ratio=decrease[fg];"
+                f"{split_prefix}"
+                f"{bg_label}scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:6[bg];"
+                f"{fg_label}scale=1080:-1:force_original_aspect_ratio=decrease[fg];"
                 f"[bg][fg]overlay=(W-w)/2:(H-h)/2"
             )
-        return f"[0:v]crop=ih*9/16:ih,scale=1080:1920"
+        if crop_mode == "top_anchored_crop":
+            # Same blurred-background composition, but the foreground is
+            # anchored near the top of the frame instead of vertically
+            # centered -- keeps faces/action in the upper two-thirds so the
+            # burned-in captions (which sit low) never overlap the subject.
+            return (
+                f"{split_prefix}"
+                f"{bg_label}scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:6[bg];"
+                f"{fg_label}scale=1080:-1:force_original_aspect_ratio=decrease[fg];"
+                f"[bg][fg]overlay=(W-w)/2:H*0.06"
+            )
+        if crop_mode == "cinematic_letterbox":
+            # Full frame scaled to fit width, solid black bars top/bottom --
+            # a deliberate, moody "film" look rather than blurred_background's
+            # softer, more neutral fill.
+            return (
+                f"{video_label}scale=1080:-1:force_original_aspect_ratio=decrease,"
+                f"pad=1080:1920:(1080-iw)/2:(1920-ih)/2:color=black"
+            )
+        return f"{video_label}crop=ih*9/16:ih,scale=1080:1920"
+
+    def _build_color_grade_filter(self, color_grade: ColorGrade) -> str:
+        """
+        Grades the actual video pixels per sentiment -- distinct from the
+        warmth slider, which only tints captions/banner. Chained as a plain
+        comma-continuation of whatever _build_crop_filter produced, so it
+        works uniformly regardless of crop_mode.
+        """
+        if color_grade == "cool_desaturated":
+            return ",eq=saturation=0.75:contrast=1.15:brightness=-0.02,colorbalance=rs=-0.05:gs=-0.02:bs=0.08"
+        if color_grade == "warm_glow":
+            return ",eq=saturation=1.1:contrast=0.95:brightness=0.02:gamma=1.05,colorbalance=rs=0.06:gs=0.02:bs=-0.05"
+        if color_grade == "vibrant_punch":
+            return ",eq=saturation=1.35:contrast=1.2"
+        return ""
+
+    def _build_zoom_prestage(
+        self, motion_effect: MotionEffect, clip_duration_sec: float, crazy: float,
+        source_w: int, source_h: int, fps: float,
+    ) -> str:
+        """
+        Zooms the RAW decoded input via `zoompan` and labels the result
+        [zoomed], for render_vertical_short to hand to _build_crop_filter
+        in place of [0:v] — every crop_mode then composites from already
+        zoomed footage. Returns "" for a non-zoom motion_effect.
+
+        This has to run zoompan on the ORIGINAL frame (at its own native
+        resolution, not the eventual 1080x1920 canvas) rather than after
+        crop_mode has done its work, for two reasons found by testing
+        live against a real clip:
+          1. zoompan chained directly after boxblur (blurred_background's
+             background blur) hung/never finished — 30s+ for an 8s clip
+             that otherwise renders in ~10s. Chaining the other way
+             (zoompan first, boxblur downstream of its output) doesn't
+             hit this and renders at normal speed.
+          2. zoompan's `s=` output size is a literal WxH, not an
+             expression referencing the input's own iw/ih (unlike scale/
+             crop) — it can't just target "however big blurred_background's
+             foreground layer happens to be", so it needs a concrete size
+             up front. Using the source's own native resolution keeps the
+             zoomed output's aspect ratio identical to the original, so
+             everything downstream (scale/crop/pad per crop_mode) behaves
+             exactly as if it were reading the un-zoomed source.
+
+        `on` is zoompan's cumulative output-frame counter, so on/total_frames
+        maps directly to elapsed-time fraction for a given fps.
+        """
+        if motion_effect not in ("ken_burns_zoom", "punch_in_zoom"):
+            return ""
+        duration = max(0.1, clip_duration_sec)
+        total_frames = max(1, round(duration * fps))
+        if motion_effect == "ken_burns_zoom":
+            # Slow, constant-rate zoom-in regardless of `crazy` -- this
+            # effect is for calm/contemplative moments, not energy.
+            max_zoom = 1.08
+            zoom_expr = f"1+{max_zoom - 1:.4f}*on/{total_frames}"
+        else:
+            # Accelerating (quadratic) zoom-in -- crazy scales how far it
+            # pushes in, for a sharper "punch" on high-energy hook types.
+            max_zoom = 1.12 + 0.13 * crazy
+            zoom_expr = f"1+{max_zoom - 1:.4f}*pow(on/{total_frames}\\,2)"
+        return (
+            f"[0:v]zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"d=1:s={source_w}x{source_h}:fps={fps:.0f}[zoomed];"
+        )
+
+    def _build_motion_filter(self, motion_effect: MotionEffect, crazy: float) -> str:
+        """
+        Non-zoom camera treatments, chained as a plain comma-continuation
+        after _build_crop_filter's output (unlike the zoom effects, which
+        run as a pre-stage — see _build_zoom_prestage). Applied BEFORE the
+        banner/subtitle overlays are drawn, so captions always sit locked
+        in place rather than moving with the shot.
+        """
+        if motion_effect == "shake":
+            # Small sinusoidal jitter within a fixed 6% crop margin (so the
+            # window never travels out of frame); amplitude scales with
+            # crazy for tense/chaotic moments. w/h are constant here (no
+            # `t`), so the plain crop filter handles this fine on its own
+            # (crop's x/y, unlike its w/h, are re-evaluated every frame).
+            amp = 6.0 + 14.0 * crazy
+            return (
+                f",crop=w='iw*0.94':h='ih*0.94':"
+                f"x='(iw-out_w)/2+{amp:.1f}*sin(2*PI*3.5*t)':"
+                f"y='(ih-out_h)/2+{amp:.1f}*cos(2*PI*4.1*t)',scale=1080:1920"
+            )
+        return ""
 
     def _build_banner_filter(self, hook_banner_text: str, warmth: float = 0.5) -> str:
         safe_text = _escape_drawtext(hook_banner_text)
@@ -485,6 +687,8 @@ class SkuldRenderer:
         end_time: str,
         clip_id: str,
         crop_mode: CropMode = "center_crop",
+        motion_effect: MotionEffect = "none",
+        color_grade: ColorGrade = "neutral",
         hook_banner_text: Optional[str] = None,
         transcript_text: Optional[str] = None,
         warmth: float = 0.5,
@@ -499,14 +703,27 @@ class SkuldRenderer:
         output_video_path = self.output_dir / f"{clip_id}_9x16.mp4"
         logger.info(
             f"Rendering short '{clip_id}' from {start_time} to {end_time} -> {output_video_path.name} "
-            f"(warmth={warmth:.2f}, crazy={crazy:.2f})"
+            f"(warmth={warmth:.2f}, crazy={crazy:.2f}, crop_mode={crop_mode}, "
+            f"motion_effect={motion_effect}, color_grade={color_grade})"
         )
 
         clip_start_sec = parse_time_to_seconds(start_time)
         clip_end_sec = parse_time_to_seconds(end_time)
         clip_duration_sec = max(0.1, clip_end_sec - clip_start_sec)
 
-        vf = self._build_crop_filter(crop_mode)
+        if motion_effect in ("ken_burns_zoom", "punch_in_zoom"):
+            # Zoom effects run as a pre-stage on the raw decoded input at
+            # its own native resolution (see _build_zoom_prestage's
+            # docstring for why), so crop_mode composites from the
+            # already-zoomed [zoomed] stream instead of [0:v].
+            source_w, source_h = get_video_dimensions(input_video_path)
+            source_fps = get_video_fps(input_video_path)
+            vf = self._build_zoom_prestage(motion_effect, clip_duration_sec, crazy, source_w, source_h, source_fps)
+            vf += self._build_crop_filter(crop_mode, video_label="[zoomed]")
+        else:
+            vf = self._build_crop_filter(crop_mode)
+            vf += self._build_motion_filter(motion_effect, crazy)
+        vf += self._build_color_grade_filter(color_grade)
 
         if hook_banner_text:
             vf += self._build_banner_filter(hook_banner_text, warmth)
@@ -628,6 +845,8 @@ class SkuldRenderer:
             "output_video_path": str(output_video_path),
             "clip_id": clip_id,
             "crop_mode": crop_mode,
+            "motion_effect": motion_effect,
+            "color_grade": color_grade,
             "has_subtitles": bool(transcript_text),
             "has_bragi_score": has_music,
             "has_narration": has_narration,

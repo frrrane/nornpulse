@@ -42,6 +42,7 @@ In Norse mythology, the three Norns weave the threads of fate at the Well of Ur�
 - Talks to **ClickHouse** exclusively through the official **ClickHouse MCP server** (`mcp-clickhouse`), bridged via `agent/clickhouse_mcp_client.py` — no direct DB client library in the runtime path, per the Agentic Cinema ClickHouse track requirement.
 - Manages `video_hook_retention` and historical engagement telemetry.
 - Calculates retention decay curves across hook types (`shock_stat`, `curiosity_gap`, `contrarian_claim`, `problem_agitation`, etc.).
+- Also manages `music_virality_benchmarks` (Bragi's genre/mood/bpm grounding) and `visual_style_benchmarks` (Skuld's crop/motion/color-grade grounding) — the same hook_type taxonomy correlated with historical virality per creative dimension.
 - Supplies real-time statistical priors to Gemini 2.0 Flash.
 
 ### 2. `agent/verdandi_orchestrator.py` (ᚹ Verðandi — The Present)
@@ -56,6 +57,10 @@ In Norse mythology, the three Norns weave the threads of fate at the Well of Ur�
 - Offers multiple crop modes:
   - **High-Res Center Crop**: Focused speaker extraction.
   - **Blurred Background Canvas**: Full 16:9 video centered over a stylized, blurred vertical background.
+  - **Top-Anchored Crop**: Same blurred-canvas composition, but the sharp foreground sits in the upper two-thirds so burned-in captions never overlap the subject.
+  - **Cinematic Letterbox**: Full frame fit to width with solid black bars, a moodier "film" look than the blurred canvas.
+- Adds a camera motion treatment per clip — a slow Ken Burns zoom-in, an accelerating punch-in zoom, or a sinusoidal shake — plus a color grade on the actual video pixels (cool/desaturated, warm glow, or vibrant punch) distinct from the Warmth slider, which only tints captions/banner.
+- crop mode, motion, and color grade are chosen per hook_type from Urðr's `visual_style_benchmarks` (see below), the same grounding principle as Bragi's music and Heimdall's thumbnails — the "sentiment" driving the edit is real ClickHouse data, not an ad hoc per-render guess.
 - Generates preview thumbnails and downloadable MP4 shorts.
 - Mixes in Bragi's composed score (below), ducked under the original audio.
 
