@@ -164,8 +164,26 @@ class VerdandiADK:
         vision_mode: bool = False,
         clip_id_prefix: str = "",
         caption_language: Optional[str] = None,
+        progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Callable]:
         """Builds request-scoped tool functions closing over this call's state."""
+
+        # Counts which clip (1-indexed) is currently rendering, purely for
+        # progress_callback's "clip N/target_count" labeling below — target
+        # count itself isn't known here, so the UI side fills that in.
+        clip_counter = [0]
+
+        def _emit(stage: str, message: str) -> None:
+            # A UI-side progress callback is a nice-to-have, never a
+            # dependency: a bug or exception in it (e.g. a stale Streamlit
+            # placeholder) must never take down an otherwise-successful
+            # generation run.
+            if progress_callback is None:
+                return
+            try:
+                progress_callback(stage, message)
+            except Exception as e:
+                logger.debug(f"progress_callback raised (ignored): {e}")
 
         ranked_hook_types = [t["hook_type"] for t in retention_summary.get("hook_taxonomies", [])]
         top_hook_type = retention_summary.get("top_performing_hook_type")
@@ -239,6 +257,7 @@ class VerdandiADK:
             # never sees the prefix — it keeps calling both tools with
             # whatever plain clip_id it chose.
             clip_id = f"{clip_id_prefix}{clip_id}"
+            clip_counter[0] += 1
             logger.info(f"Executing Skuld render for clip_id: {clip_id} ({start_time} to {end_time})")
             start_time, end_time = _clamp_duration(start_time, end_time)
             resolved_transcript = (
@@ -263,6 +282,7 @@ class VerdandiADK:
             music_path = None
             music_benchmark = self.urdr.get_top_music_benchmark(hook_type=hook_type, topic_category=topic_focus)
             if music_benchmark:
+                _emit("bragi", f"🎵 Bragi is composing a {music_benchmark.get('mood', 'custom')} score (clip {clip_counter[0]})...")
                 music_path = self.bragi.compose_track(hook_type, music_benchmark)
 
             # Ground the clip's crop framing, camera motion, and color grade
@@ -282,6 +302,7 @@ class VerdandiADK:
             # clip — the render simply falls back to no custom thumbnail.
             thumbnail_path = None
             if music_benchmark:
+                _emit("heimdall", f"👁️ Heimdall is generating the cover thumbnail (clip {clip_counter[0]})...")
                 thumbnail_path = self.heimdall.compose_thumbnail(
                     clip_id=clip_id, hook_title=hook_banner_text, music_benchmark=music_benchmark,
                     output_dir=self.skuld.output_dir,
@@ -300,6 +321,7 @@ class VerdandiADK:
             narration_path = None
             energy_level = float(music_benchmark.get("energy_level", 0.5)) if music_benchmark else 0.5
             if vision_mode:
+                _emit("mimir", f"🗣️ Mímir is narrating the hook line (clip {clip_counter[0]})...")
                 narration_path = self.mimir.narrate(
                     clip_id=clip_id, script_text=hook_banner_text, energy_level=energy_level,
                     output_dir=self.skuld.output_dir,
@@ -317,11 +339,13 @@ class VerdandiADK:
                             f"(below {NARRATION_FALLBACK_VOLUME_THRESHOLD_DB}dB threshold) — "
                             f"narrating via Mímir fallback."
                         )
+                        _emit("mimir", f"🗣️ Mímir is narrating over hard-to-hear audio (clip {clip_counter[0]})...")
                         narration_path = self.mimir.narrate(
                             clip_id=clip_id, script_text=window_text, energy_level=energy_level,
                             output_dir=self.skuld.output_dir,
                         )
 
+            _emit("skuld", f"🎬 Skuld is rendering the vertical short via FFmpeg (clip {clip_counter[0]})...")
             result = self.skuld.render_vertical_short(
                 input_video_path=input_video_path,
                 start_time=start_time,
@@ -376,6 +400,7 @@ class VerdandiADK:
             # this with the same plain clip_id it originally chose.
             clip_id = f"{clip_id_prefix}{clip_id}"
             logger.info(f"Logging Urðr telemetry for clip_id: {clip_id}, hook_type: {hook_type}")
+            _emit("urdr_log", f"📊 Urðr is logging telemetry for clip {clip_counter[0]}...")
 
             match = next((c for c in rendered_clips if c["clip_id"] == clip_id), None)
             if match:
@@ -592,7 +617,24 @@ class VerdandiADK:
         clip_id_prefix: str = "",
         content_hint: Optional[str] = None,
         caption_language: Optional[str] = None,
+        progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Dict[str, Any]]:
+        """
+        progress_callback, if given, is called as (stage_key, message) at
+        each stage transition (urdr, upload, verdandi, bragi, heimdall,
+        mimir, skuld, urdr_log) — e.g. to drive a live pipeline-stage UI.
+        Entirely optional and best-effort: exceptions inside it are
+        swallowed (see _make_tools._emit) so a UI bug can never break an
+        otherwise-successful generation.
+        """
+        def _emit(stage: str, message: str) -> None:
+            if progress_callback is None:
+                return
+            try:
+                progress_callback(stage, message)
+            except Exception as e:
+                logger.debug(f"progress_callback raised (ignored): {e}")
+
         rendered_clips: List[Dict[str, Any]] = []
 
         # Detect the actual source video length instead of assuming the
@@ -643,6 +685,7 @@ class VerdandiADK:
         # Pull real ClickHouse-grounded retention intelligence BEFORE
         # prompting, so the model reasons over it rather than guessing.
         # Optionally scoped to a single topic_category the user selected.
+        _emit("urdr", "🔮 Urðr is pulling ClickHouse retention benchmarks...")
         _t0 = time.perf_counter()
         retention_summary = self.urdr.get_retention_intelligence_summary(topic_category=topic_focus)
         logger.info(f"⏱️ Retention summary fetch took {time.perf_counter() - _t0:.1f}s")
@@ -655,6 +698,7 @@ class VerdandiADK:
         # need Gemini to actually see/hear the real vocal delivery, not
         # just judge hook_type fit from word content alone.
         vision_mode = not transcript_text or not transcript_text.strip()
+        _emit("upload", "📤 Uploading video to Gemini...")
         video_file = self._upload_video(video_path)
 
         tools = self._make_tools(
@@ -662,6 +706,7 @@ class VerdandiADK:
             min_duration_sec, max_duration_sec, video_duration_sec,
             topic_focus=topic_focus, window=transcript_window, vision_mode=vision_mode,
             clip_id_prefix=clip_id_prefix, caption_language=caption_language,
+            progress_callback=progress_callback,
         )
         prompt = self._build_prompt(
             transcript_text, video_path, target_count, retention_summary,
@@ -700,6 +745,7 @@ class VerdandiADK:
             # comparing it against the sum of the FFmpeg encode times above
             # tells you how much is Gemini's own reasoning/latency vs. the
             # actual rendering work.
+            _emit("verdandi", "🧠 Verðandi is reasoning over hook types & moments...")
             _t1 = time.perf_counter()
             response = chat.send_message([video_file, prompt])
             logger.info(f"⏱️ Gemini reasoning + all tool calls took {time.perf_counter() - _t1:.1f}s total")
@@ -710,6 +756,7 @@ class VerdandiADK:
             logger.error(f"Verðandi orchestration execution failed: {e}")
             raise e
 
+        _emit("done", "✨ Generation complete.")
         return self._reconcile_metadata(parsed_metadata, rendered_clips, clip_id_prefix=clip_id_prefix)
 
     def orchestrate_batch(

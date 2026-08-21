@@ -60,31 +60,9 @@ st.markdown("""
         color: #94a3b8; font-size: 1.05rem; margin-bottom: 26px;
         letter-spacing: 0.6px; text-transform: uppercase; opacity: 0.85;
     }
-    @keyframes norn-shimmer {
-        0% { background-position: -400px 0; }
-        100% { background-position: 400px 0; }
-    }
     @keyframes norn-pulse {
         0%, 100% { transform: scale(1); opacity: 1; }
         50% { transform: scale(1.2); opacity: 0.65; }
-    }
-    .norn-loading-banner {
-        background: linear-gradient(90deg, rgba(0,242,254,0.12) 25%, rgba(240,147,251,0.3) 50%, rgba(0,242,254,0.12) 75%);
-        background-size: 800px 100%;
-        animation: norn-shimmer 1.8s linear infinite;
-        border-radius: 12px;
-        padding: 16px 20px;
-        text-align: center;
-        font-family: 'Catamaran', sans-serif;
-        font-weight: 700;
-        font-size: 1.05rem;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        margin-bottom: 12px;
-    }
-    .norn-loading-rune {
-        display: inline-block;
-        animation: norn-pulse 1.2s ease-in-out infinite;
-        margin-right: 8px;
     }
     .workflow-header {
         font-family: 'Catamaran', sans-serif; font-size: 1.2rem; font-weight: 700; color: #f8fafc;
@@ -108,8 +86,66 @@ st.markdown("""
         box-shadow: 0 6px 18px rgba(79, 172, 254, 0.25);
     }
     div[data-baseweb="slider"] { padding-top: 6px; }
+
+    /* Pipeline stepper: live per-agent progress during generation,
+       replacing the old single generic loading banner. */
+    .np-stepper { margin-bottom: 4px; }
+    .np-stepper-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+    .np-step {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 13px; border-radius: 999px; font-size: 0.85rem; font-weight: 600;
+        font-family: 'Catamaran', sans-serif;
+        border: 1px solid rgba(255, 255, 255, 0.1); transition: all 0.3s ease;
+        white-space: nowrap;
+    }
+    .np-step-pending { opacity: 0.35; background: rgba(255, 255, 255, 0.03); }
+    .np-step-done { opacity: 0.8; background: rgba(79, 172, 254, 0.14); border-color: rgba(79, 172, 254, 0.32); }
+    .np-step-active {
+        opacity: 1;
+        background: linear-gradient(90deg, rgba(0, 242, 254, 0.28), rgba(240, 147, 251, 0.28));
+        border-color: rgba(240, 147, 251, 0.55);
+        animation: norn-pulse 1.3s ease-in-out infinite;
+        box-shadow: 0 0 18px rgba(79, 172, 254, 0.3);
+    }
+    .np-stepper-message { font-size: 0.92rem; color: #94a3b8; font-style: italic; margin-bottom: 10px; }
 </style>
 """, unsafe_allow_html=True)
+
+# Ordered stage keys emitted by VerdandiADK.orchestrate_generation's
+# progress_callback (see agent/verdandi_orchestrator.py) -> short pill
+# labels for the live pipeline stepper. Order here is purely the pill
+# DISPLAY order, not an assumption about when each fires -- a multi-clip
+# run revisits bragi/heimdall/mimir/skuld/urdr_log once per clip, which
+# _render_pipeline_stepper handles by tracking "ever seen" rather than
+# "furthest reached".
+PIPELINE_STAGES = [
+    ("urdr", "🔮 Urðr"),
+    ("upload", "📤 Upload"),
+    ("verdandi", "🧠 Verðandi"),
+    ("bragi", "🎵 Bragi"),
+    ("heimdall", "👁️ Heimdall"),
+    ("mimir", "🗣️ Mímir"),
+    ("skuld", "🎬 Skuld"),
+    ("urdr_log", "📊 Log"),
+]
+
+
+def _render_pipeline_stepper(active_stage: str, seen_stages: set, message: str) -> str:
+    pills = []
+    for key, label in PIPELINE_STAGES:
+        if key == active_stage:
+            cls = "np-step-active"
+        elif key in seen_stages:
+            cls = "np-step-done"
+        else:
+            cls = "np-step-pending"
+        pills.append(f"<span class='np-step {cls}'>{label}</span>")
+    return (
+        "<div class='np-stepper'>"
+        f"<div class='np-stepper-pills'>{''.join(pills)}</div>"
+        f"<div class='np-stepper-message'>{message}</div>"
+        "</div>"
+    )
 
 LAST_SESSION_CACHE = Path(".nornpulse_last_session.json")
 
@@ -326,74 +362,7 @@ with nav_tab1:
                 "Works well for silent/instrumental sources; adds upload + processing latency."
             )
 
-        transcript_window = None
-        auto_window_mode = "random"
-        if active_video_path and os.path.exists(active_video_path):
-            @st.cache_data(show_spinner=False)
-            def _cached_duration(video_path: str) -> float:
-                return get_video_duration_seconds(video_path)
-
-            try:
-                video_duration_sec = _cached_duration(active_video_path)
-                window_choice = st.slider(
-                    "✂️ Cut From/To (optional)",
-                    min_value=0.0, max_value=float(video_duration_sec),
-                    value=(0.0, float(video_duration_sec)), step=1.0,
-                    help="Restrict generation to a portion of the video. Leave at the full range "
-                         "to let Verðandi choose from the whole thing (default).",
-                )
-                is_narrowed = window_choice[0] > 0.5 or window_choice[1] < video_duration_sec - 0.5
-                if is_narrowed:
-                    transcript_window = window_choice
-                    scoped_transcript = filter_transcript_by_window(transcript_input, transcript_window)
-                    line_count = len([ln for ln in scoped_transcript.strip().split("\n") if ln.strip()])
-                    st.caption(
-                        f"✂️ Scoped to {format_seconds_to_mmss(window_choice[0])}–"
-                        f"{format_seconds_to_mmss(window_choice[1])} "
-                        f"({line_count} transcript line{'s' if line_count != 1 else ''} in range, "
-                        f"or vision mode within this window if none)."
-                    )
-                # No "video is long, pick a window" toggle here anymore —
-                # Column 1 already handles that at download time, so the
-                # video reaching this point is already ≤ AUTO_WINDOW_MAX_SEC
-                # for the normal YouTube-URL flow. orchestrate_generation's
-                # own auto-window fallback (auto_window_mode, still passed
-                # below) stays as a defensive backstop for paths that don't
-                # go through Column 1's pre-trimmed download — it just
-                # won't fire here.
-            except Exception as e:
-                logging.getLogger("nornpulse.app").warning(f"Could not read video duration for cut range slider: {e}")
-
         target_clips = st.slider("Target Iteration Count", min_value=1, max_value=3, value=1)
-
-        st.markdown("<div class='workflow-header'>🎯 Topic Focus</div>", unsafe_allow_html=True)
-        available_topics = _cached_topic_categories(st.session_state.verdandi_adk.urdr)
-        topic_options = ["Auto (let Verðandi decide)"] + available_topics
-        topic_choice = st.selectbox(
-            "Ground generation in a specific topic category's history",
-            topic_options, index=0,
-            help="Scopes the ClickHouse retention data fed to Verðandi to one topic_category, "
-                 "instead of the full historical spread. Falls back to all categories if the "
-                 "chosen one has no matching history yet.",
-        )
-        topic_focus = None if topic_choice == topic_options[0] else topic_choice
-
-        content_hint = st.text_input(
-            "🎬 Creative Direction (optional)",
-            key="content_hint",
-            placeholder="e.g. a romantic moment, a tense confrontation, a funny reaction...",
-            help="Free-text steer for WHICH moment gets picked. Verðandi prioritizes a genuine match "
-                 "over a marginally higher virality score — leave blank to let it pick freely.",
-        ).strip() or None
-
-        caption_language = st.text_input(
-            "🌐 Translate Captions (optional)",
-            key="caption_language",
-            placeholder="e.g. English, Spanish — leave blank to keep the source language",
-            help="Burns in captions translated into this language instead of the source transcript's "
-                 "own language. Timing is unaffected — only the on-screen words change. Verðandi's "
-                 "reasoning and Mímir's narration fallback still use the original-language transcript.",
-        ).strip() or None
 
         st.markdown("<div class='workflow-header'>🎨 Caption Style</div>", unsafe_allow_html=True)
         warmth = st.slider(
@@ -406,34 +375,108 @@ with nav_tab1:
                  "bounce at 0.0 → rapid single-word pops with scale overshoot and wobble at 1.0.",
         )
 
-        st.markdown("<div class='workflow-header'>✂️ Cut Style</div>", unsafe_allow_html=True)
-        cut_energy = st.slider(
-            "🎬 Cut Energy", min_value=0.0, max_value=1.0, value=0.5, step=0.05,
-            help="Biases the target clip length within the duration range: calm at 0.0 leans "
-                 "toward the longer end (let the moment breathe), energetic at 1.0 leans toward "
-                 "the shorter end (snappy cut). A bias, not a hard override — the min/max range "
-                 "itself is still always enforced.",
-        )
+        # Everything below shapes WHICH moment gets picked or steers a
+        # secondary creative dimension, rather than being needed for every
+        # run — tucked away so the always-visible controls above stay
+        # scannable at a glance.
+        transcript_window = None
+        auto_window_mode = "random"
+        with st.expander("⚙️ Advanced Settings"):
+            if active_video_path and os.path.exists(active_video_path):
+                @st.cache_data(show_spinner=False)
+                def _cached_duration(video_path: str) -> float:
+                    return get_video_duration_seconds(video_path)
+
+                try:
+                    video_duration_sec = _cached_duration(active_video_path)
+                    window_choice = st.slider(
+                        "✂️ Cut From/To (optional)",
+                        min_value=0.0, max_value=float(video_duration_sec),
+                        value=(0.0, float(video_duration_sec)), step=1.0,
+                        help="Restrict generation to a portion of the video. Leave at the full range "
+                             "to let Verðandi choose from the whole thing (default).",
+                    )
+                    is_narrowed = window_choice[0] > 0.5 or window_choice[1] < video_duration_sec - 0.5
+                    if is_narrowed:
+                        transcript_window = window_choice
+                        scoped_transcript = filter_transcript_by_window(transcript_input, transcript_window)
+                        line_count = len([ln for ln in scoped_transcript.strip().split("\n") if ln.strip()])
+                        st.caption(
+                            f"✂️ Scoped to {format_seconds_to_mmss(window_choice[0])}–"
+                            f"{format_seconds_to_mmss(window_choice[1])} "
+                            f"({line_count} transcript line{'s' if line_count != 1 else ''} in range, "
+                            f"or vision mode within this window if none)."
+                        )
+                    # No "video is long, pick a window" toggle here anymore —
+                    # Column 1 already handles that at download time, so the
+                    # video reaching this point is already ≤ AUTO_WINDOW_MAX_SEC
+                    # for the normal YouTube-URL flow. orchestrate_generation's
+                    # own auto-window fallback (auto_window_mode, still passed
+                    # below) stays as a defensive backstop for paths that don't
+                    # go through Column 1's pre-trimmed download — it just
+                    # won't fire here.
+                except Exception as e:
+                    logging.getLogger("nornpulse.app").warning(f"Could not read video duration for cut range slider: {e}")
+
+            available_topics = _cached_topic_categories(st.session_state.verdandi_adk.urdr)
+            topic_options = ["Auto (let Verðandi decide)"] + available_topics
+            topic_choice = st.selectbox(
+                "🎯 Topic Focus — ground generation in a specific topic category's history",
+                topic_options, index=0,
+                help="Scopes the ClickHouse retention data fed to Verðandi to one topic_category, "
+                     "instead of the full historical spread. Falls back to all categories if the "
+                     "chosen one has no matching history yet.",
+            )
+            topic_focus = None if topic_choice == topic_options[0] else topic_choice
+
+            content_hint = st.text_input(
+                "🎬 Creative Direction (optional)",
+                key="content_hint",
+                placeholder="e.g. a romantic moment, a tense confrontation, a funny reaction...",
+                help="Free-text steer for WHICH moment gets picked. Verðandi prioritizes a genuine match "
+                     "over a marginally higher virality score — leave blank to let it pick freely.",
+            ).strip() or None
+
+            caption_language = st.text_input(
+                "🌐 Translate Captions (optional)",
+                key="caption_language",
+                placeholder="e.g. English, Spanish — leave blank to keep the source language",
+                help="Burns in captions translated into this language instead of the source transcript's "
+                     "own language. Timing is unaffected — only the on-screen words change. Verðandi's "
+                     "reasoning and Mímir's narration fallback still use the original-language transcript.",
+            ).strip() or None
+
+            cut_energy = st.slider(
+                "🎬 Cut Energy", min_value=0.0, max_value=1.0, value=0.5, step=0.05,
+                help="Biases the target clip length within the duration range: calm at 0.0 leans "
+                     "toward the longer end (let the moment breathe), energetic at 1.0 leans toward "
+                     "the shorter end (snappy cut). A bias, not a hard override — the min/max range "
+                     "itself is still always enforced.",
+            )
 
         generate_clicked = st.button("⚡ EXECUTE PIPELINE", type="primary")
 
         if generate_clicked and not active_video_path:
             st.error("No video loaded — check the YouTube URL in Column 1.")
         elif generate_clicked and active_video_path:
-            loading_placeholder = st.empty()
-            loading_banner_text = (
-                "Verðandi is watching your video directly (vision mode) — grounding in Urðr, "
-                "rendering via Skuld..."
-                if not transcript_input.strip()
-                else "Verðandi is weaving your short — grounding in Urðr, rendering via Skuld..."
-            )
-            loading_placeholder.markdown(
-                "<div class='norn-loading-banner'>"
-                "<span class='norn-loading-rune'>⚡</span>"
-                f"{loading_banner_text}"
-                "</div>",
-                unsafe_allow_html=True,
-            )
+            # Live per-agent progress instead of one generic banner: each
+            # tool call inside orchestrate_generation's single blocking
+            # Gemini turn (Bragi compose, Heimdall thumbnail, Mímir
+            # narrate, Skuld render, ...) invokes progress_callback as
+            # ordinary synchronous Python — Streamlit flushes each
+            # placeholder.markdown() to the browser immediately, so this
+            # updates live with no threading/polling needed.
+            progress_placeholder = st.empty()
+            seen_stages: set = set()
+
+            def _update_progress(stage: str, message: str) -> None:
+                if stage != "done":
+                    seen_stages.add(stage)
+                progress_placeholder.markdown(
+                    _render_pipeline_stepper(stage, seen_stages, message), unsafe_allow_html=True,
+                )
+
+            _update_progress("urdr", "Queued — starting the Norns...")
             try:
                 final_metadata = st.session_state.verdandi_adk.orchestrate_generation(
                     transcript_text=transcript_input,
@@ -447,6 +490,7 @@ with nav_tab1:
                     auto_window_mode=auto_window_mode,
                     content_hint=content_hint,
                     caption_language=caption_language,
+                    progress_callback=_update_progress,
                 )
 
                 output_dir = Path("output_clips")
@@ -468,10 +512,10 @@ with nav_tab1:
 
                 _save_last_session(yt_url, transcript_input)
                 st.session_state.current_generation = final_metadata
-                loading_placeholder.empty()
+                progress_placeholder.empty()
                 st.success("✨ Execution complete!")
             except Exception as e:
-                loading_placeholder.empty()
+                progress_placeholder.empty()
                 st.error(f"Pipeline execution failed: {e}")
 
     # --- COLUMN 3: Generated Output Preview & Publishing ---
