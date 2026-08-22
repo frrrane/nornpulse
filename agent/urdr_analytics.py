@@ -369,6 +369,20 @@ class UrdrAnalytics:
             ORDER BY (published_at, clip_id);
             """)
 
+            # A grounded reach forecast, stored next to the prediction it
+            # accompanies. predicted_virality_score is an internal 0-100
+            # ranking with no external referent, so comparing it to real
+            # view counts was never a like-for-like check; this column is
+            # in the same units as actual_view_count and can be.
+            ch.run_query("""
+            ALTER TABLE published_clip_outcomes
+            ADD COLUMN IF NOT EXISTS forecast_views_p50 Float32 DEFAULT 0
+            """)
+            ch.run_query("""
+            ALTER TABLE published_clip_outcomes
+            ADD COLUMN IF NOT EXISTS forecast_views_p90 Float32 DEFAULT 0
+            """)
+
             # Grounds Bragi's Lyria-composed background scores: correlates
             # musical attributes (genre/mood/bpm/energy) with global YouTube
             # Shorts virality per hook_type, the same way video_hook_retention
@@ -668,6 +682,8 @@ class UrdrAnalytics:
         hook_type: str,
         predicted_virality_score: float,
         predicted_3s_retention_pct: float,
+        forecast_views_p50: float = 0.0,
+        forecast_views_p90: float = 0.0,
     ) -> bool:
         """
         Records that a generated clip was actually published to YouTube.
@@ -683,6 +699,7 @@ class UrdrAnalytics:
                 "INSERT INTO published_clip_outcomes "
                 "(clip_id, youtube_video_id, youtube_url, hook_type, "
                 "predicted_virality_score, predicted_3s_retention_pct, "
+                "forecast_views_p50, forecast_views_p90, "
                 "actual_view_count, actual_like_count, actual_comment_count, last_synced_at) VALUES ("
                 + ", ".join([
                     ch.sql_literal(clip_id),
@@ -691,6 +708,8 @@ class UrdrAnalytics:
                     ch.sql_literal(hook_type),
                     ch.sql_literal(float(predicted_virality_score)),
                     ch.sql_literal(float(predicted_3s_retention_pct)),
+                    ch.sql_literal(float(forecast_views_p50)),
+                    ch.sql_literal(float(forecast_views_p90)),
                     ch.sql_literal(0), ch.sql_literal(0), ch.sql_literal(0),
                     ch.sql_literal(None),
                 ]) + ")"
@@ -720,7 +739,8 @@ class UrdrAnalytics:
         try:
             existing = ch.run_query_df(f"""
                 SELECT clip_id, youtube_url, hook_type,
-                       predicted_virality_score, predicted_3s_retention_pct
+                       predicted_virality_score, predicted_3s_retention_pct,
+                       forecast_views_p50, forecast_views_p90
                 FROM published_clip_outcomes
                 WHERE youtube_video_id = {ch.sql_literal(youtube_video_id)}
                 ORDER BY published_at DESC
@@ -735,6 +755,7 @@ class UrdrAnalytics:
                 "INSERT INTO published_clip_outcomes "
                 "(clip_id, youtube_video_id, youtube_url, hook_type, "
                 "predicted_virality_score, predicted_3s_retention_pct, "
+                "forecast_views_p50, forecast_views_p90, "
                 "actual_view_count, actual_like_count, actual_comment_count, last_synced_at) VALUES ("
                 + ", ".join([
                     ch.sql_literal(row["clip_id"]),
@@ -743,6 +764,11 @@ class UrdrAnalytics:
                     ch.sql_literal(row["hook_type"]),
                     ch.sql_literal(float(row["predicted_virality_score"])),
                     ch.sql_literal(float(row["predicted_3s_retention_pct"])),
+                    # Carried forward, not recomputed: the forecast is a
+                    # record of what was predicted before publishing, and
+                    # re-deriving it later would quietly rewrite history.
+                    ch.sql_literal(float(row.get("forecast_views_p50", 0) or 0)),
+                    ch.sql_literal(float(row.get("forecast_views_p90", 0) or 0)),
                     ch.sql_literal(int(view_count)),
                     ch.sql_literal(int(like_count)),
                     ch.sql_literal(int(comment_count)),
@@ -877,6 +903,7 @@ class UrdrAnalytics:
                 SELECT
                     clip_id, youtube_video_id, youtube_url, hook_type,
                     predicted_virality_score, predicted_3s_retention_pct,
+                    forecast_views_p50, forecast_views_p90,
                     actual_view_count, actual_like_count, actual_comment_count,
                     last_synced_at, published_at
                 FROM published_clip_outcomes

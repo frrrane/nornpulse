@@ -89,9 +89,15 @@ FACTS: List[Fact] = [
         note="What reach is realistic for a channel of a given size. Grounds the forecast.",
     ),
     Fact(
+        # Stratified for the same reason has_subtitles is. Unbanded, the two
+        # available metrics disagree outright: weekends look best on
+        # views-per-subscriber and *worst* on median views, because weekend
+        # uploads skew toward small hobbyist channels. Comparing days within
+        # a size band is the only way to get one coherent answer.
         "upload_weekday", "toString(toDayOfWeek(upload_date))",
-        extra_filter="AND upload_date > '2019-01-01'",
-        note="Which upload day travels furthest. Grounds publish scheduling.",
+        extra_filter="AND upload_date > '2019-01-01'", stratify_by_size=True,
+        note="Which upload day travels furthest, within a channel-size band. "
+             "Grounds publish scheduling.",
     ),
     Fact(
         "comments_enabled", "toString(is_comments_enabled)", stratify_by_size=True,
@@ -114,6 +120,8 @@ def _fact_query(fact: Fact) -> str:
         {size_band} AS size_band,
         count() AS sample_videos,
         round(median(view_count), 2) AS median_views,
+        round(quantile(0.10)(view_count), 2) AS p10_views,
+        round(quantile(0.90)(view_count), 2) AS p90_views,
         round(median(view_count / greatest(uploader_sub_count, 1)), 4) AS median_views_per_sub,
         round(avg(like_count / greatest(view_count, 1)) * 100, 4) AS like_rate_pct,
         {fact.divisor} AS sample_divisor
@@ -133,6 +141,8 @@ def ensure_table() -> None:
         size_band LowCardinality(String) DEFAULT '',
         sample_videos UInt64,
         median_views Float64,
+        p10_views Float64 DEFAULT 0,
+        p90_views Float64 DEFAULT 0,
         median_views_per_sub Float64,
         like_rate_pct Float64,
         sample_divisor UInt32,
@@ -145,6 +155,8 @@ def ensure_table() -> None:
     # DROP is disabled by policy, so widen it in place.
     ch.run_query(f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS "
                  f"size_band LowCardinality(String) DEFAULT ''")
+    for column in ("p10_views", "p90_views"):
+        ch.run_query(f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS {column} Float64 DEFAULT 0")
 
 
 def materialise_fact(fact: Fact) -> Optional[pd.DataFrame]:
@@ -171,6 +183,8 @@ def materialise_fact(fact: Fact) -> Optional[pd.DataFrame]:
             ch.sql_literal(str(r.get("size_band", "") or "")),
             ch.sql_literal(int(r["sample_videos"])),
             ch.sql_literal(float(r["median_views"])),
+            ch.sql_literal(float(r.get("p10_views", 0) or 0)),
+            ch.sql_literal(float(r.get("p90_views", 0) or 0)),
             ch.sql_literal(float(r["median_views_per_sub"])),
             ch.sql_literal(float(r["like_rate_pct"])),
             ch.sql_literal(int(fact.divisor)),
@@ -180,7 +194,8 @@ def materialise_fact(fact: Fact) -> Optional[pd.DataFrame]:
     )
     ch.run_query(
         f"INSERT INTO {TABLE} (dimension, bucket, size_band, sample_videos, median_views, "
-        f"median_views_per_sub, like_rate_pct, sample_divisor, note) VALUES {values}"
+        f"p10_views, p90_views, median_views_per_sub, like_rate_pct, sample_divisor, note) "
+        f"VALUES {values}"
     )
     return df
 
@@ -298,15 +313,127 @@ def expected_reach(subscriber_count: int,
     }
 
 
-def best_upload_days(top_n: int = 2,
-                     facts: Optional[pd.DataFrame] = None) -> Optional[List[Dict[str, Any]]]:
-    """The weekdays with the highest median views-per-subscriber."""
+WEEKDAY_NAMES = {"1": "Monday", "2": "Tuesday", "3": "Wednesday", "4": "Thursday",
+                 "5": "Friday", "6": "Saturday", "7": "Sunday"}
+
+
+def weekday_facts(size_band: str, facts: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    """Upload-day rows for one channel-size band."""
     df = _select(facts, "upload_weekday")
+    if df.empty or "size_band" not in df.columns:
+        return pd.DataFrame()
+    return df[df["size_band"] == size_band]
+
+
+def best_upload_days(top_n: int = 2, size_band: str = "0-100",
+                     facts: Optional[pd.DataFrame] = None) -> Optional[List[Dict[str, Any]]]:
+    """
+    The best upload days *for a channel of this size*, ranked by median
+    views.
+
+    Ranked by median views rather than views-per-subscriber deliberately:
+    within a band the subscriber counts are already comparable, so raw
+    reach is the meaningful quantity, and it is the same unit the forecast
+    is expressed in. Ranking one thing by views-per-sub and forecasting in
+    views is how the two ended up contradicting each other.
+    """
+    df = weekday_facts(size_band, facts)
     if df.empty:
         return None
-    names = {"1": "Monday", "2": "Tuesday", "3": "Wednesday", "4": "Thursday",
-             "5": "Friday", "6": "Saturday", "7": "Sunday"}
-    df = df.sort_values("median_views_per_sub", ascending=False).head(top_n)
-    return [{"day": names.get(str(r["bucket"]), str(r["bucket"])),
+    df = df.sort_values("median_views", ascending=False).head(top_n)
+    return [{"day": WEEKDAY_NAMES.get(str(r["bucket"]), str(r["bucket"])),
+             "median_views": float(r["median_views"]),
              "views_per_sub": float(r["median_views_per_sub"]),
              "sample_videos": int(r["sample_videos"])} for _, r in df.iterrows()]
+
+
+def forecast_reach(
+    subscriber_count: int,
+    has_subtitles: bool = True,
+    upload_day: Optional[str] = None,
+    facts: Optional[pd.DataFrame] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    What reach is plausible for this clip, from the global data.
+
+    Returns a p50/p90 range for a channel of this size, adjusted by the
+    factors we actually measured, plus the derivation so a reader can see
+    where each number came from.
+
+    Read this as "comparable videos got this much", not "this clip will
+    get this much". Every input is correlational: the size band is a
+    population median, the subtitle factor is measured within that band
+    (so channel size is controlled), and the weekday factor is not banded
+    at all — it is a whole-population ratio applied on top, which is the
+    weakest link in the chain and is labelled as such in `components`.
+    Multiplying two correlational ratios does not make a causal model, and
+    nothing here accounts for the actual content of the clip.
+
+    Returns None when the size band hasn't been materialised, so callers
+    show nothing rather than a fabricated range.
+    """
+    facts = load_facts() if facts is None else facts
+    band = size_band_for(subscriber_count)
+
+    base = _select(facts, "channel_size_band")
+    base = base[base["bucket"] == band] if not base.empty else base
+    if base.empty:
+        return None
+    row = base.iloc[0]
+
+    p50 = float(row["median_views"])
+    p90 = float(row.get("p90_views", 0) or 0)
+    p10 = float(row.get("p10_views", 0) or 0)
+    if not p50:
+        return None
+
+    components: List[Dict[str, Any]] = [{
+        "factor": "Channel size",
+        "detail": f"{band} subscribers",
+        "multiplier": 1.0,
+        "basis": f"{int(row['sample_videos']):,} videos",
+        "banded": True,
+    }]
+    multiplier = 1.0
+
+    if has_subtitles:
+        lift = subtitle_lift(band, facts=facts)
+        if lift and lift["median_views_without"]:
+            factor = lift["median_views_with"] / lift["median_views_without"]
+            multiplier *= factor
+            components.append({
+                "factor": "Kinetic subtitles",
+                "detail": f"{(factor - 1) * 100:+.1f}% median views in this band",
+                "multiplier": factor,
+                "basis": f"{lift['sample_videos']:,} videos",
+                "banded": True,
+            })
+
+    if upload_day:
+        weekday = weekday_facts(band, facts)
+        if not weekday.empty:
+            inverse = {v: k for k, v in WEEKDAY_NAMES.items()}
+            key = inverse.get(upload_day, upload_day)
+            day_row = weekday[weekday["bucket"].astype(str) == str(key)]
+            overall = float(weekday["median_views"].median())
+            if not day_row.empty and overall:
+                factor = float(day_row.iloc[0]["median_views"]) / overall
+                multiplier *= factor
+                components.append({
+                    "factor": f"Publishing on {upload_day}",
+                    "detail": f"{(factor - 1) * 100:+.1f}% vs an average day in this band",
+                    "multiplier": factor,
+                    "basis": f"{int(day_row.iloc[0]['sample_videos']):,} videos",
+                    "banded": True,
+                })
+
+    return {
+        "size_band": band,
+        "p10": p10 * multiplier,
+        "p50": p50 * multiplier,
+        "p90": p90 * multiplier,
+        "base_p50": p50,
+        "multiplier": multiplier,
+        "components": components,
+        "sample_videos": int(row["sample_videos"]),
+    }

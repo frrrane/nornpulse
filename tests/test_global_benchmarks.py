@@ -145,18 +145,49 @@ def test_expected_reach_returns_none_for_a_band_with_no_data():
 # Upload timing
 # --------------------------------------------------------------------------
 
-def test_best_upload_days_ranks_by_reach_per_subscriber_and_names_days():
-    facts = _facts([
-        {"dimension": "upload_weekday", "bucket": str(d), "size_band": "",
-         "median_views_per_sub": v, "sample_videos": 1000}
-        for d, v in zip(range(1, 8), [0.378, 0.364, 0.370, 0.356, 0.395, 0.452, 0.480])
-    ])
-    days = gb.best_upload_days(facts=facts)
-    assert [d["day"] for d in days] == ["Sunday", "Saturday"]
+_WEEKDAY_FACTS = _facts([
+    {"dimension": "upload_weekday", "bucket": str(d), "size_band": "0-100",
+     "median_views": mv, "median_views_per_sub": vps, "sample_videos": 1400}
+    for d, mv, vps in zip(
+        range(1, 8),
+        [2099, 2110, 2231, 2068, 2101, 2156, 2178],
+        [72.6, 67.8, 77.4, 71.4, 71.7, 73.1, 74.4])
+] + [
+    {"dimension": "upload_weekday", "bucket": str(d), "size_band": "1M+",
+     "median_views": mv, "median_views_per_sub": 0.005, "sample_videos": 900}
+    for d, mv in zip(range(1, 8), [9000, 9100, 8000, 8200, 9500, 7000, 7200])
+])
+
+
+def test_best_upload_days_ranks_within_a_band():
+    days = gb.best_upload_days(2, size_band="0-100", facts=_WEEKDAY_FACTS)
+    assert [d["day"] for d in days] == ["Wednesday", "Sunday"]
+    # A different band genuinely has a different best day.
+    assert gb.best_upload_days(1, size_band="1M+", facts=_WEEKDAY_FACTS)[0]["day"] == "Friday"
+
+
+def test_best_upload_day_agrees_with_the_forecast_multiplier():
+    """
+    Regression guard for a contradiction that shipped briefly: the metric
+    ranked days by views-per-subscriber while the forecast scaled by median
+    views, so the dashboard could name Sunday the best day while the
+    forecast simultaneously docked Sunday. Both must read the same banded
+    quantity, so the best day can never carry a multiplier below 1.
+    """
+    facts = pd.concat([_WEEKDAY_FACTS, _REACH_FACTS, _SUBTITLE_FACTS])
+    best = gb.best_upload_days(1, size_band="0-100", facts=facts)[0]["day"]
+    forecast = gb.forecast_reach(0, has_subtitles=False, upload_day=best, facts=facts)
+    day_component = next(c for c in forecast["components"] if best in c["factor"])
+    assert day_component["multiplier"] > 1.0
+    assert day_component["banded"] is True
 
 
 def test_best_upload_days_returns_none_when_unmaterialised():
     assert gb.best_upload_days(facts=pd.DataFrame()) is None
+
+
+def test_best_upload_days_returns_none_for_an_unmaterialised_band():
+    assert gb.best_upload_days(size_band="10k-100k", facts=_WEEKDAY_FACTS) is None
 
 
 # --------------------------------------------------------------------------
@@ -220,3 +251,48 @@ def test_tag_arrays_are_escaped_into_sql():
     assert literal.startswith("[") and literal.endswith("]")
     assert "\\'" in literal
     assert _array_literal([]) == "[]"
+
+
+# --------------------------------------------------------------------------
+# Reach forecast
+# --------------------------------------------------------------------------
+
+_REACH_WITH_QUANTILES = _facts([
+    {"dimension": "channel_size_band", "bucket": "0-100", "size_band": "",
+     "median_views": 2492.0, "p10_views": 1170.0, "p90_views": 15680.0,
+     "median_views_per_sub": 139.2, "like_rate_pct": 0.82, "sample_videos": 58044},
+])
+
+
+def test_forecast_returns_a_range_not_a_point():
+    f = gb.forecast_reach(0, has_subtitles=False, facts=_REACH_WITH_QUANTILES)
+    assert f["p10"] < f["p50"] < f["p90"]
+
+
+def test_forecast_applies_the_banded_subtitle_factor():
+    facts = pd.concat([_REACH_WITH_QUANTILES, _SUBTITLE_FACTS])
+    without = gb.forecast_reach(0, has_subtitles=False, facts=facts)
+    with_subs = gb.forecast_reach(0, has_subtitles=True, facts=facts)
+    # In the 0-100 band captions slightly *reduce* median views, so the
+    # forecast must go down, not up. Getting this backwards is exactly the
+    # unstratified reading.
+    assert with_subs["p50"] < without["p50"]
+
+
+def test_forecast_exposes_its_derivation():
+    """A number a user is asked to act on has to show where it came from."""
+    facts = pd.concat([_REACH_WITH_QUANTILES, _SUBTITLE_FACTS])
+    f = gb.forecast_reach(0, has_subtitles=True, facts=facts)
+    factors = [c["factor"] for c in f["components"]]
+    assert "Channel size" in factors and "Kinetic subtitles" in factors
+    assert all(c["basis"] for c in f["components"])
+    assert f["multiplier"] == pytest.approx(
+        f["p50"] / f["base_p50"], rel=1e-6)
+
+
+def test_forecast_returns_none_for_an_unmaterialised_band():
+    assert gb.forecast_reach(5_000_000, facts=_REACH_WITH_QUANTILES) is None
+
+
+def test_forecast_returns_none_without_materialised_facts():
+    assert gb.forecast_reach(0, facts=pd.DataFrame()) is None

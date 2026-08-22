@@ -640,7 +640,51 @@ with nav_tab1:
                     if thumbnail_path and Path(thumbnail_path).exists():
                         with thumb_col:
                             st.image(thumbnail_path, width=90, caption="👁️ Heimdall cover")
-                st.metric("Virality Score", f"{item.get('virality_score', 90.0)}/100")
+                # The 0-100 virality score is Verðandi's internal ranking and
+                # has no external referent — it says nothing about what this
+                # clip might actually get. The forecast beside it is grounded
+                # in what comparable real videos did.
+                score_col, reach_col = st.columns(2)
+                with score_col:
+                    st.metric("Virality Score", f"{item.get('virality_score', 90.0)}/100",
+                              help="Verðandi's internal ranking of this clip against the "
+                                   "others it generated. Relative, not predictive.")
+
+                forecast = gb.forecast_reach(
+                    st.session_state.channel_subs,
+                    has_subtitles=bool(item.get("has_subtitles")),
+                    upload_day=st.session_state.get("planned_upload_day") or None,
+                    facts=_cached_global_facts(),
+                )
+                with reach_col:
+                    if forecast:
+                        st.metric(
+                            "Forecast reach (p50)", f"{forecast['p50']:,.0f} views",
+                            help=f"Median outcome for comparable videos from a "
+                                 f"{forecast['size_band']}-subscriber channel.",
+                        )
+                    else:
+                        st.metric("Forecast reach (p50)", "—",
+                                  help="Run seed_global_benchmarks.py to materialise "
+                                       "the global facts this is derived from.")
+
+                if forecast:
+                    st.caption(
+                        f"　📊 Plausible range **{forecast['p10']:,.0f} – {forecast['p90']:,.0f}** views "
+                        f"(p10–p90), centred on {forecast['p50']:,.0f}."
+                    )
+                    with st.expander("How this forecast is derived"):
+                        for comp in forecast["components"]:
+                            flag = "" if comp["banded"] else "  ⚠️ not size-banded"
+                            st.markdown(
+                                f"- **{comp['factor']}** — {comp['detail']} "
+                                f"(×{comp['multiplier']:.2f}, {comp['basis']}){flag}"
+                            )
+                        st.caption(
+                            "Read as *comparable videos got this much*, not *this clip will*. "
+                            "Every factor is correlational, the weekday factor isn't stratified "
+                            "by channel size, and nothing here looks at the clip's actual content."
+                        )
                 if item.get("has_subtitles"):
                     caption_lang = item.get("caption_language")
                     st.caption(
@@ -714,6 +758,14 @@ with nav_tab1:
                         + (f" — “{prior['comment']}”" if prior.get("comment") else "")
                     )
 
+                st.selectbox(
+                    "Planned upload day", ["", "Monday", "Tuesday", "Wednesday", "Thursday",
+                                           "Friday", "Saturday", "Sunday"],
+                    key="planned_upload_day",
+                    help="Feeds the reach forecast. Weekend uploads show materially higher "
+                         "reach per subscriber in the global data.",
+                )
+
                 b1, b2 = st.columns(2, gap="small")
                 with b1:
                     if st.button("🚀 Publish", key=f"pub_{c_id}", type="primary"):
@@ -733,6 +785,9 @@ with nav_tab1:
                                     float(benchmark_df.iloc[0]["avg_3s_retention_pct"])
                                     if not benchmark_df.empty else 85.0
                                 )
+                                # Store the forecast made *before* publishing,
+                                # in the same units as actual_view_count, so
+                                # the cross-validation is like-for-like.
                                 urdr.log_published_outcome(
                                     clip_id=c_id,
                                     youtube_video_id=result["video_id"],
@@ -740,6 +795,8 @@ with nav_tab1:
                                     hook_type=hook_type,
                                     predicted_virality_score=item.get("virality_score", 90.0),
                                     predicted_3s_retention_pct=predicted_3s,
+                                    forecast_views_p50=(forecast or {}).get("p50", 0.0),
+                                    forecast_views_p90=(forecast or {}).get("p90", 0.0),
                                 )
 
                                 st.session_state.recently_published.append({
@@ -896,7 +953,7 @@ with nav_tab3:
         facts = _cached_global_facts()
         reach = gb.expected_reach(int(subs), facts=facts)
         lift = gb.subtitle_lift(band, facts=facts)
-        days = gb.best_upload_days(facts=facts)
+        days = gb.best_upload_days(size_band=band, facts=facts)
 
         m1, m2, m3 = st.columns(3)
         with m1:
@@ -911,7 +968,10 @@ with nav_tab3:
         with m3:
             st.metric("Best upload day",
                       days[0]["day"] if days else "—",
-                      help="Highest median views-per-subscriber.")
+                      help=f"Highest median views for {band}-subscriber channels. "
+                           f"Ranked within the band: across all channel sizes the "
+                           f"two available metrics disagree, because weekend uploads "
+                           f"skew toward small channels.")
 
         if lift:
             direction = ("does **not** buy reach at this channel size — but it lifts engagement sharply"
@@ -941,7 +1001,12 @@ with nav_tab3:
                 st.plotly_chart(fig, width='stretch')
 
         with g2:
-            wd = facts[facts["dimension"] == "upload_weekday"] if not facts.empty else facts
+            # Must be filtered to one band: upload_weekday is stratified, so
+            # the unfiltered frame stacks six size bands into every bar. And
+            # it plots median views, not views-per-subscriber, so the chart
+            # agrees with the "Best upload day" metric and the forecast
+            # multiplier — those three disagreed while this read views/sub.
+            wd = gb.weekday_facts(band, facts)
             if not wd.empty:
                 names = {"1": "Mon", "2": "Tue", "3": "Wed", "4": "Thu",
                          "5": "Fri", "6": "Sat", "7": "Sun"}
@@ -949,11 +1014,17 @@ with nav_tab3:
                 wd["day"] = wd["bucket"].astype(str).map(names)
                 wd["day"] = pd.Categorical(wd["day"], list(names.values()), ordered=True)
                 fig = px.bar(
-                    wd.sort_values("day"), x="day", y="median_views_per_sub",
-                    template="plotly_dark", title="Reach per subscriber by upload day",
-                    labels={"day": "", "median_views_per_sub": "Median views / subscriber"},
+                    wd.sort_values("day"), x="day", y="median_views",
+                    template="plotly_dark",
+                    title=f"Median views by upload day · {band} subscribers",
+                    labels={"day": "", "median_views": "Median views"},
                 )
                 st.plotly_chart(fig, width='stretch')
+                st.caption(
+                    "Within a size band the upload day barely matters — the large "
+                    "weekend effect visible across all of YouTube is a channel-size "
+                    "artifact, since weekend uploads skew toward small channels."
+                )
 
         # --- current trending layer ---
         summary = _cached_trending_summary()
@@ -1062,13 +1133,52 @@ with nav_tab3:
         else:
             st.caption("Sync actual performance above once your published clips have real view counts to compare against.")
 
+        # Forecast vs. actual. This is the comparison that can actually be
+        # right or wrong: predicted_virality_score is a 0-100 internal
+        # ranking, so plotting it against view counts only ever shows
+        # whether the ordering held. The forecast is in views, so it can be
+        # checked against the diagonal.
+        forecast_df = outcomes_df[
+            (outcomes_df.get("forecast_views_p50", pd.Series(dtype=float)) > 0)
+            & (outcomes_df["actual_view_count"] > 0)
+        ] if "forecast_views_p50" in outcomes_df.columns else pd.DataFrame()
+
+        if not forecast_df.empty:
+            fig = px.scatter(
+                forecast_df, x="forecast_views_p50", y="actual_view_count",
+                color="hook_type", hover_data=["clip_id", "forecast_views_p90"],
+                template="plotly_dark", log_x=True, log_y=True,
+                title="Grounded Forecast vs. Actual Views",
+                labels={"forecast_views_p50": "Forecast views (p50, global data)",
+                        "actual_view_count": "Actual views"},
+            )
+            lo = float(min(forecast_df["forecast_views_p50"].min(),
+                           forecast_df["actual_view_count"].min()))
+            hi = float(max(forecast_df["forecast_views_p50"].max(),
+                           forecast_df["actual_view_count"].max()))
+            fig.add_shape(type="line", x0=lo, y0=lo, x1=hi, y1=hi,
+                          line=dict(dash="dash", color="#00E5FF"))
+            st.plotly_chart(fig, width='stretch')
+            st.caption(
+                "Points on the dashed line landed exactly where the global data said "
+                "comparable videos land. Above it, the clip beat its cohort."
+            )
+        elif "forecast_views_p50" in outcomes_df.columns:
+            st.caption(
+                "No clip has both a stored forecast and real views yet — forecasts are "
+                "recorded from the next publish onward."
+            )
+
         display_df = outcomes_df.copy()
         display_df["youtube_url"] = display_df["youtube_url"]
         st.dataframe(
             display_df[[
-                "clip_id", "hook_type", "predicted_virality_score", "predicted_3s_retention_pct",
-                "actual_view_count", "actual_like_count", "actual_comment_count",
-                "youtube_url", "last_synced_at",
+                c for c in [
+                    "clip_id", "hook_type", "predicted_virality_score",
+                    "predicted_3s_retention_pct", "forecast_views_p50",
+                    "actual_view_count", "actual_like_count", "actual_comment_count",
+                    "youtube_url", "last_synced_at",
+                ] if c in display_df.columns
             ]],
             width='stretch',
             column_config={

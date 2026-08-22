@@ -200,6 +200,12 @@ The historical facts are **materialised, not queried live**: the public playgrou
 
 **Everything is read within a channel-size band.** This is not cosmetic. Captioned videos skew heavily toward large established channels, so an unstratified comparison measures the channel's audience rather than the effect being asked about — subtitles appear to lift median views ~15% while simultaneously showing five times *lower* views-per-subscriber. Banded, the real picture emerges: for 0-100 subscriber channels captions give **no view lift at all (-5%)** but a **+67% like rate**, while for 100k-1M channels they give **+31% views** and a comparable **+69%** like rate. Engagement lift holds at every size; reach lift only appears once a channel has an audience.
 
+**Reach forecast.** Before publishing, each clip shows a p10–p50–p90 view range for a channel of your size, adjusted by the factors actually measured (captioning, upload day), with the derivation shown per factor. It is stored alongside the clip in `published_clip_outcomes`, in the same units as `actual_view_count`, so Tab 3 can plot forecast against reality on a diagonal. `predicted_virality_score` is an internal 0-100 ranking with no external referent — plotting it against view counts only ever showed whether the ordering held.
+
+Read the forecast as *comparable videos got this much*, not *this clip will*. Every factor is correlational, and nothing in it looks at the clip's actual content.
+
+**Upload day barely matters.** Across all of YouTube weekends appear ~25% better on reach-per-subscriber — but that is a channel-size artifact, since weekend uploads skew toward small hobbyist channels. Banded, the spread across all seven days is about 8% (2,068–2,231 median views for 0-100 subscriber channels). The dashboard, the forecast multiplier and the weekday chart all read the same banded median-views figure, because ranking by one metric while forecasting in another produced two contradictory claims on the same screen.
+
 ⚠️ **Scope.** The public dataset was crawled 27 Nov – 13 Dec 2021, so its view counts are frozen there and it predates mature Shorts behaviour. It has no duration column, so it cannot separate Shorts from long-form — nothing derived from it is a Shorts-specific benchmark. That is exactly what the trending layer is for: the API returns `contentDetails.duration`, so actual Shorts are identifiable, along with the tags currently in circulation.
 
 ## 🧪 Tests
@@ -209,7 +215,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-211 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, Verðandi's duration/window clamp and metadata reconciliation, the HITL staging email's MIME structure and HTML escaping, the review-decision ledger, and the global-grounding accessors' stratification and degradation paths. They need no API keys, no ClickHouse, no FFmpeg and no SMTP connection, and run in about ten seconds.
+218 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, Verðandi's duration/window clamp and metadata reconciliation, the HITL staging email's MIME structure and HTML escaping, the review-decision ledger, and the global-grounding accessors' stratification and degradation paths. They need no API keys, no ClickHouse, no FFmpeg and no SMTP connection, and run in about ten seconds.
 
 Several cases are regression guards for bugs found by live testing: caption overlap, the crop-before-blur ordering in `blurred_background`, the `split=2` rule for named filter pads, `ORDER BY` binding to only the last `SELECT` of a `UNION ALL`, a clamp that could emit an end timestamp *before* its start when the model requested a range outside the user's Cut Range, and metadata reconciliation silently dropping every render field it didn't list by name.
 

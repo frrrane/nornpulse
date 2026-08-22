@@ -119,11 +119,14 @@ def main() -> int:
     ap.add_argument("--channel", help="expected YouTube channel id (required unless --dry-run)")
     ap.add_argument("--privacy", default="public", choices=["private", "unlisted", "public"])
     ap.add_argument("--dry-run", action="store_true", help="show decisions, change nothing")
+    ap.add_argument("--subscribers", type=int, default=0,
+                    help="channel subscriber count, for the grounded reach forecast")
     args = ap.parse_args()
 
     if not args.channel and not args.dry_run:
         raise SystemExit("❌ --channel is required unless --dry-run (uploading to the wrong channel is silent).")
 
+    from agent import global_benchmarks as gb
     from agent import review_queue as rq
     from agent.norn_publisher import NornPublisher, PublishError
     from agent.urdr_analytics import UrdrAnalytics
@@ -189,11 +192,15 @@ def main() -> int:
             if not predicted_3s:
                 bench = urdr.query_hook_retention(hook_category=hook_type, limit=1)
                 predicted_3s = float(bench.iloc[0]["avg_3s_retention_pct"]) if not bench.empty else 85.0
+            forecast = gb.forecast_reach(
+                args.subscribers, has_subtitles=bool(clip.get("has_subtitles"))) or {}
             urdr.log_published_outcome(
                 clip_id=clip_id, youtube_video_id=res["video_id"], youtube_url=res["url"],
                 hook_type=hook_type,
                 predicted_virality_score=float(clip.get("virality_score", 0.0)),
                 predicted_3s_retention_pct=predicted_3s,
+                forecast_views_p50=forecast.get("p50", 0.0),
+                forecast_views_p90=forecast.get("p90", 0.0),
             )
             rq.record_decision(clip_id, rq.APPROVED, comment, source="email",
                                extra={"youtube_url": res["url"], "youtube_video_id": res["video_id"]})

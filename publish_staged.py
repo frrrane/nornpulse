@@ -67,8 +67,11 @@ def main() -> int:
     ap.add_argument("--channel", required=True, help="expected YouTube channel id")
     ap.add_argument("--privacy", default="private", choices=["private", "unlisted", "public"])
     ap.add_argument("--dry-run", action="store_true", help="validate everything, upload nothing")
+    ap.add_argument("--subscribers", type=int, default=0,
+                    help="channel subscriber count, for the grounded reach forecast")
     args = ap.parse_args()
 
+    from agent import global_benchmarks as gb
     from agent import review_queue as rq
     from agent.norn_publisher import NornPublisher, PublishError
     from agent.urdr_analytics import UrdrAnalytics
@@ -126,6 +129,12 @@ def main() -> int:
             bench = urdr.query_hook_retention(hook_category=hook_type, limit=1)
             predicted_3s = float(bench.iloc[0]["avg_3s_retention_pct"]) if not bench.empty else 85.0
 
+        forecast = gb.forecast_reach(
+            args.subscribers, has_subtitles=bool(c.get("has_subtitles"))) or {}
+        if forecast:
+            print(f"   📊 forecast {forecast['p50']:,.0f} views "
+                  f"(p10-p90 {forecast['p10']:,.0f}-{forecast['p90']:,.0f})")
+
         logged = urdr.log_published_outcome(
             clip_id=c["clip_id"],
             youtube_video_id=res["video_id"],
@@ -133,6 +142,8 @@ def main() -> int:
             hook_type=hook_type,
             predicted_virality_score=float(c.get("virality_score", 0.0)),
             predicted_3s_retention_pct=predicted_3s,
+            forecast_views_p50=forecast.get("p50", 0.0),
+            forecast_views_p90=forecast.get("p90", 0.0),
         )
         # A telemetry miss must not read as an upload failure — the video
         # is already live at this point.
