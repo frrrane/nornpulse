@@ -10,6 +10,7 @@ and programmatic uploads to YouTube Shorts via the YouTube Data API v3.
 import os
 import html as _html
 import smtplib
+from urllib.parse import quote
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -61,6 +62,17 @@ class NornPublisher:
         ("music_genre", "Music genre"),
         ("music_mood", "Music mood"),
     ]
+
+    # A reply-based decision needs no hosting and no public callback URL,
+    # so it works identically before and after the app is deployed. The
+    # subject is the machine-readable part; check_approvals.py parses it
+    # and treats everything above the marker line as the comment.
+    REPLY_MARKER = "--- write your comment above this line ---"
+
+    def _decision_mailto(self, clip_id: str, decision: str) -> str:
+        subject = f"[NornPulse] {decision.upper()} {clip_id}"
+        body = f"\n\n{self.REPLY_MARKER}\nDecision: {decision.upper()}\nClip: {clip_id}\n"
+        return (f"mailto:{self.notify_email}?subject={quote(subject)}&body={quote(body)}")
 
     @staticmethod
     def _review_rows(clip: Dict[str, Any]) -> list[tuple[str, str]]:
@@ -151,8 +163,11 @@ class NornPublisher:
             plain += [f"{label + ':':<16}{value}" for label, value in rows]
             plain += [
                 "",
-                "Review the attached video. If approved, publish it with "
-                "approve_and_publish.py or from the app dashboard.",
+                "Review the attached video, then reply with your decision:",
+                f"  APPROVE -> reply with subject: [NornPulse] APPROVE {clip_id}",
+                f"  REJECT  -> reply with subject: [NornPulse] REJECT {clip_id}",
+                "Anything you write at the top of the reply is recorded as your comment.",
+                "You can also decide in the app dashboard.",
             ]
             alternative.attach(MIMEText("\n".join(plain), "plain", "utf-8"))
 
@@ -165,6 +180,8 @@ class NornPublisher:
                 f'<td style="padding:4px 0;color:#111;">{esc(value)}</td></tr>'
                 for label, value in rows
             )
+            approve_url = self._decision_mailto(clip_id, "approve")
+            reject_url = self._decision_mailto(clip_id, "reject")
             cover = (
                 '<img src="cid:heimdall_cover" alt="Heimdall cover" '
                 'style="width:180px;border-radius:10px;display:block;margin:0 0 18px 0;">'
@@ -177,8 +194,13 @@ class NornPublisher:
   <p style="margin:0 0 16px 0;color:#666;font-size:13px;">{esc(clip_id)} &middot; predicted virality <strong style="color:#111;">{virality}/100</strong></p>
   {cover}
   <table style="border-collapse:collapse;font-size:14px;">{table}</table>
-  <p style="margin:20px 0 0 0;font-size:13px;color:#666;">
-    The 9:16 render is attached. If approved, publish it with <code>approve_and_publish.py</code> or from the app dashboard.
+  <div style="margin:22px 0 10px 0;">
+    <a href="{approve_url}" style="background:#1a7f37;color:#fff;text-decoration:none;padding:10px 20px;border-radius:7px;font-size:14px;font-weight:600;display:inline-block;margin-right:8px;">✅ Approve &amp; publish</a>
+    <a href="{reject_url}" style="background:#b42318;color:#fff;text-decoration:none;padding:10px 20px;border-radius:7px;font-size:14px;font-weight:600;display:inline-block;">🗑️ Reject</a>
+  </div>
+  <p style="margin:8px 0 0 0;font-size:12.5px;color:#666;line-height:1.5;">
+    Either button opens a reply — type your comment at the top and send. Leave the subject line alone; it carries the decision.
+    Comments are recorded either way, so a rejection explains itself later. You can also decide in the dashboard.
   </p>
 </div>"""
             alternative.attach(MIMEText(html, "html", "utf-8"))

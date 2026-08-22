@@ -19,6 +19,7 @@ from agent.verdandi_orchestrator import (
 )
 from agent.skuld_renderer import get_video_duration_seconds, format_seconds_to_mmss
 from agent.norn_publisher import NornPublisher, PublishError
+from agent import review_queue as rq
 from utils.ingest import download_youtube_video, list_playlist_video_urls, get_youtube_duration
 from utils.transcribe import get_or_create_transcript
 from config import Config
@@ -647,6 +648,23 @@ with nav_tab1:
                     help="Private: only accounts you explicitly add as viewers in YouTube Studio can see it — the closest YouTube has to internal testing.",
                 )
 
+                # A rejection without a reason teaches nothing; the comment
+                # is recorded on both paths and mirrored to ClickHouse so
+                # rejections can later be correlated against hook types
+                # and visual treatments.
+                comment = st.text_area(
+                    "Review comment", value="", height=68, key=f"cmt_{c_id}",
+                    placeholder="Why this works, or why it doesn't — recorded with either decision.",
+                )
+
+                prior = rq.get_decision(c_id)
+                if prior:
+                    st.caption(
+                        f"↩️ Previously **{prior['status']}** via {prior.get('source', '?')} "
+                        f"on {prior.get('decided_at', '?')}"
+                        + (f" — “{prior['comment']}”" if prior.get("comment") else "")
+                    )
+
                 b1, b2 = st.columns(2, gap="small")
                 with b1:
                     if st.button("🚀 Publish", key=f"pub_{c_id}", type="primary"):
@@ -685,16 +703,29 @@ with nav_tab1:
                                 st.success(f"✨ Published: [{result['url']}]({result['url']}) · {result['privacy_status']}{thumb_note}")
                                 st.session_state.published_count += 1
                                 _cached_published_outcomes.clear()
-                                c_path.unlink(missing_ok=True)
+                                rq.record_decision(
+                                    c_id, rq.APPROVED, comment, source="ui",
+                                    extra={"youtube_url": result["url"],
+                                           "youtube_video_id": result["video_id"]},
+                                )
+                                # Archive rather than unlink: the local copy
+                                # of a clip that just went live used to be
+                                # deleted outright, so there was no way to
+                                # re-check what had actually been published.
+                                rq.archive_published(c_id)
                                 st.session_state.current_generation.pop(idx)
                                 st.rerun()
                             except PublishError as e:
                                 st.error(f"❌ Publish failed: {e}")
                 with b2:
                     if st.button("🗑️ Reject", key=f"rej_{c_id}"):
-                        c_path.unlink(missing_ok=True)
+                        rq.record_decision(c_id, rq.REJECTED, comment, source="ui")
+                        moved = rq.archive_rejected(c_id)
                         st.session_state.current_generation.pop(idx)
-                        st.warning("Rejected.")
+                        st.warning(
+                            f"Rejected — {len(moved)} file(s) archived to output_clips/rejected/."
+                            + (" Comment recorded." if comment.strip() else "")
+                        )
                         st.rerun()
 
 # =========================================================================

@@ -69,6 +69,7 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="validate everything, upload nothing")
     args = ap.parse_args()
 
+    from agent import review_queue as rq
     from agent.norn_publisher import NornPublisher, PublishError
     from agent.urdr_analytics import UrdrAnalytics
 
@@ -115,18 +116,35 @@ def main() -> int:
         print(f"   ✨ {res['url']}  (privacy: {res['privacy_status']}, "
               f"thumbnail_set: {res['thumbnail_set']})")
 
+        # The clip record doesn't carry a retention prediction, so look it
+        # up from Urðr's benchmarks the same way the dashboard does.
+        # Defaulting it to 0.0 silently emptied half of the Predicted-vs-
+        # Actual comparison for every clip published from this script.
+        hook_type = c.get("hook_type", "unknown")
+        predicted_3s = float(c.get("predicted_3s_retention_pct") or 0.0)
+        if not predicted_3s:
+            bench = urdr.query_hook_retention(hook_category=hook_type, limit=1)
+            predicted_3s = float(bench.iloc[0]["avg_3s_retention_pct"]) if not bench.empty else 85.0
+
         logged = urdr.log_published_outcome(
             clip_id=c["clip_id"],
             youtube_video_id=res["video_id"],
             youtube_url=res["url"],
-            hook_type=c.get("hook_type", "unknown"),
+            hook_type=hook_type,
             predicted_virality_score=float(c.get("virality_score", 0.0)),
-            predicted_3s_retention_pct=float(c.get("predicted_3s_retention_pct", 0.0)),
+            predicted_3s_retention_pct=predicted_3s,
         )
         # A telemetry miss must not read as an upload failure — the video
         # is already live at this point.
         print("   📊 logged to ClickHouse" if logged
               else "   ⚠️  ClickHouse logging failed; re-log later to keep the outcomes loop intact")
+        # Record in the shared review ledger so a later email reply or
+        # dashboard click can see this clip is already live and refuse to
+        # publish it twice.
+        rq.record_decision(
+            c["clip_id"], rq.APPROVED, "published via publish_staged.py", source="cli",
+            extra={"youtube_url": res["url"], "youtube_video_id": res["video_id"]},
+        )
         published.append({**res, "clip_id": c["clip_id"], "logged": logged})
 
     Path("output_clips/published_urls.json").write_text(

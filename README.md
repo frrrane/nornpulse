@@ -203,7 +203,17 @@ python test_hitl.py [video_path] [transcript_path] [count]
 # defaults: sample_data/yt_input.mp4, sample_data/raw_transcript.txt, 3
 ```
 
-Each email carries the 9:16 render as an attachment, Heimdall's cover inline, and a review table of what the system decided — social caption, hook type and Urðr rank, the cut range, and the crop / motion / colour-grade treatment the benchmarks selected. Approving is a separate, deliberate step (`approve_and_publish.py` or the dashboard).
+Each email carries the 9:16 render as an attachment, Heimdall's cover inline, and a review table of what the system decided — social caption, hook type and Urðr rank, the cut range, and the crop / motion / colour-grade treatment the benchmarks selected.
+
+**Approve / Reject with comments.** The email has two buttons. They are `mailto:` links, so a decision is an ordinary reply whose subject carries the verdict (`[NornPulse] APPROVE clip_1`) and whose body is your comment — no public callback URL, so it works the same before and after deployment. Apply pending replies with:
+
+```bash
+python check_approvals.py --channel UCxxxx --privacy public   # --dry-run to preview
+```
+
+Approved clips upload and are logged to `published_clip_outcomes`; rejected clips are **archived to `output_clips/rejected/`, never deleted** — a render costs real API spend and a rejection comment is the most useful training signal the system produces. Published clips move to `output_clips/published/` for the same reason.
+
+The dashboard's Review & Publish column has the same two buttons plus a comment box. Both surfaces write one shared ledger (`output_clips/review_decisions.json`, mirrored best-effort into ClickHouse's `clip_review_decisions`), so a clip already published from either place is skipped rather than uploaded twice. The JSON is the source of truth deliberately: the dashboard must still show your decisions when ClickHouse is unreachable.
 
 `upload_to_youtube_shorts` defaults to `privacy_status="private"` so nothing goes live by accident. OAuth is cached at `.credentials/youtube_token.json` and is **bound to whichever account authorized it** — delete that file when switching channels, or the upload will silently land on the old one.
 
