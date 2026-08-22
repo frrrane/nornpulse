@@ -181,6 +181,27 @@ Secrets are never baked in — `.env`, `client_secrets.json` and `.credentials/`
 
 Note that **YouTube publishing does not work in the container as-is**: it needs `client_secrets.json` plus an interactive OAuth consent flow. Generation, rendering and analytics all work; publishing is expected to happen from a local run.
 
+## 🌍 Global grounding (three data layers)
+
+NornPulse's decisions are grounded in three layers that all live in ClickHouse:
+
+| Layer | Source | Horizon |
+|---|---|---|
+| `global_youtube_benchmarks` | ClickHouse's public **4.56-billion-row** YouTube dataset, via `remoteSecure` | frozen late-2021 |
+| `trending_snapshots` | YouTube Data API `videos.list(chart=mostPopular)` | current |
+| `published_clip_outcomes` | your own published clips | your ground truth |
+
+```bash
+python seed_global_benchmarks.py            # materialise the historical facts (~5 min)
+python ingest_trending.py --regions US,GB   # snapshot what's trending now (1 quota unit/region)
+```
+
+The historical facts are **materialised, not queried live**: the public playground caps execution at 120s server-side, and a demo shouldn't break because a shared endpoint is busy. Sampling is `cityHash64(id) % N`; sample sizes are shown in the UI.
+
+**Everything is read within a channel-size band.** This is not cosmetic. Captioned videos skew heavily toward large established channels, so an unstratified comparison measures the channel's audience rather than the effect being asked about — subtitles appear to lift median views ~15% while simultaneously showing five times *lower* views-per-subscriber. Banded, the real picture emerges: for 0-100 subscriber channels captions give **no view lift at all (-5%)** but a **+67% like rate**, while for 100k-1M channels they give **+31% views** and a comparable **+69%** like rate. Engagement lift holds at every size; reach lift only appears once a channel has an audience.
+
+⚠️ **Scope.** The public dataset was crawled 27 Nov – 13 Dec 2021, so its view counts are frozen there and it predates mature Shorts behaviour. It has no duration column, so it cannot separate Shorts from long-form — nothing derived from it is a Shorts-specific benchmark. That is exactly what the trending layer is for: the API returns `contentDetails.duration`, so actual Shorts are identifiable, along with the tags currently in circulation.
+
 ## 🧪 Tests
 
 ```bash
@@ -188,7 +209,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-145 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, Verðandi's duration/window clamp and metadata reconciliation, and the HITL staging email's MIME structure and HTML escaping. They need no API keys, no ClickHouse, no FFmpeg and no SMTP connection, and run in about ten seconds.
+211 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, Verðandi's duration/window clamp and metadata reconciliation, the HITL staging email's MIME structure and HTML escaping, the review-decision ledger, and the global-grounding accessors' stratification and degradation paths. They need no API keys, no ClickHouse, no FFmpeg and no SMTP connection, and run in about ten seconds.
 
 Several cases are regression guards for bugs found by live testing: caption overlap, the crop-before-blur ordering in `blurred_background`, the `split=2` rule for named filter pads, `ORDER BY` binding to only the last `SELECT` of a `UNION ALL`, a clamp that could emit an end timestamp *before* its start when the model requested a range outside the user's Cut Range, and metadata reconciliation silently dropping every render field it didn't list by name.
 

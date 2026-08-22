@@ -20,6 +20,8 @@ from agent.verdandi_orchestrator import (
 from agent.skuld_renderer import get_video_duration_seconds, format_seconds_to_mmss
 from agent.norn_publisher import NornPublisher, PublishError
 from agent import review_queue as rq
+from agent import global_benchmarks as gb
+from agent import trending_ingest as ti
 from utils.ingest import download_youtube_video, list_playlist_video_urls, get_youtube_duration
 from utils.transcribe import get_or_create_transcript
 from config import Config
@@ -207,6 +209,35 @@ def _cached_published_outcomes(_urdr):
 def _cached_topic_categories(_urdr):
     return _urdr.get_distinct_topic_categories()
 
+
+# The global layer is materialised, not live — these are cheap local reads,
+# but they're still ClickHouse round-trips inside a tab body that Streamlit
+# executes on every rerun, so they cache like the rest.
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_global_facts():
+    """
+    The entire materialised facts table in one round-trip. It is a few
+    dozen rows, and every ClickHouse call spawns its own mcp-clickhouse
+    subprocess (~3s), so reading it per-accessor made Tab 3 crawl.
+    """
+    return gb.load_facts()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_trending_tags(limit: int = 15):
+    return ti.top_tags(limit=limit)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_trending_summary():
+    return ti.snapshot_summary()
+
+
+# Channel size drives every honest reading of the global data, so it is a
+# setting rather than an assumption. Defaults to the smallest band, which
+# is where a new NornPulse channel actually sits.
+if "channel_subs" not in st.session_state:
+    st.session_state.channel_subs = 0
 
 if "verdandi_adk" not in st.session_state:
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "norn-labs-default")
@@ -616,6 +647,24 @@ with nav_tab1:
                         f"💬 Kinetic subtitles burned in — translated to {caption_lang}" if caption_lang
                         else "💬 Kinetic subtitles burned in"
                     )
+                    # Evidence sits next to the decision it justifies. Read
+                    # within this channel's size band, never across all of
+                    # YouTube: captioned videos skew to large channels, so
+                    # the unstratified comparison measures audience, not
+                    # captioning.
+                    lift = gb.subtitle_lift(
+                        gb.size_band_for(st.session_state.channel_subs),
+                        facts=_cached_global_facts(),
+                    )
+                    if lift:
+                        views_txt = (f"{lift['views_lift_pct']:+.0f}% median views"
+                                     if abs(lift["views_lift_pct"]) >= 1 else "no measurable view lift")
+                        like_txt = (f", {lift['like_lift_pct']:+.0f}% like rate"
+                                    if lift["like_lift_pct"] is not None else "")
+                        st.caption(
+                            f"　↳ 🌍 {views_txt}{like_txt} for {lift['size_band']}-subscriber "
+                            f"channels ({lift['sample_videos']:,} real videos)"
+                        )
                 if item.get("has_bragi_score"):
                     genre = item.get("music_genre") or "custom"
                     mood = item.get("music_mood") or ""
@@ -822,6 +871,122 @@ with nav_tab3:
         # column existed — and fills in as clips accumulate across
         # differing hook types, since the treatment is derived from
         # hook_type via visual_style_benchmarks.
+        # ------------------------------------------------------------------
+        # Global grounding: the two layers that aren't ours.
+        # ------------------------------------------------------------------
+        st.markdown("<div class='workflow-header'>🌍 Global YouTube Grounding</div>", unsafe_allow_html=True)
+        st.caption(
+            "Three layers live in this warehouse: **global structural facts** materialised from "
+            "ClickHouse's public 4.56-billion-row YouTube dataset, a **current trending** snapshot "
+            "pulled from the YouTube Data API, and **your own published clips**. The seed benchmarks "
+            "above are priors the pipeline chooses from; this is external evidence about whether "
+            "those choices are right."
+        )
+
+        subs = st.number_input(
+            "Your channel's subscriber count", min_value=0, step=10,
+            value=int(st.session_state.channel_subs),
+            help="Channel size is the dominant confounder in the global data — captioned and "
+                 "age-restricted videos skew heavily toward large channels. Every figure below is "
+                 "read within the band this number falls into.",
+        )
+        st.session_state.channel_subs = int(subs)
+        band = gb.size_band_for(int(subs))
+
+        facts = _cached_global_facts()
+        reach = gb.expected_reach(int(subs), facts=facts)
+        lift = gb.subtitle_lift(band, facts=facts)
+        days = gb.best_upload_days(facts=facts)
+
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            st.metric(f"Median reach · {band} subs",
+                      f"{reach['median_views']:,.0f} views" if reach else "—",
+                      help="What a typical video from a channel this size actually got. This is the "
+                           "referent an abstract 0-100 virality score is missing.")
+        with m2:
+            st.metric("Subtitles → like rate",
+                      f"{lift['like_lift_pct']:+.0f}%" if lift and lift["like_lift_pct"] is not None else "—",
+                      help="Measured within your size band.")
+        with m3:
+            st.metric("Best upload day",
+                      days[0]["day"] if days else "—",
+                      help="Highest median views-per-subscriber.")
+
+        if lift:
+            direction = ("does **not** buy reach at this channel size — but it lifts engagement sharply"
+                         if lift["views_lift_pct"] < 1 else "lifts both reach and engagement")
+            st.info(
+                f"**Captioning {direction}.** For {band}-subscriber channels, captioned videos get a "
+                f"median {lift['median_views_with']:,.0f} views vs {lift['median_views_without']:,.0f} "
+                f"({lift['views_lift_pct']:+.1f}%), with a {lift['like_lift_pct']:+.0f}% like rate — "
+                f"across {lift['sample_videos']:,} real videos. Read across all channel sizes this "
+                f"reverses, which is why it's banded."
+            )
+
+        g1, g2 = st.columns(2)
+        with g1:
+            reach_df = facts[facts["dimension"] == "channel_size_band"] if not facts.empty else facts
+            if not reach_df.empty:
+                order = ["0-100", "100-1k", "1k-10k", "10k-100k", "100k-1M", "1M+"]
+                reach_df = reach_df[reach_df["bucket"].isin(order)].copy()
+                reach_df["bucket"] = pd.Categorical(reach_df["bucket"], order, ordered=True)
+                fig = px.bar(
+                    reach_df.sort_values("bucket"), x="bucket", y="median_views",
+                    template="plotly_dark", log_y=True,
+                    title="Median reach by channel size (4.56B-row dataset)",
+                    labels={"bucket": "Subscribers", "median_views": "Median views (log)"},
+                )
+                fig.add_vline(x=order.index(band), line_dash="dash", line_color="#00E5FF")
+                st.plotly_chart(fig, width='stretch')
+
+        with g2:
+            wd = facts[facts["dimension"] == "upload_weekday"] if not facts.empty else facts
+            if not wd.empty:
+                names = {"1": "Mon", "2": "Tue", "3": "Wed", "4": "Thu",
+                         "5": "Fri", "6": "Sat", "7": "Sun"}
+                wd = wd.copy()
+                wd["day"] = wd["bucket"].astype(str).map(names)
+                wd["day"] = pd.Categorical(wd["day"], list(names.values()), ordered=True)
+                fig = px.bar(
+                    wd.sort_values("day"), x="day", y="median_views_per_sub",
+                    template="plotly_dark", title="Reach per subscriber by upload day",
+                    labels={"day": "", "median_views_per_sub": "Median views / subscriber"},
+                )
+                st.plotly_chart(fig, width='stretch')
+
+        # --- current trending layer ---
+        summary = _cached_trending_summary()
+        if summary:
+            st.markdown("**📈 Trending right now** — YouTube Data API, "
+                        f"snapshot {summary['snapshot_at']}")
+            t1, t2, t3 = st.columns(3)
+            t1.metric("Videos in snapshot", f"{summary['videos']:,}")
+            t2.metric("Actual Shorts (≤60s)", f"{summary['shorts']:,}",
+                      help="The public dataset has no duration column, so it cannot separate "
+                           "Shorts from long-form. The API can.")
+            t3.metric("Median views", f"{summary['median_views']:,.0f}")
+
+            tags = _cached_trending_tags(15)
+            if not tags.empty:
+                st.caption(
+                    "Tags carried by currently-trending videos — real hashtags in circulation now, "
+                    "rather than invented ones."
+                )
+                st.dataframe(tags, width='stretch', hide_index=True)
+        else:
+            st.caption(
+                "No trending snapshot stored yet. Run `python ingest_trending.py --regions US,GB` "
+                "to add the current layer (1 API quota unit per region)."
+            )
+
+        st.caption(
+            "⚠️ Scope: the public dataset was crawled 27 Nov – 13 Dec 2021, so its view counts are "
+            "frozen at that date and it predates mature Shorts behaviour. It carries no duration "
+            "column, so nothing here is a Shorts-specific benchmark — that is what the trending "
+            "layer above is for. Figures are 1/N sampled; sample sizes are shown throughout."
+        )
+
         st.markdown("<div class='workflow-header'>🎬 Visual Treatment Performance</div>", unsafe_allow_html=True)
         st.caption(
             "What actually happened to generated clips, per visual dimension — as opposed to "

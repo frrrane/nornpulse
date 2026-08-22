@@ -1,0 +1,222 @@
+"""
+Unit tests for the global-grounding layer.
+
+Two things here are worth guarding hard. First, stratification: reading
+this dataset without controlling for channel size produces a confidently
+wrong answer (captioned videos skew to big channels, so the marginal
+comparison measures audience rather than captioning). Second, the honest
+degradation path: when a fact hasn't been materialised the accessors must
+return None so the UI omits the claim, never fabricate or mis-attribute one.
+
+Nothing here touches ClickHouse or the remote dataset — facts are passed
+in as frames.
+"""
+
+import pandas as pd
+import pytest
+
+from agent import global_benchmarks as gb
+from agent.trending_ingest import parse_iso_duration, _array_literal, SHORT_MAX_SEC
+
+
+# --------------------------------------------------------------------------
+# Channel size banding
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("subs,band", [
+    (0, "0-100"), (99, "0-100"), (100, "100-1k"), (999, "100-1k"),
+    (1_000, "1k-10k"), (10_000, "10k-100k"), (100_000, "100k-1M"),
+    (1_000_000, "1M+"), (50_000_000, "1M+"),
+])
+def test_size_band_boundaries(subs, band):
+    assert gb.size_band_for(subs) == band
+
+
+# --------------------------------------------------------------------------
+# Stratified subtitle evidence
+# --------------------------------------------------------------------------
+
+def _facts(rows):
+    return pd.DataFrame(rows)
+
+
+_SUBTITLE_FACTS = _facts([
+    # Small channels: captions do NOT lift views, but lift engagement.
+    {"dimension": "has_subtitles", "bucket": "false", "size_band": "0-100",
+     "median_views": 2556.0, "median_views_per_sub": 153.3, "like_rate_pct": 0.721,
+     "sample_videos": 29000},
+    {"dimension": "has_subtitles", "bucket": "true", "size_band": "0-100",
+     "median_views": 2421.0, "median_views_per_sub": 110.3, "like_rate_pct": 1.208,
+     "sample_videos": 29044},
+    # Large channels: captions lift both.
+    {"dimension": "has_subtitles", "bucket": "false", "size_band": "100k-1M",
+     "median_views": 10177.0, "median_views_per_sub": 0.039, "like_rate_pct": 2.300,
+     "sample_videos": 31000},
+    {"dimension": "has_subtitles", "bucket": "true", "size_band": "100k-1M",
+     "median_views": 13285.0, "median_views_per_sub": 0.052, "like_rate_pct": 3.884,
+     "sample_videos": 31737},
+])
+
+
+def test_subtitle_lift_is_read_within_a_band():
+    """
+    The whole point of stratifying. A new channel and a large channel get
+    genuinely different answers, and averaging them produces a number that
+    describes neither.
+    """
+    small = gb.subtitle_lift("0-100", facts=_SUBTITLE_FACTS)
+    large = gb.subtitle_lift("100k-1M", facts=_SUBTITLE_FACTS)
+    assert small["views_lift_pct"] < 0        # captions don't buy reach yet
+    assert large["views_lift_pct"] > 25       # they do once there's an audience
+    # Engagement lift is the effect that holds at both sizes.
+    assert small["like_lift_pct"] > 50 and large["like_lift_pct"] > 50
+
+
+def test_subtitle_lift_reports_the_band_it_used():
+    """A caption claiming a lift must be able to say who it applies to."""
+    assert gb.subtitle_lift("0-100", facts=_SUBTITLE_FACTS)["size_band"] == "0-100"
+
+
+def test_subtitle_lift_sums_the_sample_across_both_buckets():
+    assert gb.subtitle_lift("0-100", facts=_SUBTITLE_FACTS)["sample_videos"] == 58044
+
+
+def test_subtitle_lift_returns_none_for_an_unmaterialised_band():
+    """Omit the claim rather than fall back to another band's number."""
+    assert gb.subtitle_lift("1M+", facts=_SUBTITLE_FACTS) is None
+
+
+def test_subtitle_lift_returns_none_when_a_bucket_is_missing():
+    only_true = _SUBTITLE_FACTS[_SUBTITLE_FACTS["bucket"] == "true"]
+    assert gb.subtitle_lift("0-100", facts=only_true) is None
+
+
+def test_subtitle_lift_returns_none_on_empty_facts():
+    assert gb.subtitle_lift("0-100", facts=pd.DataFrame()) is None
+
+
+def test_subtitle_lift_survives_a_zero_baseline():
+    """A zero median can't be a denominator; degrade instead of raising."""
+    zeroed = _facts([
+        {"dimension": "has_subtitles", "bucket": "false", "size_band": "0-100",
+         "median_views": 0.0, "like_rate_pct": 0.0, "sample_videos": 10},
+        {"dimension": "has_subtitles", "bucket": "true", "size_band": "0-100",
+         "median_views": 100.0, "like_rate_pct": 1.0, "sample_videos": 10},
+    ])
+    assert gb.subtitle_lift("0-100", facts=zeroed) is None
+
+
+def test_a_zero_like_baseline_omits_only_the_like_figure():
+    partial = _facts([
+        {"dimension": "has_subtitles", "bucket": "false", "size_band": "0-100",
+         "median_views": 100.0, "like_rate_pct": 0.0, "sample_videos": 10},
+        {"dimension": "has_subtitles", "bucket": "true", "size_band": "0-100",
+         "median_views": 150.0, "like_rate_pct": 1.0, "sample_videos": 10},
+    ])
+    lift = gb.subtitle_lift("0-100", facts=partial)
+    assert lift["views_lift_pct"] == pytest.approx(50.0)
+    assert lift["like_lift_pct"] is None
+
+
+# --------------------------------------------------------------------------
+# Expected reach
+# --------------------------------------------------------------------------
+
+_REACH_FACTS = _facts([
+    {"dimension": "channel_size_band", "bucket": "0-100", "size_band": "",
+     "median_views": 2492.0, "median_views_per_sub": 139.2, "like_rate_pct": 0.82,
+     "sample_videos": 58044},
+    {"dimension": "channel_size_band", "bucket": "1M+", "size_band": "",
+     "median_views": 18408.0, "median_views_per_sub": 0.006, "like_rate_pct": 2.10,
+     "sample_videos": 20000},
+])
+
+
+def test_expected_reach_picks_the_band_for_the_subscriber_count():
+    assert gb.expected_reach(0, facts=_REACH_FACTS)["median_views"] == 2492.0
+    assert gb.expected_reach(5_000_000, facts=_REACH_FACTS)["median_views"] == 18408.0
+
+
+def test_expected_reach_returns_none_for_a_band_with_no_data():
+    assert gb.expected_reach(5_000, facts=_REACH_FACTS) is None
+
+
+# --------------------------------------------------------------------------
+# Upload timing
+# --------------------------------------------------------------------------
+
+def test_best_upload_days_ranks_by_reach_per_subscriber_and_names_days():
+    facts = _facts([
+        {"dimension": "upload_weekday", "bucket": str(d), "size_band": "",
+         "median_views_per_sub": v, "sample_videos": 1000}
+        for d, v in zip(range(1, 8), [0.378, 0.364, 0.370, 0.356, 0.395, 0.452, 0.480])
+    ])
+    days = gb.best_upload_days(facts=facts)
+    assert [d["day"] for d in days] == ["Sunday", "Saturday"]
+
+
+def test_best_upload_days_returns_none_when_unmaterialised():
+    assert gb.best_upload_days(facts=pd.DataFrame()) is None
+
+
+# --------------------------------------------------------------------------
+# Query construction
+# --------------------------------------------------------------------------
+
+def test_stratified_facts_group_by_size_band():
+    fact = next(f for f in gb.FACTS if f.stratify_by_size)
+    sql = " ".join(gb._fact_query(fact).split())
+    assert "GROUP BY bucket, size_band" in sql
+    assert "uploader_sub_count < 100" in sql   # the banding expression is present
+
+
+def test_unstratified_facts_do_not():
+    fact = next(f for f in gb.FACTS if not f.stratify_by_size)
+    sql = " ".join(gb._fact_query(fact).split())
+    assert "GROUP BY bucket " in sql + " "
+    assert "GROUP BY bucket, size_band" not in sql
+
+
+def test_every_fact_query_samples_and_filters_low_view_noise():
+    for fact in gb.FACTS:
+        sql = gb._fact_query(fact)
+        assert f"cityHash64(id) % {fact.divisor}" in sql, fact.dimension
+        assert "view_count > 1000" in sql, fact.dimension
+
+
+def test_select_filters_a_preloaded_frame_without_a_query():
+    combined = pd.concat([_SUBTITLE_FACTS, _REACH_FACTS])
+    assert set(gb._select(combined, "channel_size_band")["dimension"]) == {"channel_size_band"}
+    assert gb._select(pd.DataFrame(), "anything").empty
+
+
+# --------------------------------------------------------------------------
+# Trending ingest helpers
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("iso,seconds", [
+    ("PT59S", 59), ("PT1M", 60), ("PT3M20S", 200), ("PT1H2M3S", 3723),
+    ("P1DT2H", 93600), ("PT0S", 0),
+])
+def test_iso_duration_parsing(iso, seconds):
+    assert parse_iso_duration(iso) == seconds
+
+
+@pytest.mark.parametrize("bad", ["", "garbage", "P0D", None])
+def test_unparseable_duration_is_zero_not_a_crash(bad):
+    """Live streams report P0D; one odd value must not abort an ingest run."""
+    assert parse_iso_duration(bad) == 0
+
+
+def test_the_shorts_threshold_is_the_documented_one():
+    assert SHORT_MAX_SEC == 60
+    assert parse_iso_duration("PT60S") <= SHORT_MAX_SEC
+    assert parse_iso_duration("PT61S") > SHORT_MAX_SEC
+
+
+def test_tag_arrays_are_escaped_into_sql():
+    """Tags are arbitrary user text going into an INSERT by concatenation."""
+    literal = _array_literal(["funny", "it's", "a'); DROP TABLE x; --"])
+    assert literal.startswith("[") and literal.endswith("]")
+    assert "\\'" in literal
+    assert _array_literal([]) == "[]"

@@ -102,6 +102,14 @@ def _server_params() -> StdioServerParameters:
     port = os.getenv("CLICKHOUSE_PORT")
     if port:
         env["CLICKHOUSE_PORT"] = port
+    # The MCP server caps every query at 30s by default. Aggregations over
+    # the 4.5-billion-row public YouTube dataset (reached via remoteSecure)
+    # legitimately run longer than that, so the ceiling has to be liftable.
+    query_timeout = os.getenv("CLICKHOUSE_MCP_QUERY_TIMEOUT")
+    if query_timeout:
+        env["CLICKHOUSE_MCP_QUERY_TIMEOUT"] = query_timeout
+        env["CLICKHOUSE_SEND_RECEIVE_TIMEOUT"] = os.getenv(
+            "CLICKHOUSE_SEND_RECEIVE_TIMEOUT", query_timeout)
     return StdioServerParameters(command=resolve_mcp_command(), args=[], env=env)
 
 
