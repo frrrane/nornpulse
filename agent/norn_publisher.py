@@ -8,6 +8,7 @@ and programmatic uploads to YouTube Shorts via the YouTube Data API v3.
 """
 
 import os
+import html as _html
 import smtplib
 import logging
 from pathlib import Path
@@ -43,9 +44,73 @@ class NornPublisher:
         self.notify_email = os.getenv("NOTIFY_EMAIL") or self.gmail_user
         self.client_secrets_file = "client_secrets.json"
 
-    def send_gmail_staged_approval(self, clip_id: str, title: str, virality: float, video_path: str) -> bool:
+    # Fields surfaced in the staging email, in the order a reviewer wants
+    # them: what the clip claims, then how the system chose to treat it.
+    # Anything absent from the clip dict is simply omitted rather than
+    # rendered as "None", so an older/partial record still emails cleanly.
+    _REVIEW_FIELDS = [
+        ("social_caption", "Social caption"),
+        ("hook_type", "Hook type"),
+        ("hook_rank", "Hook rank (Urðr)"),
+        ("start_time", "Source in"),
+        ("end_time", "Source out"),
+        ("crop_mode", "Crop"),
+        ("motion_effect", "Motion"),
+        ("color_grade", "Colour grade"),
+        ("caption_language", "Caption language"),
+        ("music_genre", "Music genre"),
+        ("music_mood", "Music mood"),
+    ]
+
+    @staticmethod
+    def _review_rows(clip: Dict[str, Any]) -> list[tuple[str, str]]:
+        rows = []
+        for key, label in NornPublisher._REVIEW_FIELDS:
+            value = clip.get(key)
+            if value is None or value == "":
+                continue
+            rows.append((label, str(value)))
+        flags = [
+            label for key, label in (
+                ("has_subtitles", "kinetic subtitles"),
+                ("has_bragi_score", "original Bragi score"),
+                ("has_narration", "Mímir narration"),
+            ) if clip.get(key)
+        ]
+        if flags:
+            rows.append(("Includes", ", ".join(flags)))
+        if clip.get("is_top_tier_hook"):
+            rows.append(("Top-tier hook", "yes — matches Urðr's best-performing hook type"))
+        return rows
+
+    def send_gmail_staged_approval(
+        self,
+        clip_id: str,
+        title: str,
+        virality: float,
+        video_path: str,
+        clip: Optional[Dict[str, Any]] = None,
+        thumbnail_path: Optional[str | Path] = None,
+    ) -> bool:
         """
-        Sends an email via Gmail containing clip metadata and the rendered 9:16 short as an attachment.
+        Sends an email via Gmail containing clip metadata and the rendered
+        9:16 short as an attachment.
+
+        `clip`, if given, is the full clip record from Verðandi — the
+        social caption, hook type/rank, cut range, and the crop / motion /
+        colour-grade treatment Urðr's benchmarks selected. Reviewing a
+        clip without those means judging the output blind to what the
+        system decided and why, so they are rendered as a table in the
+        body. Every field is optional: a partial record just produces a
+        shorter table.
+
+        `thumbnail_path` (Heimdall's cover) is embedded inline so the
+        cover can be judged in the mail client without downloading the
+        attachment; it falls back to clip["thumbnail_path"].
+
+        Returns True on send, False on any failure — this is a
+        notification, so a mail problem must never take down a pipeline
+        run that has already produced a good clip.
         """
         if not self.gmail_user or not self.gmail_password:
             logger.warning("Gmail credentials missing. Skipping email notification.")
@@ -56,32 +121,88 @@ class NornPublisher:
             logger.error(f"Cannot email staging alert; video path does not exist: {video_path}")
             return False
 
+        clip = clip or {}
+        if thumbnail_path is None:
+            thumbnail_path = clip.get("thumbnail_path")
+        thumb = Path(thumbnail_path) if thumbnail_path else None
+        if thumb and not thumb.exists():
+            logger.warning(f"Thumbnail not found, emailing without an inline cover: {thumb}")
+            thumb = None
+
+        rows = self._review_rows(clip)
+
         try:
-            msg = MIMEMultipart()
-            msg['From'] = self.gmail_user
-            msg['To'] = self.notify_email
-            msg['Subject'] = f"🎬 [NornPulse Staged] {title} (Virality: {virality}/100)"
+            # mixed -> [ related -> [ alternative -> [text, html], inline image ], video ]
+            outer = MIMEMultipart("mixed")
+            outer["From"] = self.gmail_user
+            outer["To"] = self.notify_email
+            outer["Subject"] = f"🎬 [NornPulse Staged] {title} (Virality: {virality}/100)"
 
-            body = (
-                f"NornPulse has generated and staged a new vertical short for your review.\n\n"
-                f"• Clip ID: {clip_id}\n"
-                f"• Hook Title: {title}\n"
-                f"• Virality Score: {virality}/100\n\n"
-                f"Review the attached video file. If approved, you can execute the upload script or deploy via the app dashboard."
+            related = MIMEMultipart("related")
+            alternative = MIMEMultipart("alternative")
+
+            plain = [
+                "NornPulse has generated and staged a new vertical short for your review.",
+                "",
+                f"Clip ID:        {clip_id}",
+                f"Hook title:     {title}",
+                f"Virality score: {virality}/100",
+            ]
+            plain += [f"{label + ':':<16}{value}" for label, value in rows]
+            plain += [
+                "",
+                "Review the attached video. If approved, publish it with "
+                "approve_and_publish.py or from the app dashboard.",
+            ]
+            alternative.attach(MIMEText("\n".join(plain), "plain", "utf-8"))
+
+            # hook_title / social_caption are model-authored free text, so
+            # they must be escaped before being interpolated into the HTML
+            # body — an unescaped & or < would otherwise mangle the email.
+            esc = _html.escape
+            table = "".join(
+                f'<tr><td style="padding:4px 14px 4px 0;color:#666;white-space:nowrap;">{esc(label)}</td>'
+                f'<td style="padding:4px 0;color:#111;">{esc(value)}</td></tr>'
+                for label, value in rows
             )
-            msg.attach(MIMEText(body, 'plain'))
+            cover = (
+                '<img src="cid:heimdall_cover" alt="Heimdall cover" '
+                'style="width:180px;border-radius:10px;display:block;margin:0 0 18px 0;">'
+                if thumb else ""
+            )
+            html = f"""\
+<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;color:#111;">
+  <p style="margin:0 0 4px 0;color:#666;font-size:13px;">⚡ NornPulse staged a vertical short for review</p>
+  <h2 style="margin:0 0 2px 0;font-size:21px;">{esc(title)}</h2>
+  <p style="margin:0 0 16px 0;color:#666;font-size:13px;">{esc(clip_id)} &middot; predicted virality <strong style="color:#111;">{virality}/100</strong></p>
+  {cover}
+  <table style="border-collapse:collapse;font-size:14px;">{table}</table>
+  <p style="margin:20px 0 0 0;font-size:13px;color:#666;">
+    The 9:16 render is attached. If approved, publish it with <code>approve_and_publish.py</code> or from the app dashboard.
+  </p>
+</div>"""
+            alternative.attach(MIMEText(html, "html", "utf-8"))
+            related.attach(alternative)
 
-            with open(video_path, "rb") as f:
-                part = MIMEBase('application', 'octet-stream')
-                part.set_payload(f.read())
-                encoders.encode_base64(part)
-                part.add_header('Content-Disposition', f"attachment; filename= {video_path.name}")
-                msg.attach(part)
+            if thumb:
+                from email.mime.image import MIMEImage
+                img = MIMEImage(thumb.read_bytes())
+                img.add_header("Content-ID", "<heimdall_cover>")
+                img.add_header("Content-Disposition", "inline", filename=thumb.name)
+                related.attach(img)
 
-            server = smtplib.SMTP('smtp.gmail.com', 587)
+            outer.attach(related)
+
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(video_path.read_bytes())
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", "attachment", filename=video_path.name)
+            outer.attach(part)
+
+            server = smtplib.SMTP("smtp.gmail.com", 587)
             server.starttls()
             server.login(self.gmail_user, self.gmail_password)
-            server.sendmail(self.gmail_user, self.notify_email, msg.as_string())
+            server.sendmail(self.gmail_user, self.notify_email, outer.as_string())
             server.quit()
 
             logger.info(f"Successfully sent Gmail staging notification with attachment for {clip_id}.")

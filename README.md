@@ -188,11 +188,24 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-104 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, and Verðandi's duration/window clamp. They need no API keys, no ClickHouse and no FFmpeg, and run in about ten seconds.
+145 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, Verðandi's duration/window clamp and metadata reconciliation, and the HITL staging email's MIME structure and HTML escaping. They need no API keys, no ClickHouse, no FFmpeg and no SMTP connection, and run in about ten seconds.
 
-Several cases are regression guards for bugs found by live testing: caption overlap, the crop-before-blur ordering in `blurred_background`, the `split=2` rule for named filter pads, `ORDER BY` binding to only the last `SELECT` of a `UNION ALL`, and a clamp that could emit an end timestamp *before* its start when the model requested a range outside the user's Cut Range.
+Several cases are regression guards for bugs found by live testing: caption overlap, the crop-before-blur ordering in `blurred_background`, the `split=2` rule for named filter pads, `ORDER BY` binding to only the last `SELECT` of a `UNION ALL`, a clamp that could emit an end timestamp *before* its start when the model requested a range outside the user's Cut Range, and metadata reconciliation silently dropping every render field it didn't list by name.
 
-`test_pipeline.py` and `test_hitl.py` at the repo root are separate — they are manual end-to-end runners that call the real Gemini / ClickHouse / YouTube APIs, and are excluded from the `pytest` suite.
+`test_pipeline.py` and `test_hitl.py` at the repo root are separate — they are manual end-to-end runners that call the real Gemini / ClickHouse / Gmail APIs, and are excluded from the `pytest` suite.
+
+## 📧 Human-in-the-loop staging
+
+Nothing reaches YouTube without a human approving it. `test_hitl.py` runs the full pipeline and emails each rendered short for review:
+
+```bash
+python test_hitl.py [video_path] [transcript_path] [count]
+# defaults: sample_data/yt_input.mp4, sample_data/raw_transcript.txt, 3
+```
+
+Each email carries the 9:16 render as an attachment, Heimdall's cover inline, and a review table of what the system decided — social caption, hook type and Urðr rank, the cut range, and the crop / motion / colour-grade treatment the benchmarks selected. Approving is a separate, deliberate step (`approve_and_publish.py` or the dashboard).
+
+`upload_to_youtube_shorts` defaults to `privacy_status="private"` so nothing goes live by accident. OAuth is cached at `.credentials/youtube_token.json` and is **bound to whichever account authorized it** — delete that file when switching channels, or the upload will silently land on the old one.
 
 ## 📜 License
 
