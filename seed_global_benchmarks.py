@@ -44,11 +44,17 @@ def main() -> int:
     if args.list:
         for f in facts:
             print(f"  {f.dimension:20s} 1/{f.divisor:<5d} {f.note}")
+        print(f"  {'hook_pattern':20s} {'windows':7s} Title-pattern hooks from English "
+              f"titles, sampled across uploader ranges.")
         return 0
 
+    # hook_pattern is not a generic Fact: it is the only one that reads the
+    # title column, so it needs uploader-window sampling and a language
+    # filter rather than the shared hash-modulo path.
+    want_hooks = args.dimension in (None, "hook_pattern")
     if args.dimension:
         facts = [f for f in facts if f.dimension == args.dimension]
-        if not facts:
+        if not facts and not want_hooks:
             raise SystemExit(f"❌ Unknown dimension '{args.dimension}'. Try --list.")
     if args.divisor:
         facts = [gb.Fact(f.dimension, f.bucket_expr, f.extra_filter, args.divisor, f.note)
@@ -57,11 +63,25 @@ def main() -> int:
     print(f"🌍 Materialising {len(facts)} fact(s) from the public YouTube dataset "
           f"(4.56B rows). Each takes roughly a minute.\n")
 
-    results = gb.materialise_all(facts)
+    results = gb.materialise_all(facts) if facts else {}
+
+    if want_hooks:
+        hooks = gb.materialise_hook_patterns()
+        results["hook_pattern"] = hooks
+        if hooks is not None:
+            band = hooks[hooks["size_band"] == "0-100"].sort_values(
+                "median_views", ascending=False)
+            print(f"✅ hook_pattern: {len(hooks)} bucket(s), "
+                  f"{int(hooks['sample_videos'].sum()):,} English videos classified")
+            for _, r in band.iterrows():
+                print(f"      [   0-100] {str(r['bucket']):20s} "
+                      f"median_views={r['median_views']:>9,.0f}  n={int(r['sample_videos']):,}")
     ok = [d for d, df in results.items() if df is not None]
     skipped = [d for d, df in results.items() if df is None]
 
     for dimension, df in results.items():
+        if dimension == "hook_pattern":
+            continue                      # already printed above, in band order
         if df is None:
             print(f"⏭️  {dimension}: skipped (query did not complete)")
             continue

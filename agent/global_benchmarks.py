@@ -437,3 +437,164 @@ def forecast_reach(
         "components": components,
         "sample_videos": int(row["sample_videos"]),
     }
+
+
+# ---------------------------------------------------------------------------
+# Hook patterns — the one fact that needs the title column
+# ---------------------------------------------------------------------------
+# Grounding Verðandi's hook taxonomy in real titles rather than the seeded
+# video_hook_retention rows requires reading `title`, which is the one
+# expensive column in a 4.5-billion-row table. Every whole-table approach
+# exceeds the playground's 120s cap: a hash-modulo sample still scans `id`,
+# and a numeric-modulo predicate still scans `view_count` and then reads
+# title for the survivors — measured at 247s.
+#
+# What works is the sort key. The remote table is ordered by uploader, so a
+# range predicate on uploader prunes on the primary index. Sampling several
+# lettered windows and unioning them gives a spread across the uploader
+# space at about three seconds per window, instead of one biased block from
+# whichever channels happen to sort first.
+#
+# Language has to be filtered too. detectLanguage is disabled on the
+# playground (error 344), and without a filter the sample is dominated by
+# non-English titles that an English regex cannot classify — which is
+# exactly how an earlier attempt produced zero contrarian_claim rows across
+# 2.9M videos and quietly put 94% of everything in "plain".
+
+HOOK_TABLE = TABLE
+UPLOADER_WINDOWS = ["0", "A", "C", "E", "G", "I", "K", "M",
+                    "O", "Q", "S", "U", "W", "Y", "z"]
+WINDOW_LIMIT = 220_000
+
+# ASCII-only plus at least one English function word. Crude, but it is a
+# filter rather than a classifier: it only has to keep the sample in the
+# language the patterns below are written for.
+_ENGLISH = (
+    "length(title) = lengthUTF8(title) AND "
+    "match(lower(title), '(^| )(the|a|an|of|to|in|is|you|your|how|why|what|"
+    "this|that|with|and|for|my|it|on|are)( |$)')"
+)
+
+# Ordered most-specific first, since multiIf takes the first match. A title
+# like "Why X?" is a curiosity gap that happens to end in a question mark,
+# so curiosity_gap is tested before direct_question.
+_HOOK_CLASSIFIER = """multiIf(
+    match(title, '^[0-9]') OR match(lower(title), '[0-9]+ ?(%|percent|million|billion|x |times)'), 'shock_stat',
+    match(lower(title), '(actually|the truth|myth|wrong|never |stop |nobody|no one tells)'), 'contrarian_claim',
+    match(lower(title), '(mistake|problem|struggling|failing|worst|stop making)'), 'problem_agitation',
+    match(lower(title), '( vs | versus |like a |is basically|is just a)'), 'metaphor_analogy',
+    match(lower(title), '(^| )(why|how|what|secret|reason)( |$)'), 'curiosity_gap',
+    position(title, '?') > 0, 'direct_question',
+    match(lower(title), '(^| )(i |we |my |our )'), 'story_in_medias_res',
+    'plain')"""
+
+
+def _hook_window_sql(low: str, high: str) -> str:
+    return f"""
+    SELECT title, view_count, like_count, uploader_sub_count
+    FROM {REMOTE}
+    WHERE uploader >= {ch.sql_literal(low)} AND uploader < {ch.sql_literal(high)}
+      AND {_BASE_FILTER}
+    LIMIT {WINDOW_LIMIT}
+    """
+
+
+def hook_pattern_query() -> str:
+    union = "\n    UNION ALL\n".join(
+        _hook_window_sql(low, high)
+        for low, high in zip(UPLOADER_WINDOWS, UPLOADER_WINDOWS[1:])
+    )
+    return f"""
+    SELECT
+        'hook_pattern' AS dimension,
+        {_HOOK_CLASSIFIER} AS bucket,
+        {SIZE_BAND_EXPR} AS size_band,
+        count() AS sample_videos,
+        round(median(view_count), 2) AS median_views,
+        round(quantile(0.10)(view_count), 2) AS p10_views,
+        round(quantile(0.90)(view_count), 2) AS p90_views,
+        round(median(view_count / greatest(uploader_sub_count, 1)), 4) AS median_views_per_sub,
+        round(avg(like_count / greatest(view_count, 1)) * 100, 4) AS like_rate_pct,
+        0 AS sample_divisor
+    FROM ({union})
+    WHERE {_ENGLISH}
+    GROUP BY bucket, size_band
+    HAVING sample_videos > 200
+    ORDER BY bucket, size_band
+    """
+
+
+def materialise_hook_patterns() -> Optional[pd.DataFrame]:
+    """Materialise the hook-pattern fact. Returns the stored rows, or None."""
+    ensure_table()
+    logger.info(f"Materialising hook patterns over {len(UPLOADER_WINDOWS) - 1} uploader windows...")
+    try:
+        df = ch.run_query_df(hook_pattern_query())
+    except Exception as e:
+        logger.warning(f"Hook-pattern fact did not complete: {ch._unwrap_exception(e)[:200]}")
+        return None
+    if df.empty:
+        return None
+
+    note = ("Title-pattern hooks from English-language titles, sampled across "
+            f"{len(UPLOADER_WINDOWS) - 1} uploader ranges and read within a channel-size band.")
+    values = ", ".join(
+        "(" + ", ".join([
+            ch.sql_literal("hook_pattern"), ch.sql_literal(str(r["bucket"])),
+            ch.sql_literal(str(r["size_band"])), ch.sql_literal(int(r["sample_videos"])),
+            ch.sql_literal(float(r["median_views"])), ch.sql_literal(float(r["p10_views"])),
+            ch.sql_literal(float(r["p90_views"])), ch.sql_literal(float(r["median_views_per_sub"])),
+            ch.sql_literal(float(r["like_rate_pct"])), ch.sql_literal(0), ch.sql_literal(note),
+        ]) + ")"
+        for _, r in df.iterrows()
+    )
+    ch.run_query(
+        f"INSERT INTO {TABLE} (dimension, bucket, size_band, sample_videos, median_views, "
+        f"p10_views, p90_views, median_views_per_sub, like_rate_pct, sample_divisor, note) "
+        f"VALUES {values}")
+    return df
+
+
+# Below this, a bucket's median is too noisy to headline. The thinnest
+# real bucket has ~300 videos against ~160,000 for "plain", and ranking
+# purely on median hands the top slot to whichever small bucket got lucky.
+HOOK_MIN_SAMPLE = 1000
+
+
+def hook_benchmarks(size_band: str = "0-100",
+                    facts: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    """Hook-pattern rows for one channel-size band, best median reach first."""
+    df = _select(facts, "hook_pattern")
+    if df.empty or "size_band" not in df.columns:
+        return pd.DataFrame()
+    return df[df["size_band"] == size_band].sort_values("median_views", ascending=False)
+
+
+def best_hook(size_band: str = "0-100", facts: Optional[pd.DataFrame] = None,
+              min_sample: int = HOOK_MIN_SAMPLE) -> Optional[Dict[str, Any]]:
+    """
+    The best-performing hook pattern that is actually well-sampled, with
+    its lift over an unstyled title.
+
+    Ranking on median alone promotes thin buckets: problem_agitation tops
+    the 0-100 band on 310 videos while curiosity_gap sits just behind it on
+    9,100. The first is a coin flip, the second is a finding.
+    """
+    rows = hook_benchmarks(size_band, facts)
+    if rows.empty:
+        return None
+    plain = rows[rows["bucket"] == "plain"]
+    baseline = float(plain.iloc[0]["median_views"]) if not plain.empty else 0.0
+
+    eligible = rows[(rows["sample_videos"] >= min_sample) & (rows["bucket"] != "plain")]
+    if eligible.empty:
+        return None
+    best = eligible.iloc[0]
+    return {
+        "hook": str(best["bucket"]),
+        "median_views": float(best["median_views"]),
+        "sample_videos": int(best["sample_videos"]),
+        "lift_pct": ((best["median_views"] / baseline - 1) * 100) if baseline else None,
+        "size_band": size_band,
+        "thin_buckets": int((rows["sample_videos"] < min_sample).sum()),
+    }

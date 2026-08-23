@@ -1382,7 +1382,36 @@ def page_intelligence():
                     "artifact, since weekend uploads skew toward small channels."
                 )
 
-        # --- current trending layer ---
+        hooks = gb.hook_benchmarks(band, facts=facts)
+    if not hooks.empty:
+        st.markdown("<div class='eyebrow'>Hook patterns · real English titles · "
+                    f"{band} subscribers</div>", unsafe_allow_html=True)
+        best = gb.best_hook(band, facts=facts)
+        if best:
+            lift = f"{best['lift_pct']:+.0f}% against an unstyled title, " if best["lift_pct"] else ""
+            st.caption(
+                f"**{best['hook']}** is the best well-sampled hook at this channel size — "
+                f"{best['median_views']:,.0f} median views, {lift}from "
+                f"{best['sample_videos']:,} real videos. Compare with the seeded "
+                f"`video_hook_retention` ranking above: where they disagree, this is the "
+                f"one measured on actual outcomes."
+            )
+        fig = px.bar(
+            hooks.sort_values("median_views"), x="median_views", y="bucket",
+            orientation="h", template="plotly_dark", hover_data=["sample_videos"],
+            title=f"Median views by title hook pattern · {band} subscribers",
+            labels={"median_views": "Median views", "bucket": ""},
+        )
+        st.plotly_chart(fig, width='stretch')
+        st.caption(
+            "Sampled across 14 uploader ranges rather than one contiguous block, and "
+            "restricted to English-language titles — an unfiltered sample is mostly "
+            "non-English, which an English pattern matcher silently files as “plain”. "
+            f"Buckets under {gb.HOOK_MIN_SAMPLE:,} videos are charted but never headlined — "
+            "a thin bucket tops the ranking on noise. Hover for n."
+        )
+
+    # --- current trending layer ---
         summary = _cached_trending_summary()
         if summary:
             st.markdown("**📈 Trending right now** — YouTube Data API, "

@@ -296,3 +296,127 @@ def test_forecast_returns_none_for_an_unmaterialised_band():
 
 def test_forecast_returns_none_without_materialised_facts():
     assert gb.forecast_reach(0, facts=pd.DataFrame()) is None
+
+
+# --------------------------------------------------------------------------
+# Hook patterns
+# --------------------------------------------------------------------------
+# This is the only fact that reads `title`, the one expensive column in a
+# 4.5B-row table, so its query shape is load-bearing rather than incidental.
+# Both guards below encode a failure that already happened once: an
+# unfiltered, storage-order sample returned zero contrarian_claim rows
+# across 2.9M videos and filed 94% of everything as "plain", because the
+# sample was overwhelmingly non-English.
+
+def test_hook_query_samples_across_many_uploader_windows():
+    """
+    One contiguous block is whichever channels sort first alphabetically.
+    Windowing on the sort key spreads the sample and still prunes on the
+    primary index, which is what keeps it under the 120s server cap.
+    """
+    sql = gb.hook_pattern_query()
+    assert sql.count("UNION ALL") == len(gb.UPLOADER_WINDOWS) - 2
+    assert sql.count("uploader >=") == len(gb.UPLOADER_WINDOWS) - 1
+    for boundary in ("'A'", "'M'", "'Y'"):
+        assert f"uploader >= {boundary}" in sql or f"uploader < {boundary}" in sql
+
+
+def test_hook_query_filters_to_english():
+    sql = gb.hook_pattern_query()
+    assert "lengthUTF8(title)" in sql          # ASCII-only
+    assert "the|a|an|of|to|in|is" in sql       # an English function word
+
+
+def test_hook_query_is_stratified_and_drops_tiny_buckets():
+    sql = gb.hook_pattern_query()
+    assert "GROUP BY bucket, size_band" in sql
+    assert "HAVING sample_videos > 200" in sql
+
+
+def test_every_taxonomy_hook_is_reachable_in_the_classifier():
+    """
+    multiIf returns the first match, so a pattern shadowed by an earlier
+    branch can never appear. Each of these must be present as an outcome.
+    """
+    sql = gb.hook_pattern_query()
+    for hook in ("shock_stat", "contrarian_claim", "problem_agitation",
+                 "metaphor_analogy", "curiosity_gap", "direct_question",
+                 "story_in_medias_res", "plain"):
+        assert f"'{hook}'" in sql, hook
+
+
+def test_curiosity_gap_is_tested_before_direct_question():
+    """"Why does X happen?" is a curiosity gap that happens to end in "?"."""
+    sql = gb.hook_pattern_query()
+    assert sql.index("'curiosity_gap'") < sql.index("'direct_question'")
+
+
+_HOOK_FACTS = _facts([
+    {"dimension": "hook_pattern", "bucket": b, "size_band": "0-100",
+     "median_views": mv, "sample_videos": n, "median_views_per_sub": 1.0,
+     "like_rate_pct": 0.4}
+    for b, mv, n in [("curiosity_gap", 3965.0, 9100), ("plain", 3457.0, 160751),
+                     ("shock_stat", 3223.0, 3998)]
+] + [
+    {"dimension": "hook_pattern", "bucket": "plain", "size_band": "1M+",
+     "median_views": 20024.0, "sample_videos": 27022, "median_views_per_sub": 0.005,
+     "like_rate_pct": 1.4},
+])
+
+
+def test_hook_benchmarks_are_banded_and_ranked():
+    rows = gb.hook_benchmarks("0-100", facts=_HOOK_FACTS)
+    assert list(rows["bucket"]) == ["curiosity_gap", "plain", "shock_stat"]
+    assert set(rows["size_band"]) == {"0-100"}
+
+
+def test_hook_benchmarks_empty_for_an_unmaterialised_band():
+    assert gb.hook_benchmarks("10k-100k", facts=_HOOK_FACTS).empty
+
+
+def test_hook_benchmarks_empty_without_facts():
+    assert gb.hook_benchmarks("0-100", facts=pd.DataFrame()).empty
+
+
+def test_best_hook_ignores_thin_buckets():
+    """
+    Regression guard. Ranking on median alone made problem_agitation the
+    headline for new channels on 310 videos, ahead of curiosity_gap on
+    9,100. The first is a coin flip; only the second is a finding.
+    """
+    facts = _facts([
+        {"dimension": "hook_pattern", "bucket": "problem_agitation", "size_band": "0-100",
+         "median_views": 4721.0, "sample_videos": 310},
+        {"dimension": "hook_pattern", "bucket": "curiosity_gap", "size_band": "0-100",
+         "median_views": 3965.0, "sample_videos": 9100},
+        {"dimension": "hook_pattern", "bucket": "plain", "size_band": "0-100",
+         "median_views": 3457.0, "sample_videos": 160751},
+    ])
+    best = gb.best_hook("0-100", facts=facts)
+    assert best["hook"] == "curiosity_gap"
+    assert best["sample_videos"] == 9100
+    assert best["thin_buckets"] == 1
+    assert best["lift_pct"] == pytest.approx(14.69, abs=0.1)
+
+
+def test_best_hook_never_returns_plain():
+    """"plain" is the baseline, not a hook you can choose."""
+    facts = _facts([
+        {"dimension": "hook_pattern", "bucket": "plain", "size_band": "0-100",
+         "median_views": 9999.0, "sample_videos": 160751},
+        {"dimension": "hook_pattern", "bucket": "curiosity_gap", "size_band": "0-100",
+         "median_views": 3965.0, "sample_videos": 9100},
+    ])
+    assert gb.best_hook("0-100", facts=facts)["hook"] == "curiosity_gap"
+
+
+def test_best_hook_returns_none_when_everything_is_thin():
+    facts = _facts([
+        {"dimension": "hook_pattern", "bucket": "curiosity_gap", "size_band": "0-100",
+         "median_views": 3965.0, "sample_videos": 12},
+    ])
+    assert gb.best_hook("0-100", facts=facts) is None
+
+
+def test_best_hook_returns_none_without_facts():
+    assert gb.best_hook("0-100", facts=pd.DataFrame()) is None
