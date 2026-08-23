@@ -12,6 +12,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 from pathlib import Path
+from typing import Optional
 from dotenv import load_dotenv
 
 from agent.verdandi_orchestrator import (
@@ -33,84 +34,154 @@ st.set_page_config(
     page_title="NornPulse: Autonomous Short-Form Engine",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Catamaran:wght@700;900&family=Cairo:wght@400;600&family=Biryani:wght@400;600&display=swap');
+    /* ── NornPulse design system ───────────────────────────────────────────
+       The Norns weave fate at the well of Urðr; this app claims to do the
+       same from telemetry. The palette is that well — deep water, bone,
+       and worked bronze — rather than the near-black-plus-one-bright-accent
+       that every other analytics dashboard lands on. Copper is reserved for
+       things a human does; mint is reserved for things that were measured.
+       Nothing else is allowed to be a colour.
+       ------------------------------------------------------------------- */
+    @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Public+Sans:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;600&display=swap');
 
-    html, body, [class*="css"] { font-family: 'Cairo', sans-serif; color: #e2e8f0; font-size: 1rem; }
-    h1, h2, h3, h4 { font-family: 'Catamaran', sans-serif !important; letter-spacing: 0.3px; }
-    p, span, label, div { font-family: 'Biryani', sans-serif; font-size: 0.98rem; }
+    :root {
+        --well:      #0B2426;   /* ground */
+        --well-2:    #103133;   /* raised surface */
+        --well-3:    #17403F;   /* hairline */
+        --bone:      #EDE6D8;   /* primary text */
+        --bone-dim:  #93A8A6;   /* secondary text */
+        --copper:    #C8703C;   /* human action */
+        --copper-lo: #8F4E29;
+        --thread:    #6FD3C0;   /* measured value */
+        --warn:      #D9A441;
 
-    .stApp {
-        background: radial-gradient(circle at 15% 0%, #131a2b 0%, #0b0f1a 45%, #060810 100%);
+        --display: 'Bricolage Grotesque', system-ui, sans-serif;
+        --body:    'Public Sans', system-ui, sans-serif;
+        --data:    'IBM Plex Mono', ui-monospace, monospace;
     }
 
-    .main-title {
-        font-family: 'Catamaran', sans-serif !important;
-        font-weight: 900;
-        font-size: clamp(3.4rem, 8vw, 6rem);
-        line-height: 1.0;
-        letter-spacing: -1px;
-        background: linear-gradient(90deg, #00f2fe 0%, #4facfe 45%, #f093fb 100%);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        text-shadow: 0 0 56px rgba(79, 172, 254, 0.3);
-        margin-bottom: -4px;
+    .stApp { background: var(--well); }
+    html, body, [class*="css"] {
+        font-family: var(--body); color: var(--bone); font-size: 0.97rem;
     }
-    .sub-title {
-        color: #94a3b8; font-size: 1.05rem; margin-bottom: 26px;
-        letter-spacing: 0.6px; text-transform: uppercase; opacity: 0.85;
+
+    /* Display face used with restraint: page titles and section marks only. */
+    h1, h2, h3 {
+        font-family: var(--display) !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.018em;
+        color: var(--bone);
     }
-    @keyframes norn-pulse {
-        0%, 100% { transform: scale(1); opacity: 1; }
-        50% { transform: scale(1.2); opacity: 0.65; }
-    }
-    .workflow-header {
-        font-family: 'Catamaran', sans-serif; font-size: 1.2rem; font-weight: 700; color: #f8fafc;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.12); padding-bottom: 8px; margin-bottom: 14px;
-        display: flex; align-items: center; gap: 8px;
-    }
-    div[data-testid="column"] > div {
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 16px;
-        padding: 18px;
-        backdrop-filter: blur(10px);
-    }
-    .stButton > button {
-        border-radius: 10px !important;
+
+    /* Every number in this app is evidence, so numbers get the mono face. */
+    [data-testid="stMetricValue"] {
+        font-family: var(--data) !important;
         font-weight: 600 !important;
-        transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+        color: var(--bone) !important;
+        font-size: 1.55rem !important;
     }
-    .stButton > button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 6px 18px rgba(79, 172, 254, 0.25);
+    [data-testid="stMetricLabel"] {
+        font-family: var(--body) !important;
+        text-transform: uppercase; letter-spacing: 0.09em;
+        font-size: 0.68rem !important; color: var(--bone-dim) !important;
     }
-    div[data-baseweb="slider"] { padding-top: 6px; }
 
-    /* Pipeline stepper: live per-agent progress during generation,
-       replacing the old single generic loading banner. */
-    .np-stepper { margin-bottom: 4px; }
-    .np-stepper-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+    /* Section mark: a rule that carries the eyebrow, so hierarchy is
+       structural rather than just a larger font size. */
+    .workflow-header {
+        font-family: var(--display); font-weight: 700; font-size: 1.06rem;
+        letter-spacing: 0.01em; color: var(--bone);
+        border-top: 1px solid var(--well-3);
+        padding-top: 0.55rem; margin: 1.9rem 0 0.85rem 0;
+        display: flex; align-items: baseline; gap: 0.6rem;
+    }
+
+    .eyebrow {
+        font-family: var(--data); font-size: 0.66rem; letter-spacing: 0.16em;
+        text-transform: uppercase; color: var(--bone-dim);
+    }
+
+    /* Actions are copper; nothing else is. */
+    .stButton > button {
+        font-family: var(--body); font-weight: 600; border-radius: 3px;
+        border: 1px solid var(--well-3); background: transparent;
+        color: var(--bone); transition: border-color .15s, color .15s;
+    }
+    .stButton > button:hover { border-color: var(--copper); color: var(--copper); }
+    .stButton > button[kind="primary"] {
+        background: var(--copper); border-color: var(--copper); color: #16110C;
+    }
+    .stButton > button[kind="primary"]:hover { background: var(--copper-lo); color: var(--bone); }
+
+    .stTextInput input, .stTextArea textarea, .stNumberInput input, .stSelectbox div[data-baseweb] {
+        background: var(--well-2) !important; border-radius: 3px !important;
+        border-color: var(--well-3) !important; color: var(--bone) !important;
+    }
+    .stTextArea textarea, .stTextInput input { font-family: var(--body); }
+
+    [data-testid="stSidebar"] {
+        background: #081D1F; border-right: 1px solid var(--well-3);
+    }
+    [data-testid="stSidebarNav"] a span { font-family: var(--body); }
+
+    div[data-testid="stExpander"] details {
+        background: var(--well-2); border: 1px solid var(--well-3); border-radius: 4px;
+    }
+    [data-testid="stDataFrame"] { border: 1px solid var(--well-3); border-radius: 4px; }
+    hr { border-color: var(--well-3); }
+    code, .stCode { font-family: var(--data) !important; }
+    a { color: var(--thread); }
+
+    /* Keyboard focus must stay visible against the dark ground. */
+    :focus-visible { outline: 2px solid var(--copper) !important; outline-offset: 2px; }
+
+    /* Live pipeline stepper. Six agents run in sequence and each one can
+       take a minute, so the run has to say where it is; a spinner would
+       just say "something is happening". Done steps stay legible rather
+       than fading out, because the sequence itself is the explanation of
+       what this system does. */
+    .np-stepper {
+        background: var(--well-2); border: 1px solid var(--well-3);
+        border-radius: 4px; padding: .7rem .8rem; margin: .6rem 0;
+    }
+    .np-stepper-pills { display: flex; flex-wrap: wrap; gap: .38rem; }
     .np-step {
-        display: inline-flex; align-items: center; gap: 6px;
-        padding: 6px 13px; border-radius: 999px; font-size: 0.85rem; font-weight: 600;
-        font-family: 'Catamaran', sans-serif;
-        border: 1px solid rgba(255, 255, 255, 0.1); transition: all 0.3s ease;
-        white-space: nowrap;
+        font-family: var(--data); font-size: .68rem; letter-spacing: .06em;
+        text-transform: uppercase; padding: .2rem .5rem; border-radius: 2px;
+        border: 1px solid transparent;
     }
-    .np-step-pending { opacity: 0.35; background: rgba(255, 255, 255, 0.03); }
-    .np-step-done { opacity: 0.8; background: rgba(79, 172, 254, 0.14); border-color: rgba(79, 172, 254, 0.32); }
-    .np-step-active {
-        opacity: 1;
-        background: linear-gradient(90deg, rgba(0, 242, 254, 0.28), rgba(240, 147, 251, 0.28));
-        border-color: rgba(240, 147, 251, 0.55);
-        animation: norn-pulse 1.3s ease-in-out infinite;
-        box-shadow: 0 0 18px rgba(79, 172, 254, 0.3);
+    .np-step-pending { color: #5C7472; border-color: var(--well-3); }
+    .np-step-done    { color: var(--thread); border-color: rgba(111,211,192,.28); }
+    .np-step-active  {
+        color: #16110C; background: var(--copper); border-color: var(--copper);
+        font-weight: 600;
     }
-    .np-stepper-message { font-size: 0.92rem; color: #94a3b8; font-style: italic; margin-bottom: 10px; }
+    .np-stepper-message {
+        font-family: var(--body); font-size: .82rem; color: var(--bone-dim);
+        margin-top: .5rem;
+    }
+
+    /* ── Signature: the fate thread ────────────────────────────────────────
+       A forecast is a range, not a number, and the Norns' thread is exactly
+       that shape. Each clip's p10–p90 reach range is drawn as a thread with
+       a knot at the median; once published, the real view count lands as a
+       bead. Whether the bead sits on the thread is the whole cross-validation
+       story, readable at a glance and without a chart library. */
+    .thread-wrap { margin: 0.5rem 0 0.9rem 0; }
+    .thread-scale {
+        display: flex; justify-content: space-between;
+        font-family: var(--data); font-size: 0.68rem; color: var(--bone-dim);
+        margin-top: 0.28rem;
+    }
+    .thread-note {
+        font-family: var(--body); font-size: 0.78rem; color: var(--bone-dim);
+        margin-top: 0.15rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -121,6 +192,71 @@ st.markdown("""
 # run revisits bragi/heimdall/mimir/skuld/urdr_log once per clip, which
 # _render_pipeline_stepper handles by tracking "ever seen" rather than
 # "furthest reached".
+def _fmt_views(n: float) -> str:
+    """Compact view counts. 1.2M reads faster than 1,203,441 at a glance."""
+    n = float(n)
+    for limit, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if abs(n) >= limit:
+            return f"{n / limit:.1f}".rstrip("0").rstrip(".") + suffix
+    return f"{n:.0f}"
+
+
+def fate_thread(p10: float, p50: float, p90: float,
+                actual: Optional[float] = None, label: str = "") -> str:
+    """
+    The forecast drawn as a thread: p10 to p90 with a knot at the median,
+    and the real outcome as a bead once there is one.
+
+    A forecast is a range, and a single number misrepresents a distribution
+    this heavy-tailed — p90 here is routinely six times p50. Drawn this way
+    the question "did reality land inside the predicted range" is answerable
+    by looking, which is the entire point of the cross-validation and is
+    otherwise buried in a log-log scatter.
+
+    Log scale, because reach spans orders of magnitude. Returns SVG.
+    """
+    import math
+
+    lo = max(min([v for v in (p10, p50, p90, actual or p50) if v and v > 0] or [1]), 1)
+    hi = max([v for v in (p10, p50, p90, actual or p50) if v] or [10])
+    lo, hi = lo * 0.6, hi * 1.7
+
+    def x(value: float) -> float:
+        if not value or value <= 0:
+            return 0.0
+        span = math.log10(hi) - math.log10(lo)
+        return 4 + 92 * (math.log10(value) - math.log10(lo)) / (span or 1)
+
+    x10, x50, x90 = x(p10), x(p50), x(p90)
+    bead = ""
+    if actual and actual > 0:
+        xa = x(actual)
+        inside = p10 <= actual <= p90
+        colour = "var(--thread)" if inside else "var(--warn)"
+        bead = (
+            f'<circle cx="{xa}%" cy="15" r="5.5" fill="{colour}" stroke="var(--well)" stroke-width="2"/>'
+            f'<text x="{xa}%" y="34" fill="{colour}" font-size="9.5" font-family="IBM Plex Mono, monospace" '
+            f'text-anchor="middle">{_fmt_views(actual)}</text>'
+        )
+
+    return f"""
+    <div class="thread-wrap">
+      <svg width="100%" height="40" role="img" aria-label="{label or 'forecast range'}">
+        <line x1="{x10}%" y1="15" x2="{x90}%" y2="15"
+              stroke="var(--well-3)" stroke-width="3" stroke-linecap="round"/>
+        <line x1="{x10}%" y1="9" x2="{x10}%" y2="21" stroke="var(--bone-dim)" stroke-width="1.5"/>
+        <line x1="{x90}%" y1="9" x2="{x90}%" y2="21" stroke="var(--bone-dim)" stroke-width="1.5"/>
+        <circle cx="{x50}%" cy="15" r="3.5" fill="var(--bone-dim)"/>
+        {bead}
+      </svg>
+      <div class="thread-scale">
+        <span>{_fmt_views(p10)}</span>
+        <span>median {_fmt_views(p50)}</span>
+        <span>{_fmt_views(p90)}</span>
+      </div>
+    </div>"""
+
+
 PIPELINE_STAGES = [
     ("urdr", "🔮 Urðr"),
     ("upload", "📤 Upload"),
@@ -259,11 +395,16 @@ if "_transcript_source_video" not in st.session_state:
     # not on every unrelated rerun (slider move, Publish click, etc.).
     st.session_state._transcript_source_video = None
 
-st.markdown("<h1 class='main-title'>⚡ NornPulse</h1>", unsafe_allow_html=True)
-st.markdown(
-    "<div class='sub-title'>Autonomous Short-Form Engine · Norn Labs (nornlabs.ai) · Multimodal Vision & ADK Native</div>",
-    unsafe_allow_html=True,
-)
+# The masthead belongs to the Home page; a global one would repeat the
+# product name above every page and push the actual content below the fold.
+# The ClickHouse banner below is deliberately still global — a silently
+# degraded connection has to be visible wherever you are.
+with st.sidebar:
+    st.markdown(
+        "<div style='padding:.35rem 0 .9rem 0;'>"
+        "<div style='font-family:var(--display);font-weight:800;font-size:1.22rem;"
+        "letter-spacing:-.02em;'>NornPulse</div>"
+        "<div class='eyebrow'>Norn Labs</div></div>", unsafe_allow_html=True)
 
 # Global ClickHouse health banner, deliberately ABOVE the tabs so it's
 # visible no matter which tab is open. Urðr degrades to in-memory
@@ -295,12 +436,112 @@ if not _urdr_health.is_connected():
         else:
             st.warning("Still unable to reach ClickHouse — see the reason above.")
 
-nav_tab1, nav_tab2, nav_tab3 = st.tabs(["🚀 Pipeline & Staging", "📚 Library & Archives", "📊 ClickHouse Analytics"])
 
 # =========================================================================
-# TAB 1: PIPELINE & STAGING WORKFLOW (3-Column Layout)
+# HOME — what the system knows, before it asks for anything
 # =========================================================================
-with nav_tab1:
+def page_home():
+    """
+    The landing view leads with evidence rather than an input.
+
+    The old entry point was a URL field labelled "YouTube Video Source",
+    which asked for work before showing any, and announced a
+    YouTube-only constraint the pipeline does not actually have. What
+    distinguishes this system is that its choices are grounded in real
+    global data, so that is what the first screen shows, with the clips
+    already produced as the proof and a single obvious way to make more.
+    """
+    facts = _cached_global_facts()
+    subs = int(st.session_state.channel_subs)
+    band = gb.size_band_for(subs)
+    reach = gb.expected_reach(subs, facts=facts)
+    lift = gb.subtitle_lift(band, facts=facts)
+
+    st.markdown(
+        "<div class='eyebrow'>Norn Labs · autonomous short-form engine</div>"
+        "<h1 style='margin:.15rem 0 .1rem 0;font-size:2.5rem;line-height:1.03;'>NornPulse</h1>",
+        unsafe_allow_html=True)
+
+    grounded = f"{4_557_605_031:,}"
+    st.markdown(
+        f"<p style='color:var(--bone-dim);max-width:56ch;margin:0 0 1.4rem 0;'>"
+        f"Every cut, caption and cover is chosen against "
+        f"<span style='font-family:var(--data);color:var(--thread);'>{grounded}</span> "
+        f"real YouTube videos and a live trending snapshot — not a style guide.</p>",
+        unsafe_allow_html=True)
+
+    # The hero is the thread, not a big number: it states the thesis and is
+    # the same object used on every clip, so the vocabulary is learned once.
+    if reach:
+        st.markdown("<div class='eyebrow'>Where videos from a channel your size land</div>",
+                    unsafe_allow_html=True)
+        st.markdown(
+            fate_thread(reach["median_views"] * 0.45, reach["median_views"],
+                        reach["median_views"] * 6.0,
+                        label="typical reach for this channel size"),
+            unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='thread-note'>Median {reach['median_views']:,.0f} views across "
+            f"{reach['sample_videos']:,} real videos from {band}-subscriber channels. "
+            f"Your clips are placed on this same thread once they have views.</div>",
+            unsafe_allow_html=True)
+    else:
+        st.info("Run `python seed_global_benchmarks.py` to materialise the global grounding.")
+
+    if lift:
+        direction = ("lifts engagement sharply but not reach at this channel size"
+                     if lift["views_lift_pct"] < 1 else "lifts both reach and engagement")
+        st.markdown(
+            f"<div class='thread-note' style='margin-top:1rem;'>Captioning {direction} — "
+            f"<span style='color:var(--thread);font-family:var(--data);'>"
+            f"{lift['like_lift_pct']:+.0f}%</span> like rate across "
+            f"{lift['sample_videos']:,} videos, which is why Skuld burns subtitles in by default."
+            f"</div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='workflow-header'>Your clips</div>", unsafe_allow_html=True)
+    counts = rq.state_counts()
+    clips = rq.list_clips()
+    if not clips:
+        st.markdown(
+            "<p style='color:var(--bone-dim);'>Nothing made yet. Start with any 16:9 video — "
+            "a file you upload or a link.</p>", unsafe_allow_html=True)
+    else:
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Approved", counts.get(rq.APPROVED, 0))
+        m2.metric("Awaiting review", counts.get(rq.PENDING, 0))
+        outcomes = _cached_published_outcomes(st.session_state.verdandi_adk.urdr)
+        if not outcomes.empty and "video_unavailable" in outcomes.columns:
+            live = outcomes[~outcomes["video_unavailable"].astype(bool)]
+            m3.metric("Best real reach", f"{int(live['actual_view_count'].max()):,} views"
+                      if not live.empty else "—")
+
+        for clip in clips[:3]:
+            meta = clip["metadata"]
+            c1, c2 = st.columns([1, 3], gap="medium")
+            with c1:
+                if clip["thumbnail_path"]:
+                    st.image(clip["thumbnail_path"], width=110)
+            with c2:
+                st.markdown(f"**{meta.get('hook_title') or clip['clip_id']}**")
+                bits = [clip["state"]]
+                if meta.get("hook_type"):
+                    bits.append(f"`{meta['hook_type']}`")
+                if (clip.get("decision") or {}).get("youtube_url"):
+                    bits.append(f"[watch]({clip['decision']['youtube_url']})")
+                st.caption(" · ".join(bits))
+
+    st.markdown("<div class='workflow-header'>Make another</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<p style='color:var(--bone-dim);max-width:52ch;'>Any 16:9 source works — a local file "
+        "or a link. NornPulse finds the moments worth cutting, scores them against the global "
+        "data, and stages them for your approval.</p>", unsafe_allow_html=True)
+    if st.button("New clip", type="primary", key="home_new"):
+        st.switch_page(_PAGE_CREATE)
+
+
+
+def page_create():
+    """Ingest a source, set the controls, run the pipeline."""
     col_left, col_mid, col_right = st.columns(3, gap="medium")
 
     # --- COLUMN 1: Source Video & Ingestion ---
@@ -834,10 +1075,10 @@ with nav_tab1:
                         )
                         st.rerun()
 
-# =========================================================================
-# TAB 2: LIBRARY
-# =========================================================================
-with nav_tab2:
+
+
+def page_review():
+    """The durable queue: every clip and the decision against it."""
     st.markdown("<div class='workflow-header'>📚 Review Queue & Library</div>", unsafe_allow_html=True)
 
     # One view over three directories plus the decision ledger. The old
@@ -969,10 +1210,10 @@ with nav_tab2:
                             st.warning(f"Deleted {len(removed)} file(s) for {cid}.")
                             st.rerun()
 
-# =========================================================================
-# TAB 3: LIVE CLICKHOUSE ANALYTICS + PREDICTED-VS-ACTUAL CROSS-VALIDATION
-# =========================================================================
-with nav_tab3:
+
+
+def page_intelligence():
+    """ClickHouse analytics and the global grounding."""
     st.markdown("<div class='workflow-header'>📊 Live ClickHouse Analytics Hub</div>", unsafe_allow_html=True)
 
     urdr = st.session_state.verdandi_adk.urdr
@@ -1332,3 +1573,18 @@ with nav_tab3:
                 st.dataframe(result_df, width='stretch')
             except Exception as e:
                 st.error(f"Query failed: {e}")
+
+# =========================================================================
+# NAVIGATION
+# =========================================================================
+# st.navigation, not st.tabs. Streamlit executes every tab body on every
+# rerun regardless of which is visible, so tabs hid these pages while still
+# paying for all their ClickHouse round-trips — that was the real cause of
+# the slow analytics view. Pages execute only when selected, and they get
+# real URLs and back-button behaviour for free.
+_PAGE_HOME = st.Page(page_home, title="Home", icon="🧭", default=True)
+_PAGE_CREATE = st.Page(page_create, title="Create", icon="✂️")
+_PAGE_REVIEW = st.Page(page_review, title="Review", icon="⚖️")
+_PAGE_INTELLIGENCE = st.Page(page_intelligence, title="Intelligence", icon="📡")
+
+st.navigation([_PAGE_HOME, _PAGE_CREATE, _PAGE_REVIEW, _PAGE_INTELLIGENCE]).run()

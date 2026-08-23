@@ -1,0 +1,16 @@
+# Base theme. Streamlit paints its own widget chrome before any injected CSS
+# runs, so these have to match the tokens in app.py or the first paint flashes
+# the default purple-on-white.
+[theme]
+base = "dark"
+primaryColor = "#C8703C"          # copper — actions
+backgroundColor = "#0B2426"       # the well: deep water, not black
+secondaryBackgroundColor = "#103133"
+textColor = "#EDE6D8"             # bone
+font = "sans serif"
+
+[server]
+maxUploadSize = 2048
+
+[browser]
+gatherUsageStats = false
