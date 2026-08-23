@@ -5,6 +5,7 @@ Built for Norn Labs (nornlabs.ai)
 """
 
 import os
+import hashlib
 import json
 import logging
 import random
@@ -664,24 +665,41 @@ def page_create():
         # ("Sign in to confirm you're not a bot"), so yt-dlp fails from Cloud
         # Run regardless of credit. Better to say that than to offer a field
         # that always errors.
+        # Upload works everywhere; a link does not. YouTube bot-blocks
+        # datacenter IPs, so yt-dlp cannot run from Cloud Run at all — an
+        # uploaded file is the only way a visitor can drive the real
+        # pipeline, and it skips the download and its cost entirely.
+        uploaded = st.file_uploader(
+            "Upload a 16:9 video", type=["mp4", "mov", "m4v", "webm"],
+            help="Any source works — NornPulse reads the video, not where it came from.")
+        uploaded_path = None
+        if uploaded is not None:
+            uploads = Path("output_clips/uploads")
+            uploads.mkdir(parents=True, exist_ok=True)
+            # Named from the content hash so re-uploading the same file
+            # reuses its transcript instead of paying to transcribe twice.
+            digest = hashlib.sha256(uploaded.getbuffer()).hexdigest()[:16]
+            uploaded_path = uploads / f"upload_{digest}{Path(uploaded.name).suffix}"
+            if not uploaded_path.exists():
+                uploaded_path.write_bytes(uploaded.getbuffer())
+            st.caption(f"📁 {uploaded.name} · {uploaded_path.stat().st_size / 1048576:.0f} MB")
+
         if DEMO_MODE:
             st.text_input(
                 "Video link", key="yt_url_locked", disabled=True,
-                placeholder="Ingestion is disabled on the public demo")
+                placeholder="Links are disabled here — upload a file instead")
             st.caption(
-                "🔒 Pasting a link would start a download and a paid transcription. "
-                "It would also fail: YouTube blocks datacenter IPs, so downloads "
-                "cannot run from Cloud Run without browser cookies. The clips on "
-                "the Review page were produced by this pipeline running locally."
+                "🔒 Link ingestion cannot work from Cloud Run: YouTube blocks "
+                "datacenter IPs. Upload a file above to run the real pipeline."
             )
             yt_url = ""
         else:
             yt_url = st.text_input(
                 "Video link", key="yt_url",
-                placeholder="Paste a video URL — or upload a file below",
+                placeholder="Paste a video URL — or upload a file above",
                 help="Any link yt-dlp can resolve. NornPulse works on the video, "
                      "not on where it came from.")
-        active_video_path = None
+        active_video_path = str(uploaded_path) if uploaded_path else None
 
         if yt_url:
             # Check the video's real length BEFORE downloading anything —
@@ -938,14 +956,15 @@ def page_create():
                      "itself is still always enforced.",
             )
 
+        # Allowed on the demo only with an uploaded file. Without one there is
+        # no source to work from here anyway, since links cannot be fetched.
         generate_clicked = (
             False
-            if demo_locked(
+            if (DEMO_MODE and not uploaded_path and demo_locked(
                 "⚡ EXECUTE PIPELINE",
-                "Runs the real pipeline against paid Gemini, Lyria and Imagen APIs "
-                "— disabled on the public demo.",
+                "Upload a video above to run the pipeline.",
                 "execute_locked",
-            )
+            ))
             else st.button("⚡ EXECUTE PIPELINE", type="primary")
         )
 

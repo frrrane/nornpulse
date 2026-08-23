@@ -24,7 +24,6 @@ FLAT = " ".join(SOURCE.split())
 # Buttons that cost money, write to ClickHouse, or publish. Keyed by the
 # label as it appears in the source.
 GUARDED_ACTIONS = [
-    "⚡ EXECUTE PIPELINE",     # Gemini + Lyria + Imagen + TTS
     "🗂️ Run Batch",           # the same, several times over
     "🚀 Publish",              # uploads to a real YouTube channel
     "🗑️ Reject",               # writes a decision to ClickHouse
@@ -102,4 +101,33 @@ def test_ingestion_is_gated_by_demo_mode():
     assert "if DEMO_MODE:" in block, "the source field is reachable on the public demo"
     assert "yt_url_locked" in block
     # The real input must sit on the else branch, not run unconditionally.
+    assert block.index("if DEMO_MODE:") < block.index('key="yt_url"')
+
+
+def test_upload_is_available_on_the_demo():
+    """
+    An uploaded file is the only way to drive the pipeline on Cloud Run:
+    YouTube bot-blocks datacenter IPs, so link ingestion cannot work there
+    at all. The uploader must therefore not sit behind the demo gate.
+    """
+    block = SOURCE[SOURCE.index("1️⃣ Source"):]
+    block = block[:block.index("Batch Mode")]
+    assert "st.file_uploader(" in block
+    assert block.index("st.file_uploader(") < block.index("if DEMO_MODE:"), (
+        "the uploader must be offered before the demo gate, not inside it")
+
+
+def test_generation_needs_an_upload_on_the_demo():
+    """
+    Allowed with a file, refused without one. Without this the demo shows a
+    live button whose only possible source — a link — cannot be fetched.
+    """
+    flat = FLAT
+    assert "DEMO_MODE and not uploaded_path and demo_locked(" in flat
+
+
+def test_link_ingestion_stays_blocked_on_the_demo():
+    block = SOURCE[SOURCE.index("1️⃣ Source"):]
+    block = block[:block.index("Batch Mode")]
+    assert "yt_url_locked" in block
     assert block.index("if DEMO_MODE:") < block.index('key="yt_url"')

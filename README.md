@@ -225,7 +225,8 @@ A typical clip is 3 measured, 4 assumed, 1 model. That ratio is the honest state
 The Devpost submission needs a URL a judge can open, which means `--allow-unauthenticated`. `NORNPULSE_DEMO_MODE=1` (set by `deploy_cloud_run.sh`, off by default locally) closes off everything that writes or spends:
 
 - The **SQL console is not rendered at all** — it runs user-supplied SQL with write access enabled and `remoteSecure()` available, so a visitor could write to the warehouse or push data to another host. A disabled textarea would still advertise the endpoint.
-- **Generate, publish, approve/reject, delete and sync are stood down**, each saying why where it stands. Every generate button spends real Gemini, Lyria and Imagen credit with no ceiling.
+- **Link ingestion is disabled** — and could not work regardless: YouTube bot-blocks datacenter IPs, so `yt-dlp` fails from Cloud Run for both the download and the duration probe that precedes it. Uploading a file is offered instead, which skips the download entirely and lets a visitor drive the real pipeline.
+- **Publish, approve/reject, delete and sync are stood down**, each saying why where it stands. Every generate button spends real Gemini, Lyria and Imagen credit with no ceiling.
 
 Nothing about the product is hidden: every page, chart and grounded decision runs live against the real warehouse and the 4.56-billion-row dataset, and the clips on display were produced by this pipeline. A static test asserts each costly action carries a gate, so a button added later without one fails the suite.
 
@@ -279,7 +280,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-332 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, Verðandi's duration/window clamp and metadata reconciliation, the HITL staging email's MIME structure and HTML escaping, the review-decision ledger, the global-grounding accessors' stratification and degradation paths, and the persistent MCP session's reuse, restart and fallback logic. They need no API keys, no ClickHouse, no FFmpeg and no SMTP connection, and run in about ten seconds.
+335 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, Verðandi's duration/window clamp and metadata reconciliation, the HITL staging email's MIME structure and HTML escaping, the review-decision ledger, the global-grounding accessors' stratification and degradation paths, and the persistent MCP session's reuse, restart and fallback logic. They need no API keys, no ClickHouse, no FFmpeg and no SMTP connection, and run in about ten seconds.
 
 Several cases are regression guards for bugs found by live testing: caption overlap, the crop-before-blur ordering in `blurred_background`, the `split=2` rule for named filter pads, `ORDER BY` binding to only the last `SELECT` of a `UNION ALL`, a clamp that could emit an end timestamp *before* its start when the model requested a range outside the user's Cut Range, and metadata reconciliation silently dropping every render field it didn't list by name.
 
