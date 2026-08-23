@@ -21,6 +21,7 @@ swallowing it.
 """
 
 import argparse
+import datetime
 import email
 import imaplib
 import json
@@ -37,6 +38,15 @@ load_dotenv()
 logger = logging.getLogger("nornpulse.approvals")
 
 IMAP_HOST = "imap.gmail.com"
+# Which replies have already been acted on. Read state cannot answer this:
+# NOTIFY_EMAIL is normally the same mailbox the notifications are sent
+# from, so a reply arrives already marked \Seen and an UNSEEN search
+# matches nothing, forever. Tracking Message-IDs is independent of how the
+# mail client happens to flag things.
+PROCESSED_PATH = Path("output_clips/processed_replies.json")
+# Replies older than this are ignored, so the search stays bounded as the
+# mailbox grows rather than re-reading years of history every run.
+LOOKBACK_DAYS = 60
 # clip ids are [A-Za-z0-9_.-] by construction. \S+ would also swallow any
 # punctuation a mail client appends after the id.
 SUBJECT_RE = re.compile(r"\[NornPulse\]\s*(APPROVE|REJECT)\s+([\w.-]+)", re.IGNORECASE)
@@ -81,8 +91,22 @@ def extract_comment(body: str, marker: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _load_processed() -> set:
+    try:
+        return set(json.loads(PROCESSED_PATH.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError):
+        return set()
+
+
+def _mark_processed(message_id: str) -> None:
+    seen = _load_processed()
+    seen.add(message_id)
+    PROCESSED_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PROCESSED_PATH.write_text(json.dumps(sorted(seen), indent=2), encoding="utf-8")
+
+
 def fetch_decisions(marker: str):
-    """Yield (uid, decision, clip_id, comment) for unread NornPulse replies."""
+    """Yield (message_id, decision, clip_id, comment, imap) for unhandled replies."""
     user, password = os.getenv("GMAIL_USER"), os.getenv("GMAIL_APP_PASSWORD")
     if not user or not password:
         raise SystemExit("❌ GMAIL_USER / GMAIL_APP_PASSWORD are not set.")
@@ -91,12 +115,14 @@ def fetch_decisions(marker: str):
     try:
         imap.login(user, password)
         imap.select("INBOX")
-        # Gmail's IMAP SUBJECT search is substring-based; the regex below
-        # is what actually validates the format.
-        status, data = imap.search(None, '(UNSEEN SUBJECT "[NornPulse]")')
+        # Deliberately not UNSEEN: see PROCESSED_PATH above. Bounded by date
+        # instead, with Message-IDs deciding what has been handled.
+        since = (datetime.date.today() - datetime.timedelta(days=LOOKBACK_DAYS)).strftime("%d-%b-%Y")
+        status, data = imap.search(None, f'(SINCE {since} SUBJECT "[NornPulse]")')
         if status != "OK":
             return
 
+        processed = _load_processed()
         for uid in data[0].split():
             status, raw = imap.fetch(uid, "(BODY.PEEK[])")   # PEEK: don't mark read yet
             if status != "OK" or not raw or not raw[0]:
@@ -104,9 +130,12 @@ def fetch_decisions(marker: str):
             msg = email.message_from_bytes(raw[0][1])
             match = SUBJECT_RE.search(_decode(msg.get("Subject", "")))
             if not match:
+                continue                       # the outgoing staging mail
+            message_id = (msg.get("Message-ID") or f"uid:{uid.decode()}").strip()
+            if message_id in processed:
                 continue
             decision, clip_id = match.group(1).lower(), match.group(2).strip()
-            yield uid, decision, clip_id, extract_comment(_body_text(msg), marker), imap
+            yield message_id, decision, clip_id, extract_comment(_body_text(msg), marker), imap
     finally:
         try:
             imap.close(); imap.logout()
@@ -135,7 +164,7 @@ def main() -> int:
     urdr = None
     seen = 0
 
-    for uid, decision, clip_id, comment, imap in fetch_decisions(publisher.REPLY_MARKER):
+    for message_id, decision, clip_id, comment, imap in fetch_decisions(publisher.REPLY_MARKER):
         seen += 1
         shown = comment.replace("\n", " ")[:70] or "(no comment)"
         print(f"\n📨 {decision.upper()} {clip_id} — {shown}")
@@ -157,7 +186,7 @@ def main() -> int:
             prior = rq.get_decision(clip_id)
             if prior and prior.get("status") == rq.APPROVED and prior.get("youtube_url"):
                 print(f"   ⏭️  already published at {prior['youtube_url']} — skipping re-upload.")
-                imap.store(uid, "+FLAGS", "\\Seen")
+                _mark_processed(message_id)
                 continue
 
             video = clip.get("output_video_path")
@@ -206,9 +235,9 @@ def main() -> int:
                                extra={"youtube_url": res["url"], "youtube_video_id": res["video_id"]})
             rq.archive_published(clip_id)
 
-        # Only now is the reply consumed — a crash above leaves it unread
-        # so the decision is picked up on the next run instead of lost.
-        imap.store(uid, "+FLAGS", "\\Seen")
+        # Only now is the reply consumed — a crash above leaves it
+        # unrecorded, so the decision is picked up next run instead of lost.
+        _mark_processed(message_id)
 
     print(f"\n✅ Processed {seen} decision(s)." if seen else "📭 No new decisions.")
     return 0

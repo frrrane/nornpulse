@@ -1,50 +1,87 @@
-[00:16] The lives and deaths of the stars
-[00:19] seem impossibly remote from human experience,
-[00:22] and yet we are related in the most intimate way to their life cycles.
-[00:26] The very matter that makes us up
-[00:28] was generated long ago and far away
-[00:32] in red giant stars.
-[00:34] A blade of grass,
-[00:36] as Walt Whitman said,
-[00:38] is the journey-work of the stars.
-[00:41] The formation of the solar system may have been triggered
-[00:44] by a nearby supernova explosion.
-[00:47] After the sun turned on, its ultraviolet light
-[00:49] poured into our atmosphere, its warmth generated lightning,
-[00:53] and these energy sources sparked the origin of life.
-[00:56] Plants
-[00:58] harvest sunlight,
-[00:59] converting solar into chemical energy.
-[01:02] We and the other animals are parasites on the plants,
-[01:06] so we are, all of us,
-[01:09] solar-powered.
-[01:11] The evolution of life was driven by mutations.
-[01:13] They are caused, partly, by natural radioactivity and cosmic rays,
-[01:18] but they are both generated in the spectacular deaths of massive stars
-[01:22] thousands of light-years distant.
-[01:26] Think of the
-[01:27] sun's heat on your upturned face on a cloudless summer's day.
-[01:32] From 150 million kilometers away,
-[01:36] we recognize its power.
-[01:38] What would we feel on its seething, self-luminous surface
-[01:42] or immersed in its heart of nuclear fire?
-[01:46] And yet, the sun is an ordinary,
-[01:48] even a mediocre star.
-[01:51] Our ancestors worshipped the sun, and they were far from foolish.
-[01:55] It makes good sense to revere the sun and the stars,
-[01:59] because
-[02:00] we are their children.
-[02:05] We have witnessed the life cycles
-[02:08] of the stars.
-[02:09] They are born,
-[02:11] they mature,
-[02:12] and then they die.
-[02:14] As time goes on, there are more white dwarfs,
-[02:16] more neutron stars, more black holes.
-[02:19] The remains of the stars accumulate
-[02:22] as the eons pass.
-[02:24] But interstellar space also becomes progressively enriched in heavy elements,
-[02:29] out of which form new generations of stars and planets,
-[02:33] life and intelligence.
-[02:35] The events in one star can influence a world halfway across the galaxy
-[02:39] and a billion years in the future.
+[00:00] that this star can only be stable and in balance with its own gravity if its pressure does something really wonky.
+[00:09] First, the pressure has to blow up to negative infinity somewhere in the star.
+[00:15] Then it has to flip sign to positive infinity and decrease outwards from there until it reaches zero pressure,
+[00:24] marking the star's outer surface.
+[00:27] The exact location of the infinite pressure depends on what the pressure is at the center.
+[00:33] So if you tune that central pressure just right,
+[00:36] you can keep the pressure finite right up until the edge of the star.
+[00:41] That happens when the pressure at the center is exactly equal and opposite to the star's energy density there.
+[00:48] In this special case,
+[00:50] the top equations say that the pressure and energy density remain constant, equal, and opposite throughout the entire volume of the star, right up until its surface.
+[01:02] If you've seen some of our other episodes, this might ring a bell or two.
+[01:06] A constant positive energy density paired with a constant but negative pressure,
+[01:13] that doesn't sound like any star we've seen before,
+[01:16] but it's starting to sound more like a mysterious component of our universe:
+[01:21] dark energy.
+[01:24] And since the pressure and energy density in a gravastar are equal in magnitude,
+[01:29] it's not just any kind of dark energy.
+[01:32] Those are the exact properties of vacuum energy.
+[01:37] That's why this special exotic star came to be known as a gravitational vacuum star, or gravastar for short.
+[01:47] Inside of a gravastar, there is precisely zero gravitational force
+[01:52] because the positive energy and negative pressure respectively exert a gravitational pull and push that cancel each other out.
+[02:00] And since the pressure in gravastars is constant,
+[02:03] there is no pressure gradient to exert any sort of push in one direction or another either.
+[02:11] This means that if you found yourself inside of a gravastar, you would neither be pulled in nor pushed out.
+[02:17] You could float freely, just as though you were in a real vacuum.
+[02:23] Another curious feature of stars with negative pressures
+[02:26] is that the closer you get to the special limit of a gravastar,
+[02:29] which, if you recall, is when the infinite pressure surface gets pushed out to the edge of the star,
+[02:35] the more their size approaches that of a black hole with the same mass.
+[02:42] This raises two key questions that have recently gotten a lot of attention from physicists.
+[02:48] First, how can we tell whether the extremely compact objects
+[02:51] astronomers have observed in merger events and at the center of large galaxies are black holes or just exotic stars with nearly the same size?
+[03:04] And second, if gravastars are real and scattered throughout the entire universe,
+[03:09] then could they be the dark energy that's been making the universe accelerate for the past 5 billion years?
+[03:19] To answer the first question, physicists rely on the main distinction between black holes and other compact objects: the existence of an event horizon.
+[03:27] You see, the defining feature of a black hole is that nothing that falls inside or even touches the surface of a black hole can ever come back out.
+[03:37] On the other hand, if an exotic star is even slightly larger than its Schwarzschild radius, it would not have an event horizon,
+[03:45] and it would potentially be able to emit information outwards in the form of light.
+[03:50] Not only that, but objects without event horizons could have different signatures in their gravitational wave emissions than those of black holes during a merger.
+[03:59] This would allow us to tell them apart by measuring and analyzing those gravitational waves using observatories like LIGO.
+[04:07] But even with this battery of tests, it turns out sufficiently small and dense stars can still be difficult to distinguish from black holes.
+[04:17] So far, the best we can do is to say that the radius of the black hole candidates we see in the universe is at least approximately equal to their Schwarzschild radius.
+[04:26] In some cases, that's just a rough estimate, but in others, we've calculated that radius to within 40 decimal places.
+[04:35] As for the second question about dark energy, that's where things get really heated.
+[04:40] In early 2023, an analysis led by physicists at the University of Hawaii found that astronomical observations of massive black holes
+[04:49] showed them to be growing in mass over time at exactly the same rate that dark energy would be expected to grow over time due to the expansion of the universe.
+[05:01] They came to the inevitable conclusion that black holes must be made of dark energy
+[05:06] and that they are really more like gravastars than ordinary black holes with infinite density singularities at their centers.
+[05:15] This conclusion was fiercely contested.
+[05:18] Astronomers came out arguing that the analysis of the observational data wasn't quite right,
+[05:23] and theoretical physicists came out arguing that the expansion of the universe should have nothing to do with the growth of black holes in any case.
+[05:32] So while the idea that dark energy could exist in the form of gravastars sounds exciting,
+[05:38] it looks like the scientific community isn't going to be convinced unless it's simultaneously supported by better data and more compelling theoretical models.
+[05:48] So while gravastars may exist, we are far from proving them.
+[05:54] And they might look too much like black holes to be able to easily spot in the first place.
+[06:01] But the next exotic object I'll explore today should be as recognizably distinct from a black hole as it's possible to get.
+[06:10] They are black holes' opposite: the push to a black hole's pull.
+[06:16] They are white holes, and there's no reason in physics why they couldn't exist.
+[06:25] I want to start off with a simple analogy.
+[06:29] If I ask you to imagine a cone, you'll probably think of either something that points up, like a traffic cone, or something that points down, like an ice cream cone.
+[06:40] These are what we think of as cones in the real world.
+[06:44] But if you write down the most general mathematical equation for a cone and try graphing it, you'll get something that looks like two cones glued together.
+[06:55] You see, a mathematical cone has two halves: one that points up and one that points down, connected at their tips.
+[07:03] And what we think of as cones in the real world are actually just chopped-up pieces of the full mathematical cone.
+[07:11] Black holes are exactly the same way.
+[07:15] Let me explain.
+[07:16] Many of the black holes we see in the universe are remnants of massive stars whose extreme gravity caused them to collapse in on themselves.
+[07:25] Once a black hole is created, it becomes permanently separated from the world around it by a spherical barrier known as the event horizon.
+[07:35] Anything can fall into the black hole, but nothing, not even light, can come out.
+[07:41] This structure of spacetime can be neatly summarized in what physicists call a Penrose diagram,
+[07:47] which is a way of representing an infinite spacetime in a finite drawing.
+[07:52] The key feature of a Penrose diagram is that light travels upwards at 45-degree angles, making it easy to distinguish regions where light can or cannot enter.
+[08:03] In this diagram, Region I is the regular universe, containing the original star before it turned into a black hole and everything outside it, from the infinite past to the infinite future.
+[08:18] Region II is the black hole, and is separated from the rest of the universe by its event horizon.
+[08:25] You can see how it's easy for light to enter the black hole, Region II, but it's impossible for light to exit.
+[08:32] It will inevitably hit the singularity instead.
+[08:36] The same holds true for ordinary matter, which moves slower than light, and so in this diagram can only travel upwards at angles steeper than 45 degrees.
+[08:48] So, what's so special about this Penrose diagram is that it accounts for the formation of the black hole at some specific point in time, when the star collapsed in on itself.
+[08:59] In the far past, there was no event horizon or black hole to speak of, and light could travel freely across all of space.
+[09:06] But while this diagram represents the kind of black hole we're used to seeing in the real world,
+[09:11] it's only one piece of the full mathematical description of black holes in general relativity.
+[09:17] In other words, it is the lone ice cream cone of black hole diagrams.
+[09:24] So, what happens if we forget the real world and imagine an ideal black hole with an infinite past,
+[09:31] leaving behind the baggage of collapsing stars and everything else in the physical universe?
+[09:38] What is the black hole analog of the full mathematical cone?
+[09:43] It might look like a simple extension of our original Penrose diagram, but this diagram comes with physics that's a little upside down.
+[09:54] Region I is still our regular universe, and Region II is still a black hole with an event horizon.

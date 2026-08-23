@@ -42,8 +42,14 @@ def download_youtube_video(
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     output_template = os.path.join(output_dir, output_filename or "yt_input.mp4")
 
+    # Cap the pull at 1080p. The output is a 1080x1920 vertical crop taken
+    # from the centre of the frame, so anything above 1080p is downscaled
+    # and thrown away — and on a long documentary "best" can mean 4K, which
+    # turns a bounded window into a multi-gigabyte download and a Gemini
+    # upload to match.
     ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
+        'format': ('bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/'
+                   'best[ext=mp4][height<=1080]/best[ext=mp4]'),
         'outtmpl': output_template,
         'overwrites': True,
         # Add client impersonation to bypass 403 bot blocks
