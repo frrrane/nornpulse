@@ -278,3 +278,74 @@ def test_reconcile_prefers_render_record_over_model_for_factual_fields():
 
 def test_reconcile_returns_empty_when_nothing_rendered():
     assert _reconcile([], [{"clip_id": "clip_1", "hook_title": "x"}]) == []
+
+
+# --------------------------------------------------------------------------
+# Sentence-boundary snapping
+# --------------------------------------------------------------------------
+# Reviewers rejected two clips for language reasons — "cuts of mid
+# sentence" and "the start is cut off". The duration clamp knows how long
+# a clip should be and where the source window is, and nothing about where
+# a sentence begins or ends. Snapping runs before the clamp so the hard
+# limits stay authoritative.
+
+from agent.verdandi_orchestrator import parse_cues, snap_to_sentences  # noqa: E402
+
+CUES = """[00:10] The universe is expanding.
+[00:14] But what if that expansion
+[00:17] is not what it seems.
+[00:21] Some physicists believe
+[00:24] we live inside a white hole.
+[00:29] That idea sounds absurd."""
+
+
+def test_cues_are_parsed_with_times():
+    cues = parse_cues(CUES)
+    assert len(cues) == 6
+    assert cues[0] == (10, "The universe is expanding.")
+    assert cues[-1][0] == 29
+
+
+def test_parse_cues_ignores_unstamped_lines():
+    assert parse_cues("no timestamp here\n[00:05] but this one\n") == [(5, "but this one")]
+
+
+def test_a_mid_sentence_cut_is_pulled_to_the_boundaries():
+    start, end = snap_to_sentences(15, 26, CUES)
+    assert start == 14          # start of "But what if that expansion"
+    assert end == 29            # the sentence ending at 00:24 runs until 00:29
+
+
+def test_an_already_aligned_cut_is_left_alone():
+    assert snap_to_sentences(21, 29, CUES) == (21, 29)
+
+
+def test_a_cut_far_from_any_boundary_is_not_dragged():
+    """
+    Conservative on purpose: moving a clip several seconds just to find a
+    full stop would override the model's judgement about what the clip is
+    actually about.
+    """
+    assert snap_to_sentences(40, 60, CUES) == (40, 60)
+
+
+def test_the_shift_limit_is_respected():
+    # 3s default: a boundary 5s away must not be used.
+    assert snap_to_sentences(5, 26, CUES)[0] == 5
+    assert snap_to_sentences(5, 26, CUES, max_shift_sec=6)[0] == 10
+
+
+def test_snapping_never_inverts_the_range():
+    """A snap that would put the end at or before the start must be dropped."""
+    start, end = snap_to_sentences(20, 21, CUES)
+    assert end > start
+
+
+@pytest.mark.parametrize("transcript", ["", "no cues at all", "[00:01] only one cue"])
+def test_degenerate_transcripts_leave_the_cut_untouched(transcript):
+    assert snap_to_sentences(5, 12, transcript) == (5, 12)
+
+
+def test_sentence_ends_survive_trailing_quotes_and_brackets():
+    t = '[00:05] he said "this is the end."\n[00:09] A new thought begins.'
+    assert snap_to_sentences(6, 8, t)[1] == 9

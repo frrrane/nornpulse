@@ -6,6 +6,7 @@ Built for Norn Labs (nornlabs.ai)
 
 import os
 import json
+from pathlib import Path
 import logging
 import random
 import re
@@ -82,6 +83,92 @@ def _clean_transcript_window_text(transcript_slice: str) -> str:
         if clean:
             lines.append(clean)
     return " ".join(lines)
+
+
+# A cue line: "[01:23] some words". Sentence ends are detected on the cue
+# text, since a sentence routinely spans several cues.
+_CUE_RE = re.compile(r"^\s*\[(\d{1,2}):(\d{2})\]\s*(.*)$")
+_SENTENCE_END = re.compile(r"[.!?][\"\')\]]*\s*$")
+
+
+def parse_cues(transcript_text: str) -> List[Tuple[float, str]]:
+    """Timestamped cues as (seconds, text), in order."""
+    cues = []
+    for line in (transcript_text or "").splitlines():
+        m = _CUE_RE.match(line)
+        if m:
+            cues.append((int(m.group(1)) * 60 + int(m.group(2)), m.group(3).strip()))
+    return cues
+
+
+def snap_to_sentences(start_sec: float, end_sec: float, transcript_text: str,
+                      max_shift_sec: float = 3.0) -> Tuple[float, float]:
+    """
+    Nudge a cut so it begins a sentence and ends one.
+
+    Reviewers rejected clips for starting mid-thought and for stopping
+    mid-sentence, which is what a purely time-based cut produces: the
+    duration clamp knows how long a clip should be and nothing about where
+    language begins or ends. Cue timings give sentence boundaries for free.
+
+    Deliberately conservative. Only boundaries within max_shift_sec of the
+    requested point are considered, so a clip is never dragged somewhere
+    the model did not intend just to find a full stop; if nothing suitable
+    is close, the original time is kept and the clip is no worse than
+    before. The caller re-clamps afterwards, so duration and window limits
+    still win.
+    """
+    cues = parse_cues(transcript_text)
+    if len(cues) < 2:
+        return start_sec, end_sec
+
+    # A cue starts a sentence if the previous cue's text ended one.
+    sentence_starts = [cues[0][0]]
+    sentence_ends = []
+    for i, (t, text) in enumerate(cues):
+        if _SENTENCE_END.search(text):
+            # The sentence finishes when the next cue begins; if this is the
+            # last cue, allow a short tail rather than inventing a time.
+            sentence_ends.append(cues[i + 1][0] if i + 1 < len(cues) else t + 3.0)
+            if i + 1 < len(cues):
+                sentence_starts.append(cues[i + 1][0])
+
+    def nearest(candidates, target):
+        near = [c for c in candidates if abs(c - target) <= max_shift_sec]
+        return min(near, key=lambda c: abs(c - target)) if near else target
+
+    snapped_start = nearest(sentence_starts, start_sec)
+    snapped_end = nearest(sentence_ends, end_sec)
+    # Never let snapping invert or collapse the range; the clamp downstream
+    # assumes a sane ordering.
+    if snapped_end <= snapped_start:
+        return start_sec, end_sec
+    return snapped_start, snapped_end
+
+
+def unique_clip_id(clip_id: str, output_dir: str | Path) -> str:
+    """
+    Make a clip id that no previous run has already used on disk.
+
+    Clip ids come from the model, which has no memory of earlier runs and
+    happily returns "clip_1" again. Every artifact is named from the id, so
+    a repeat silently overwrites the previous clip's render, subtitles,
+    thumbnail and metadata — and the review ledger, which is keyed on id,
+    then maps one id to two different clips. That is not theoretical: a
+    rerun overwrote a clip that had already been published, leaving the
+    ledger pointing the new files at the old video's URL and causing the
+    duplicate-publish guard to swallow a genuine approval.
+
+    Existing ids are left alone so readable names survive; only a genuine
+    collision gets a suffix.
+    """
+    output_dir = Path(output_dir)
+    candidate, n = clip_id, 2
+    while (output_dir / f"{candidate}_9x16.mp4").exists() or \
+          (output_dir / f"{candidate}_metadata.json").exists():
+        candidate = f"{clip_id}_{n}"
+        n += 1
+    return candidate
 
 
 class VerdandiADK:
@@ -272,10 +359,25 @@ class VerdandiADK:
             # silently overwrite each other's rendered file. Gemini itself
             # never sees the prefix — it keeps calling both tools with
             # whatever plain clip_id it chose.
-            clip_id = f"{clip_id_prefix}{clip_id}"
+            clip_id = unique_clip_id(f"{clip_id_prefix}{clip_id}", self.skuld.output_dir)
             clip_counter[0] += 1
             logger.info(f"Executing Skuld render for clip_id: {clip_id} ({start_time} to {end_time})")
-            start_time, end_time = _clamp_duration(start_time, end_time)
+            # Align to sentence boundaries first, then clamp. Reviewers
+            # rejected clips for starting mid-thought and stopping
+            # mid-sentence; the clamp knows about duration and the source
+            # window and nothing about language. Clamping last keeps those
+            # limits authoritative, so snapping can never push a clip
+            # outside the requested range or duration.
+            _snap_start, _snap_end = snap_to_sentences(
+                parse_time_to_seconds(start_time),
+                parse_time_to_seconds(end_time),
+                # The full transcript, not the window-filtered one: that is
+                # resolved further down, and sentence boundaries just either
+                # side of a window edge are exactly the ones worth snapping to.
+                transcript_text,
+            )
+            start_time, end_time = _clamp_duration(
+                format_seconds_to_mmss(_snap_start), format_seconds_to_mmss(_snap_end))
             resolved_transcript = (
                 transcript_text_override
                 if transcript_text_override and len(transcript_text_override.strip()) > 20
@@ -414,7 +516,16 @@ class VerdandiADK:
             # Same namespacing as tool_execute_skuld_render, so the
             # rendered_clips lookup below actually matches — Gemini calls
             # this with the same plain clip_id it originally chose.
-            clip_id = f"{clip_id_prefix}{clip_id}"
+            #
+            # Resolved from the render records rather than recomputed:
+            # unique_clip_id is stateful in the filesystem, and running it
+            # again here would see the file the render just wrote and hand
+            # back the next free suffix instead of the one in use.
+            namespaced = f"{clip_id_prefix}{clip_id}"
+            clip_id = next(
+                (c["clip_id"] for c in rendered_clips
+                 if c["clip_id"] == namespaced or c["clip_id"].startswith(f"{namespaced}_")),
+                namespaced)
             logger.info(f"Logging Urðr telemetry for clip_id: {clip_id}, hook_type: {hook_type}")
             _emit("urdr_log", f"📊 Urðr is logging telemetry for clip {clip_counter[0]}...")
 
