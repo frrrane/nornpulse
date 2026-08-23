@@ -202,6 +202,14 @@ The session restarts automatically if the subprocess dies or if any `CLICKHOUSE_
 
 Calls are serialised through one session, so a long materialisation blocks reads behind it. Streamlit reruns are sequential, so this hasn't mattered in practice.
 
+## ✍️ Captions
+
+Five typefaces are selectable in Advanced Settings — Roboto Black, Roboto Condensed, League Spartan, Lato Black, DejaVu Sans. Every one is installed in the image and checked at build time, because **libass substitutes silently** for a font it cannot resolve: a missing face does not error, it just renders the video in a different weight with nothing logged.
+
+Timestamps are requested to the millisecond. Whole-second timestamps quantise every caption to the nearest second, which reads as visibly out of sync with the speech.
+
+**Emoji cannot be burned into captions.** Noto Color Emoji is installed, but libass does not support colour bitmap fonts (CBDT/sbix) — measured on this image, an emoji in a caption renders with zero non-grey pixels. Emoji in the YouTube title and description work fine and are where the social caption already puts them; burning them into the frame would need an ffmpeg PNG overlay.
+
 ## 🧾 Decision provenance
 
 Every clip carries a **How this was decided** panel listing each choice the pipeline made and the basis for it, at one of three levels:
@@ -271,7 +279,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-309 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, Verðandi's duration/window clamp and metadata reconciliation, the HITL staging email's MIME structure and HTML escaping, the review-decision ledger, the global-grounding accessors' stratification and degradation paths, and the persistent MCP session's reuse, restart and fallback logic. They need no API keys, no ClickHouse, no FFmpeg and no SMTP connection, and run in about ten seconds.
+332 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, Verðandi's duration/window clamp and metadata reconciliation, the HITL staging email's MIME structure and HTML escaping, the review-decision ledger, the global-grounding accessors' stratification and degradation paths, and the persistent MCP session's reuse, restart and fallback logic. They need no API keys, no ClickHouse, no FFmpeg and no SMTP connection, and run in about ten seconds.
 
 Several cases are regression guards for bugs found by live testing: caption overlap, the crop-before-blur ordering in `blurred_background`, the `split=2` rule for named filter pads, `ORDER BY` binding to only the last `SELECT` of a `UNION ALL`, a clamp that could emit an end timestamp *before* its start when the model requested a range outside the user's Cut Range, and metadata reconciliation silently dropping every render field it didn't list by name.
 

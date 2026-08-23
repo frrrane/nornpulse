@@ -471,6 +471,7 @@ class VerdandiADK:
                 clip_id=clip_id,
                 crop_mode=crop_mode,
                 motion_effect=motion_effect,
+                caption_font=caption_font,
                 color_grade=color_grade,
                 hook_banner_text=hook_banner_text,
                 transcript_text=caption_transcript,
@@ -753,6 +754,7 @@ class VerdandiADK:
         content_hint: Optional[str] = None,
         caption_language: Optional[str] = None,
         channel_subscribers: int = 0,
+        caption_font: Optional[str] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -846,6 +848,7 @@ class VerdandiADK:
             min_duration_sec, max_duration_sec, video_duration_sec,
             topic_focus=topic_focus, window=transcript_window, vision_mode=vision_mode,
             clip_id_prefix=clip_id_prefix, caption_language=caption_language,
+            caption_font=caption_font,
             progress_callback=progress_callback,
         )
         prompt = self._build_prompt(

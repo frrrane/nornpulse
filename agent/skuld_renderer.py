@@ -41,6 +41,30 @@ logger = logging.getLogger("nornpulse.skuld")
 # Verify a host's resolution with: fc-match "<font name>"
 CAPTION_FONT = os.getenv("CAPTION_FONT", "Arial Black")
 
+# Selectable caption faces. Each must be installed in the image (see the
+# Dockerfile) or libass substitutes silently and the render comes out in a
+# different, usually lighter, face with nothing logged.
+CAPTION_FONTS = {
+    "Impact — Roboto Black": "Roboto Black",
+    "Condensed — Roboto Condensed": "Roboto Condensed",
+    "Geometric — League Spartan": "League Spartan",
+    "Humanist — Lato Black": "Lato Black",
+    "Neutral — DejaVu Sans": "DejaVu Sans",
+}
+
+
+def resolve_caption_font(choice: Optional[str] = None) -> str:
+    """
+    The font to name in the ASS style.
+
+    A name libass cannot resolve is not an error — it substitutes and
+    carries on — so an unknown choice falls back to the configured default
+    rather than reaching the renderer and quietly changing the look.
+    """
+    if not choice:
+        return CAPTION_FONT
+    return CAPTION_FONTS.get(choice, CAPTION_FONT)
+
 CropMode = Literal["center_crop", "blurred_background", "top_anchored_crop", "cinematic_letterbox"]
 MotionEffect = Literal["none", "ken_burns_zoom", "punch_in_zoom", "shake"]
 ColorGrade = Literal["neutral", "cool_desaturated", "warm_glow", "vibrant_punch"]
@@ -356,7 +380,7 @@ def _highlight_emphasis_word(chunk_text: str, secondary_bgr_hex: str) -> str:
     return " ".join(words)
 
 
-def _build_style_line(warmth: float, crazy: float) -> Tuple[str, str]:
+def _build_style_line(warmth: float, crazy: float, caption_font: Optional[str] = None) -> Tuple[str, str]:
     """
     Builds the ASS [V4+ Styles] line, color-graded by warmth and sized by
     crazy. Returns (style_line, secondary_bgr_hex) — the latter for
@@ -389,7 +413,7 @@ def _build_style_line(warmth: float, crazy: float) -> Tuple[str, str]:
     shadow = 2 + round(2 * crazy)       # 2 -> 4
 
     style_line = (
-        f"Style: KineticViral,{CAPTION_FONT},{fontsize},{primary_ass},{secondary_ass},"
+        f"Style: KineticViral,{caption_font or CAPTION_FONT},{fontsize},{primary_ass},{secondary_ass},"
         f"&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,{outline},{shadow},2,50,50,300,1"
     )
     return style_line, secondary_bgr_hex
@@ -402,6 +426,7 @@ def generate_rebased_ass_subtitle_file(
     clip_end_sec: float,
     warmth: float = 0.5,
     crazy: float = 0.3,
+    caption_font: Optional[str] = None,
 ) -> Path:
     """
     Parses transcript lines, rebases timestamps relative to the clip window
@@ -414,7 +439,7 @@ def generate_rebased_ass_subtitle_file(
     output_ass_path = Path(output_ass_path)
     output_ass_path.parent.mkdir(parents=True, exist_ok=True)
 
-    style_line, secondary_bgr_hex = _build_style_line(warmth, crazy)
+    style_line, secondary_bgr_hex = _build_style_line(warmth, crazy, caption_font)
     kinetic_prefix = _kinetic_prefix(crazy)
     words_per_chunk = _words_per_chunk(crazy)
 
@@ -701,6 +726,7 @@ class SkuldRenderer:
         clip_id: str,
         crop_mode: CropMode = "center_crop",
         motion_effect: MotionEffect = "none",
+        caption_font: Optional[str] = None,
         color_grade: ColorGrade = "neutral",
         hook_banner_text: Optional[str] = None,
         transcript_text: Optional[str] = None,
@@ -746,6 +772,7 @@ class SkuldRenderer:
             generate_rebased_ass_subtitle_file(
                 transcript_text, sub_path, clip_start_sec, clip_end_sec,
                 warmth=warmth, crazy=crazy,
+                caption_font=resolve_caption_font(caption_font),
             )
             # Only the forward-slash swap is needed for cross-platform paths.
             # Wrapping in single quotes already handles ffmpeg's filtergraph

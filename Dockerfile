@@ -37,10 +37,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-dejavu-core \
         fonts-liberation \
         fonts-roboto-unhinted \
+        fonts-league-spartan \
+        fonts-lato \
+        fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/* \
     && fc-cache -f \
     && fc-match "Roboto Black" | grep -qi "black" \
-       || (echo "FATAL: no black-weight caption font resolved in image" && exit 1)
+       || (echo "FATAL: no black-weight caption font resolved in image" && exit 1) \
+    # Noto Color Emoji is installed for glyph coverage, but note that
+    # libass cannot render colour bitmap emoji (CBDT/sbix): burning an
+    # emoji into a caption produces monochrome or tofu, measured on this
+    # image at zero non-grey pixels. Emoji belong in the YouTube title and
+    # description, which render them properly; burning them into the frame
+    # would need an ffmpeg PNG overlay instead.
+    && fc-list | grep -qi "NotoColorEmoji" \
+       || (echo "FATAL: no emoji font in image" && exit 1)
 
 # Skuld reads this; see agent/skuld_renderer.CAPTION_FONT. The local
 # default is "Arial Black", which does not exist here.

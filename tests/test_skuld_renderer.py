@@ -332,3 +332,79 @@ def test_colour_grades_emit_a_chainable_eq_filter(skuld, grade):
 
 def test_neutral_grade_is_a_no_op(skuld):
     assert skuld._build_color_grade_filter("neutral") == ""
+
+
+# --------------------------------------------------------------------------
+# Caption typeface selection
+# --------------------------------------------------------------------------
+# libass substitutes silently for a font it cannot resolve, so a bad name
+# does not raise — it changes how the finished video looks with nothing
+# logged. That is the failure this guards against.
+
+from agent.skuld_renderer import (  # noqa: E402
+    CAPTION_FONTS, CAPTION_FONT, resolve_caption_font,
+)
+
+
+@pytest.mark.parametrize("label,expected", list(CAPTION_FONTS.items()))
+def test_each_offered_face_resolves_to_its_family(label, expected):
+    assert resolve_caption_font(label) == expected
+
+
+def test_an_unknown_face_falls_back_to_the_default():
+    """Better the configured default than a silent substitution by libass."""
+    assert resolve_caption_font("Comic Sans Extreme") == CAPTION_FONT
+    assert resolve_caption_font(None) == CAPTION_FONT
+    assert resolve_caption_font("") == CAPTION_FONT
+
+
+def test_the_chosen_face_reaches_the_ass_style_line(tmp_path):
+    out = tmp_path / "s.ass"
+    generate_rebased_ass_subtitle_file(
+        "[00:00.000] One line.\n[00:02.000] Another line.",
+        out, 0, 5, caption_font="League Spartan")
+    style = next(l for l in out.read_text(encoding="utf-8").splitlines()
+                 if l.startswith("Style:"))
+    assert style.split(",")[1] == "League Spartan"
+
+
+def test_omitting_the_face_keeps_the_configured_default(tmp_path):
+    out = tmp_path / "s.ass"
+    generate_rebased_ass_subtitle_file(
+        "[00:00.000] One line.\n[00:02.000] Another.", out, 0, 5)
+    style = next(l for l in out.read_text(encoding="utf-8").splitlines()
+                 if l.startswith("Style:"))
+    assert style.split(",")[1] == CAPTION_FONT
+
+
+def test_the_dockerfile_installs_every_offered_face():
+    """
+    A face offered in the UI but absent from the image is the silent-
+    substitution bug with extra steps.
+    """
+    from pathlib import Path
+    dockerfile = (Path(__file__).resolve().parent.parent / "Dockerfile").read_text()
+    packages = {
+        "Roboto Black": "fonts-roboto-unhinted",
+        "Roboto Condensed": "fonts-roboto-unhinted",
+        "League Spartan": "fonts-league-spartan",
+        "Lato Black": "fonts-lato",
+        "DejaVu Sans": "fonts-dejavu-core",
+    }
+    for family in CAPTION_FONTS.values():
+        assert packages[family] in dockerfile, f"{family} has no package in the image"
+
+
+def test_sub_second_timestamps_are_honoured(tmp_path):
+    """
+    Whole-second timestamps quantise every caption to the nearest second,
+    which a reviewer saw as captions being slightly out of sync. The
+    transcriber now asks for milliseconds, so the parser must not drop them.
+    """
+    out = tmp_path / "s.ass"
+    generate_rebased_ass_subtitle_file(
+        "[00:00.480] First line here.\n[00:02.930] Second line here.", out, 0, 6)
+    body = out.read_text(encoding="utf-8")
+    # 0.48s must not have been floored to 0.
+    first = next(l for l in body.splitlines() if l.startswith("Dialogue:"))
+    assert not first.split(",")[1].startswith("0:00:00.00")

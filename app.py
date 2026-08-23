@@ -18,7 +18,10 @@ from dotenv import load_dotenv
 from agent.verdandi_orchestrator import (
     VerdandiADK, filter_transcript_by_window, AUTO_WINDOW_MAX_SEC, BATCH_MAX_VIDEOS,
 )
-from agent.skuld_renderer import get_video_duration_seconds, format_seconds_to_mmss
+from agent.skuld_renderer import (
+    get_video_duration_seconds, format_seconds_to_mmss,
+    CAPTION_FONTS as SkuldCaptionFonts,
+)
 from agent.norn_publisher import NornPublisher, PublishError
 from agent import review_queue as rq
 from agent import global_benchmarks as gb
@@ -762,6 +765,7 @@ def page_create():
                                 content_hint=batch_content_hint,
                                 caption_language=batch_caption_language,
                                 channel_subscribers=int(st.session_state.channel_subs),
+                    caption_font=caption_font_choice,
                                 progress_callback=_update_batch_progress,
                             )
                             st.session_state.current_generation = batch_results
@@ -833,6 +837,14 @@ def page_create():
         transcript_window = None
         auto_window_mode = "random"
         with st.expander("⚙️ Advanced Settings"):
+            # Every face here is installed in the image and checked at build
+            # time. libass substitutes silently for anything it cannot
+            # resolve, so an unlisted name would change the look of the
+            # render with nothing logged.
+            caption_font_choice = st.selectbox(
+                "Caption typeface", list(SkuldCaptionFonts),
+                help="Burned into the video by libass. All options ship in the "
+                     "container; the build fails if one is missing.")
             if active_video_path and os.path.exists(active_video_path):
                 @st.cache_data(show_spinner=False)
                 def _cached_duration(video_path: str) -> float:
