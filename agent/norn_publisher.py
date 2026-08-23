@@ -44,6 +44,11 @@ class NornPublisher:
         self.gmail_password = os.getenv("GMAIL_APP_PASSWORD")
         self.notify_email = os.getenv("NOTIFY_EMAIL") or self.gmail_user
         self.client_secrets_file = "client_secrets.json"
+        # Reading public statistics needs no OAuth at all. That matters
+        # because this project's OAuth consent screen is in Testing, where
+        # Google expires refresh tokens after 7 days — any unattended sync
+        # on the OAuth path dies weekly. An API key does not expire.
+        self.youtube_api_key = os.getenv("YOUTUBE_API_KEY")
 
     # Fields surfaced in the staging email, in the order a reviewer wants
     # them: what the clip claims, then how the system chose to treat it.
@@ -373,17 +378,31 @@ class NornPublisher:
             logger.error(f"YouTube upload failed: {e}")
             raise PublishError(f"YouTube upload failed: {e}") from e
 
+    def _youtube_for_reading(self):
+        """
+        A client for public reads, preferring the API key.
+
+        The key path needs no user consent, never expires, and works
+        unattended. OAuth is only a fallback for when no key is configured
+        — it still reads fine, it just cannot be scheduled reliably.
+        """
+        from googleapiclient.discovery import build
+
+        if self.youtube_api_key:
+            return build("youtube", "v3", developerKey=self.youtube_api_key)
+        return build("youtube", "v3", credentials=self._get_youtube_credentials())
+
     def get_video_statistics(self, video_id: str) -> Dict[str, Any]:
         """
         Fetches current public statistics for an already-published video —
         the ground truth used to cross-validate NornPulse's predicted
         virality_score / 3s-retention against what actually happened.
+
+        Uses the API key when one is set, so this can run on a schedule
+        without a human re-authorising every week.
         """
         try:
-            from googleapiclient.discovery import build
-
-            credentials = self._get_youtube_credentials()
-            youtube = build("youtube", "v3", credentials=credentials)
+            youtube = self._youtube_for_reading()
             response = youtube.videos().list(part="statistics,status", id=video_id).execute()
 
             items = response.get("items", [])

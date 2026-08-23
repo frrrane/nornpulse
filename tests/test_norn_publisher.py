@@ -203,3 +203,58 @@ def test_smtp_failure_returns_false_rather_than_raising(publisher, video, monkey
     monkeypatch.setattr(smtplib, "SMTP", _boom)
     assert publisher.send_gmail_staged_approval(
         "clip_1", "T", 50.0, str(video)) is False
+
+
+# --------------------------------------------------------------------------
+# Reading stats without OAuth
+# --------------------------------------------------------------------------
+# The consent screen is in Testing, where Google expires refresh tokens
+# after 7 days, so anything scheduled on the OAuth path breaks weekly.
+# Public statistics need no OAuth, and the key path is what makes an
+# unattended sync possible at all.
+
+def test_the_api_key_path_is_preferred(monkeypatch):
+    built = {}
+
+    def _fake_build(service, version, **kw):
+        built.update(kw)
+        return object()
+
+    import agent.norn_publisher as np
+    monkeypatch.setattr("googleapiclient.discovery.build", _fake_build)
+    pub = np.NornPublisher()
+    pub.youtube_api_key = "test-key"
+    monkeypatch.setattr(pub, "_get_youtube_credentials",
+                        lambda: pytest.fail("OAuth must not be used when a key is set"))
+    pub._youtube_for_reading()
+    assert built.get("developerKey") == "test-key"
+    assert "credentials" not in built
+
+
+def test_oauth_is_the_fallback_when_no_key(monkeypatch):
+    built = {}
+
+    def _fake_build(service, version, **kw):
+        built.update(kw)
+        return object()
+
+    import agent.norn_publisher as np
+    monkeypatch.setattr("googleapiclient.discovery.build", _fake_build)
+    pub = np.NornPublisher()
+    pub.youtube_api_key = None
+    monkeypatch.setattr(pub, "_get_youtube_credentials", lambda: "creds")
+    pub._youtube_for_reading()
+    assert built.get("credentials") == "creds"
+    assert "developerKey" not in built
+
+
+def test_publishing_still_requires_oauth():
+    """
+    An API key can read public data and cannot upload. Uploading must not
+    silently start using it and fail in some confusing way.
+    """
+    import inspect
+    import agent.norn_publisher as np
+    src = inspect.getsource(np.NornPublisher.upload_to_youtube_shorts)
+    assert "_get_youtube_credentials" in src
+    assert "developerKey" not in src
