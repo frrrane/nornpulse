@@ -26,6 +26,12 @@ import agent.clickhouse_mcp_client as ch  # noqa: E402 – imported after load_d
 logger = logging.getLogger("nornpulse.urdr")
 
 
+def gb_size_band(subscriber_count: int) -> str:
+    """Channel-size band, imported lazily to keep module import order simple."""
+    from agent.global_benchmarks import size_band_for
+    return size_band_for(subscriber_count)
+
+
 # Default synthetic seed dataset for ClickHouse initialization & fallback
 DEFAULT_HOOK_BENCHMARKS = [
     {
@@ -1124,7 +1130,9 @@ class UrdrAnalytics:
         ).reset_index()
         return grouped.round(2).sort_values(by="avg_virality_score", ascending=False)
 
-    def get_retention_intelligence_summary(self, topic_category: Optional[str] = None) -> Dict[str, Any]:
+    def get_retention_intelligence_summary(
+        self, topic_category: Optional[str] = None, channel_subscribers: int = 0
+    ) -> Dict[str, Any]:
         """
         Generates a concise intelligence payload for the Gemini prompt.
         When topic_category is set, grounding data is scoped to that
@@ -1152,19 +1160,125 @@ class UrdrAnalytics:
 
         best_hook = benchmarks_df.iloc[0]["hook_type"] if not benchmarks_df.empty else "shock_stat"
 
+        # Merge in what real titles actually did. The seeded benchmarks are
+        # a prior someone typed; the global figures are measured outcomes
+        # for the same taxonomy, banded by channel size. Where they
+        # disagree the measured one wins, because it is the only one that
+        # can be wrong about something.
+        summary_list, global_note, global_top = self._apply_global_hooks(
+            summary_list, channel_subscribers)
+        if global_top:
+            best_hook = global_top
+
+        insights = self._derive_insights(summary_list, benchmarks_df)
+        if global_note:
+            insights.insert(0, global_note)
+
         return {
             "top_performing_hook_type": best_hook,
             "overall_avg_3s_retention": float(benchmarks_df["avg_3s_retention"].mean()) if not benchmarks_df.empty else 88.5,
             "recommended_clip_duration_range": "25s - 45s",
             "topic_focus": topic_category if (topic_category and topic_category != "all" and not used_fallback_scope) else None,
             "topic_focus_had_no_history": used_fallback_scope,
+            "channel_size_band": gb_size_band(channel_subscribers),
             "hook_taxonomies": summary_list,
-            "key_insights": [
-                "Shock Stats and Curiosity Gaps generate >92% 3-second hold rate.",
-                "Optimal clip length for maximum completion rate is between 28s and 42s.",
-                "Contrarian claims maintain the strongest 15-to-30s retention curve."
-            ]
+            "key_insights": insights,
         }
+
+    def _apply_global_hooks(self, summary_list: List[Dict[str, Any]],
+                            channel_subscribers: int):
+        """
+        Attach measured global reach to each hook type and re-rank by it.
+
+        Returns (taxonomies, note, top_hook). Hook types with no global
+        measurement keep their seeded position at the end of the list and
+        are marked, rather than being dropped or silently ranked as if
+        they had been measured — `visual_disruption` is not inferable from
+        a title, so it genuinely has no global figure.
+        """
+        from agent import global_benchmarks as gb
+
+        try:
+            facts = gb.load_facts("hook_pattern")
+        except Exception as e:                                  # noqa: BLE001
+            logger.warning(f"Global hook data unavailable, using seeded ranking only: {e}")
+            return summary_list, None, None
+        if facts.empty:
+            return summary_list, None, None
+
+        band = gb.size_band_for(channel_subscribers)
+        rows = gb.hook_benchmarks(band, facts=facts)
+        if rows.empty:
+            return summary_list, None, None
+
+        by_hook = {str(r["bucket"]): r for _, r in rows.iterrows()}
+        plain = by_hook.get("plain")
+        baseline = float(plain["median_views"]) if plain is not None else 0.0
+
+        for entry in summary_list:
+            row = by_hook.get(entry["hook_type"])
+            if row is None:
+                entry["global_measured"] = False
+                continue
+            entry["global_measured"] = True
+            entry["global_median_views"] = float(row["median_views"])
+            entry["global_sample_videos"] = int(row["sample_videos"])
+            entry["global_undersampled"] = int(row["sample_videos"]) < gb.HOOK_MIN_SAMPLE
+            if baseline:
+                entry["global_lift_vs_plain_pct"] = round(
+                    (float(row["median_views"]) / baseline - 1) * 100, 1)
+
+        # Well-sampled hooks first by reach, then thin ones, then unmeasured.
+        # Sorting on median alone would put a 310-video bucket at rank 1 while
+        # top_performing_hook_type named a different one — a contradiction for
+        # the model, and hook_rank derives from this order, so it would also
+        # mark that thin bucket as top-tier on the clip record.
+        measured = [e for e in summary_list if e.get("global_measured")]
+        unmeasured = [e for e in summary_list if not e.get("global_measured")]
+        measured.sort(
+            key=lambda e: (not e.get("global_undersampled", False),
+                           e.get("global_median_views", 0.0)),
+            reverse=True)
+        ordered = measured + unmeasured
+
+        best = gb.best_hook(band, facts=facts)
+        if not best:
+            return ordered, None, None
+
+        lift = f" ({best['lift_pct']:+.0f}% vs an unstyled title)" if best.get("lift_pct") else ""
+        note = (
+            f"Hook ranking below is measured, not assumed: '{best['hook']}' performs best for "
+            f"{band}-subscriber channels{lift}, across {best['sample_videos']:,} real "
+            f"English-titled videos. Prefer it unless the transcript genuinely fits another."
+        )
+        return ordered, note, best["hook"]
+
+    @staticmethod
+    def _derive_insights(summary_list: List[Dict[str, Any]], benchmarks_df) -> List[str]:
+        """
+        Insights derived from the data in hand.
+
+        These were three hardcoded sentences, one of which ("Shock Stats
+        and Curiosity Gaps generate >92% 3-second hold rate") the global
+        data now contradicts outright — shock_stat underperforms a plain
+        title for small channels. Asserting it to the model was teaching it
+        something false.
+        """
+        insights: List[str] = []
+        measured = [e for e in summary_list if e.get("global_measured")]
+        if len(measured) >= 2:
+            worst = min(measured, key=lambda e: e.get("global_median_views", 0.0))
+            if worst.get("global_lift_vs_plain_pct", 0) < 0:
+                insights.append(
+                    f"'{worst['hook_type']}' underperforms an unstyled title by "
+                    f"{abs(worst['global_lift_vs_plain_pct']):.0f}% at this channel size — "
+                    f"avoid it unless the content demands it.")
+        if benchmarks_df is not None and not benchmarks_df.empty:
+            durations = benchmarks_df["avg_duration_sec"].dropna()
+            if not durations.empty:
+                insights.append(
+                    f"Observed clip durations centre on {durations.median():.0f}s.")
+        return insights
 
     def execute_custom_query(self, query: str) -> pd.DataFrame:
         """

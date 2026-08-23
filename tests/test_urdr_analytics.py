@@ -307,3 +307,110 @@ def test_sync_carries_the_forecast_forward(monkeypatch, offline_urdr):
     assert "2455.0" in captured["sql"], "forecast p50 was dropped by the sync"
     assert "14989.0" in captured["sql"], "forecast p90 was dropped by the sync"
     assert "338" in captured["sql"]
+
+
+# --------------------------------------------------------------------------
+# Global hook grounding in the prompt payload
+# --------------------------------------------------------------------------
+# get_retention_intelligence_summary is the payload Verðandi reasons over,
+# so what is true here decides what the pipeline actually produces.
+
+import agent.global_benchmarks as _gb
+
+
+_GLOBAL_HOOKS = pd.DataFrame([
+    {"dimension": "hook_pattern", "bucket": b, "size_band": "0-100",
+     "median_views": mv, "sample_videos": n}
+    for b, mv, n in [
+        ("problem_agitation", 4721.0, 310),     # highest median, far too thin
+        ("curiosity_gap", 3965.0, 9100),
+        ("plain", 3457.0, 160751),
+        ("shock_stat", 3223.0, 3998),           # below the plain baseline
+    ]
+])
+
+_SEEDED = [
+    {"hook_type": "shock_stat", "avg_3s_retention_value": 93.0},
+    {"hook_type": "curiosity_gap", "avg_3s_retention_value": 91.0},
+    {"hook_type": "problem_agitation", "avg_3s_retention_value": 88.0},
+    {"hook_type": "visual_disruption", "avg_3s_retention_value": 90.0},
+]
+
+
+@pytest.fixture
+def with_global_hooks(monkeypatch):
+    monkeypatch.setattr(_gb, "load_facts", lambda dimension=None: _GLOBAL_HOOKS)
+
+
+def test_measured_hooks_are_ranked_above_the_seeded_order(offline_urdr, with_global_hooks):
+    """
+    The seeded benchmarks rank shock_stat first. The measured data says it
+    underperforms a plain title for a small channel. The measured one wins.
+    """
+    ordered, note, top = offline_urdr._apply_global_hooks(list(_SEEDED), 0)
+    assert top == "curiosity_gap"
+    assert ordered[0]["hook_type"] == "curiosity_gap"
+    assert "measured, not assumed" in note
+
+
+def test_a_thin_bucket_cannot_take_rank_one(offline_urdr, with_global_hooks):
+    """
+    problem_agitation has the highest median on 310 videos. Ranking on
+    median alone would put it first while top_performing_hook_type named
+    curiosity_gap — a contradiction, and hook_rank derives from this order,
+    so the clip record would also mark it top-tier.
+    """
+    ordered, _, top = offline_urdr._apply_global_hooks(list(_SEEDED), 0)
+    names = [e["hook_type"] for e in ordered]
+    assert names.index("curiosity_gap") < names.index("problem_agitation")
+    assert ordered[0]["hook_type"] == top
+
+
+def test_unmeasured_hooks_are_kept_and_marked(offline_urdr, with_global_hooks):
+    """
+    visual_disruption is not inferable from a title, so it has no global
+    figure. It must stay available to the model rather than be dropped, and
+    must not be ranked as though it had been measured.
+    """
+    ordered, _, _ = offline_urdr._apply_global_hooks(list(_SEEDED), 0)
+    vd = next(e for e in ordered if e["hook_type"] == "visual_disruption")
+    assert vd["global_measured"] is False
+    assert "global_median_views" not in vd
+    assert ordered[-1]["hook_type"] == "visual_disruption"
+
+
+def test_lift_is_measured_against_the_plain_baseline(offline_urdr, with_global_hooks):
+    ordered, _, _ = offline_urdr._apply_global_hooks(list(_SEEDED), 0)
+    gap = next(e for e in ordered if e["hook_type"] == "curiosity_gap")
+    assert gap["global_lift_vs_plain_pct"] == pytest.approx(14.7, abs=0.2)
+    shock = next(e for e in ordered if e["hook_type"] == "shock_stat")
+    assert shock["global_lift_vs_plain_pct"] < 0
+
+
+def test_missing_global_data_leaves_the_seeded_ranking_untouched(offline_urdr, monkeypatch):
+    """Grounding is an improvement, not a dependency — no data, no crash."""
+    monkeypatch.setattr(_gb, "load_facts", lambda dimension=None: pd.DataFrame())
+    ordered, note, top = offline_urdr._apply_global_hooks(list(_SEEDED), 0)
+    assert [e["hook_type"] for e in ordered] == [e["hook_type"] for e in _SEEDED]
+    assert note is None and top is None
+
+
+def test_a_clickhouse_failure_degrades_rather_than_raising(offline_urdr, monkeypatch):
+    def _boom(dimension=None):
+        raise RuntimeError("clickhouse unreachable")
+    monkeypatch.setattr(_gb, "load_facts", _boom)
+    ordered, note, top = offline_urdr._apply_global_hooks(list(_SEEDED), 0)
+    assert ordered and note is None and top is None
+
+
+def test_insights_are_derived_not_hardcoded(offline_urdr, with_global_hooks):
+    """
+    The old payload asserted "Shock Stats and Curiosity Gaps generate >92%
+    3-second hold rate" to the model. The measured data contradicts the
+    shock_stat half of that, so it was teaching the model something false.
+    """
+    ordered, _, _ = offline_urdr._apply_global_hooks(list(_SEEDED), 0)
+    insights = offline_urdr._derive_insights(ordered, pd.DataFrame())
+    joined = " ".join(insights)
+    assert "shock_stat" in joined and "underperforms" in joined
+    assert ">92%" not in joined

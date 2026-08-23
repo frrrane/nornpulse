@@ -568,6 +568,12 @@ class VerdandiADK:
             f"{window_instruction}"
             f"You MUST choose a start_time and end_time strictly between 00:00 and {safe_video_end_mmss}"
             + (" that matches the transcript timestamps. " if not vision_mode else " based on what you observe directly in the attached video. ")
+            + "The hook_taxonomies list is ordered by measured performance for this channel's size band: "
+              "entries with global_measured=true carry median views from real English-titled YouTube "
+              "videos, best first, and global_lift_vs_plain_pct is their lift over an unstyled title. "
+              "Prefer a higher-ranked hook unless the transcript genuinely does not support it — a "
+              "forced hook reads worse than an honest one. Entries with global_measured=false have no "
+              "global measurement and are ordered behind the measured ones.\n"
             + f"For each clip, select a hook_type from the hook_taxonomies list above that genuinely fits the "
             f"content. Prefer hook types with higher avg_virality_score when the content honestly "
             f"supports that framing — do not force a mismatched hook type merely to chase a higher score. "
@@ -635,6 +641,7 @@ class VerdandiADK:
         clip_id_prefix: str = "",
         content_hint: Optional[str] = None,
         caption_language: Optional[str] = None,
+        channel_subscribers: int = 0,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -705,7 +712,11 @@ class VerdandiADK:
         # Optionally scoped to a single topic_category the user selected.
         _emit("urdr", "🔮 Urðr is pulling ClickHouse retention benchmarks...")
         _t0 = time.perf_counter()
-        retention_summary = self.urdr.get_retention_intelligence_summary(topic_category=topic_focus)
+        # Channel size decides which band the hook ranking is read from:
+        # curiosity_gap leads for a new channel, story_in_medias_res for a
+        # large one, so an unbanded ranking would be wrong for both.
+        retention_summary = self.urdr.get_retention_intelligence_summary(
+            topic_category=topic_focus, channel_subscribers=channel_subscribers)
         logger.info(f"⏱️ Retention summary fetch took {time.perf_counter() - _t0:.1f}s")
 
         # vision_mode still means "no usable transcript" (silent/
@@ -790,6 +801,7 @@ class VerdandiADK:
         auto_window_mode: str = "random",
         content_hint: Optional[str] = None,
         caption_language: Optional[str] = None,
+        channel_subscribers: int = 0,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -873,6 +885,7 @@ class VerdandiADK:
                     clip_id_prefix=f"batch{i}_",
                     content_hint=content_hint,
                     caption_language=caption_language,
+                    channel_subscribers=channel_subscribers,
                     progress_callback=_relay,
                 )
                 for clip in clips:

@@ -650,6 +650,7 @@ def page_create():
                                 video_urls=batch_urls, target_count_per_video=1,
                                 content_hint=batch_content_hint,
                                 caption_language=batch_caption_language,
+                                channel_subscribers=int(st.session_state.channel_subs),
                                 progress_callback=_update_batch_progress,
                             )
                             st.session_state.current_generation = batch_results
@@ -825,6 +826,7 @@ def page_create():
                     auto_window_mode=auto_window_mode,
                     content_hint=content_hint,
                     caption_language=caption_language,
+                    channel_subscribers=int(st.session_state.channel_subs),
                     progress_callback=_update_progress,
                 )
 
