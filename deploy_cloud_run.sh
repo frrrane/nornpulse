@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Deploy NornPulse to Cloud Run.
+#
+# Prerequisites (already done once for project norn-labs):
+#   gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
+#       artifactregistry.googleapis.com secretmanager.googleapis.com
+#   and the three secrets below, created from .env.
+#
+# Secrets are mounted from Secret Manager rather than passed as env vars, so
+# their values never appear in the service config, the deploy command, or
+# shell history, and rotating a key doesn't require a redeploy.
+#
+# Region matches the ClickHouse Cloud instance (europe-west2). Each page load
+# makes several ClickHouse round-trips, so a cross-region hop is paid many
+# times over.
+#
+# Usage:  ./deploy_cloud_run.sh
+set -euo pipefail
+
+PROJECT=norn-labs
+REGION=europe-west2
+SERVICE=nornpulse
+
+# concurrency is deliberately low and memory high: a render shells out to
+# ffmpeg, which is CPU- and memory-hungry, and several concurrent renders in
+# one instance would contend. timeout is the 60-minute maximum because a
+# batch generation legitimately runs for many minutes.
+gcloud run deploy "$SERVICE" \
+  --source . \
+  --project="$PROJECT" \
+  --region="$REGION" \
+  --allow-unauthenticated \
+  --memory=4Gi \
+  --cpu=2 \
+  --timeout=3600 \
+  --concurrency=4 \
+  --max-instances=3 \
+  --set-env-vars="CLICKHOUSE_HOST=sd8qeu9ilt.europe-west2.gcp.clickhouse.cloud" \
+  --set-env-vars="CLICKHOUSE_USER=default" \
+  --set-env-vars="CLICKHOUSE_SECURE=true" \
+  --set-env-vars="CLICKHOUSE_DATABASE=default" \
+  --set-env-vars="CLICKHOUSE_MCP_QUERY_TIMEOUT=180" \
+  --set-env-vars="CAPTION_FONT=Roboto Black" \
+  --set-env-vars="GMAIL_USER=franeppotrc@gmail.com" \
+  --set-env-vars="NOTIFY_EMAIL=franeppotrc@gmail.com" \
+  --set-secrets="GEMINI_API_KEY=nornpulse-gemini-api-key:latest" \
+  --set-secrets="CLICKHOUSE_PASSWORD=nornpulse-clickhouse-password:latest" \
+  --set-secrets="GMAIL_APP_PASSWORD=nornpulse-gmail-app-password:latest"
+
+echo
+echo "Service URL:"
+gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" \
+  --format='value(status.url)'
