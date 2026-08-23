@@ -349,3 +349,28 @@ def test_degenerate_transcripts_leave_the_cut_untouched(transcript):
 def test_sentence_ends_survive_trailing_quotes_and_brackets():
     t = '[00:05] he said "this is the end."\n[00:09] A new thought begins.'
     assert snap_to_sentences(6, 8, t)[1] == 9
+
+
+def test_reconcile_matches_a_collision_suffixed_clip():
+    """
+    Regression guard. unique_clip_id appends "_2" when an id is already on
+    disk, but the model's closing metadata still uses its original id. When
+    matching required equality, every suffixed clip lost its title, caption
+    and score and came back as "Autonomous Core Insight" at the default
+    virality — a real clip shipped that way before this was caught.
+    """
+    rendered = [{**_RENDERED[0], "clip_id": "clip_001_2"}]
+    out, = _reconcile(rendered, [{"clip_id": "clip_001", "hook_title": "Real Title",
+                                  "social_caption": "real caption",
+                                  "virality_score": 85.0}])
+    assert out["hook_title"] == "Real Title"
+    assert out["virality_score"] == 85.0
+    assert out["clip_id"] == "clip_001_2"
+
+
+def test_reconcile_does_not_match_an_unrelated_longer_id():
+    """"clip_1" must not absorb the metadata meant for "clip_10"."""
+    rendered = [{**_RENDERED[0], "clip_id": "clip_1_extra"}]
+    out, = _reconcile(rendered, [{"clip_id": "clip_1", "hook_title": "Wrong One",
+                                  "social_caption": "c", "virality_score": 10.0}])
+    assert out["hook_title"] != "Wrong One"

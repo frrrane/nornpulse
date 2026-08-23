@@ -1,114 +1,81 @@
-[00:00] If a static black hole in an otherwise empty space will continuously emit particles known as Hawking radiation,
+[00:00] A static black hole in an otherwise empty space will continuously emit particles known as Hawking radiation,
 [00:06] causing it to gradually shrink and lose mass over time.
-[00:10] Once the black hole reaches the super tiny Planck mass,
-[00:15] just about 20 micrograms,
-[00:17] we have no way of predicting what future awaits it.
-[00:20] At least, not without a full theory of quantum gravity.
-[00:24] This is where Loop Quantum Gravity comes in,
-[00:28] a proposed link between gravity and quantum mechanics
-[00:31] in which space itself is made of discrete loops.
-[00:35] In short, the equations of Loop Quantum Gravity predict that instead of continuing to shrink even smaller than the Planck mass,
-[00:43] such a tiny black hole is instead more likely to quantum tunnel into a white hole,
-[00:48] spewing out its contents back into the universe over an extended period of time.
-[00:53] Incredibly, even though this white hole will be similarly small and light,
-[00:58] it can contain an enormous amount of entropy,
-[01:01] because its interior geometry will have been stretched into a thin tube with an extremely large volume.
+[00:10] But once the black hole reaches the super tiny Planck mass, just about 20 micrograms,
+[00:20] we have no way of predicting what future awaits it,
+[00:24] at least not without a full theory of quantum gravity.
+[00:27] This is where loop quantum gravity comes in,
+[00:31] a proposed link between gravity and quantum mechanics
+[00:35] in which space itself is made of discrete loops.
+[00:38] In short, the equations of loop quantum gravity predict that instead of continuing to shrink even smaller than the Planck mass,
+[00:44] such a tiny black hole is instead more likely to quantum tunnel into a white hole,
+[00:49] spewing out its contents back into the universe over an extended period of time.
+[00:54] Incredibly, even though this white hole will be similarly small and light,
+[00:58] it can contain an enormous amount of entropy because its interior geometry will have been stretched into a thin tube with an extremely large volume.
 [01:08] This store of entropy could potentially open a pathway for any information that falls into a black hole to be recovered in the distant future,
-[01:16] solving a decades-long problem in theoretical physics known as the Information Paradox.
-[01:23] As the white hole releases this information,
-[01:26] it begins to slowly fade out of existence as the spacetime around it loses its curvature
-[01:31] and its life cycle comes to a close.
-[01:34] In General Relativity, our whole universe is predicted to have had a singularity in its past,
-[01:41] namely 14 billion years ago at the moment of the Big Bang.
-[01:46] In this way, the universe is like an uncharged, stationary white hole.
-[01:52] But if Loop Quantum Gravity says that white holes can be born when black holes collapse,
+[01:17] solving a decades-long problem in theoretical physics known as the Information Paradox.
+[01:23] As the white hole releases this information, it begins to slowly fade out of existence,
+[01:28] as spacetime around it loses its curvature and its life cycle comes to a close.
+[01:35] In general relativity, our whole universe is predicted to have had a singularity in its past,
+[01:42] namely 14 billion years ago at the moment of the Big Bang.
+[01:47] In this way, the universe is like an uncharged, stationary white hole.
+[01:53] But if loop quantum gravity says that white holes can be born when black holes collapse,
 [01:58] could the same be true about the creation of our universe?
 [02:02] Could it be that our expanding universe was born from the ashes of an older, contracting spacetime?
-[02:10] As crazy as this seems, Loop Quantum Gravity says that may well be the case.
-[02:17] So, perhaps white holes as a concept are not so far-fetched.
-[02:22] Maybe it's time to start believing in white holes,
-[02:25] because, in a way, maybe we are in one.
-[02:30] So, white holes certainly could exist in the real world,
-[02:34] even if we haven't definitively nailed one down yet via observation.
+[02:10] As crazy as this seems, loop quantum gravity says that may well be the case.
+[02:17] So perhaps white holes as a concept are not so far-fetched.
+[02:22] Maybe it's time to start believing in white holes, because in a way, maybe we are in one.
+[02:30] So, white holes certainly could exist in the real world, even if we haven't definitively nailed one down yet via observation.
 [02:40] But I've glossed over another part of the Penrose diagram that might have made you raise an eyebrow.
 [02:47] The Penrose diagram I used had no issue referencing parallel universes.
-[02:54] But that's a big claim.
-[02:55] Could entire universes, inaccessible to ours yet running alongside us just out of reach,
-[03:03] actually exist?
-[03:05] There are some logical reasons to believe so.
-[03:08] But before we get to that, we need to turn our gaze to a more baffling cosmic mystery
+[02:54] But that's a big claim. Could entire universes, inaccessible to ours, yet running alongside us, just out of reach,
+[03:04] actually exist?
+[03:06] There are some logical reasons to believe so.
+[03:09] But before we get to that, we need to turn our gaze to a more baffling cosmic mystery,
 [03:15] and the worst prediction in physics ever made.
 [03:19] It starts with a deceptively simple question:
 [03:22] Why is our universe expanding?
-[03:28] One of the first things you might learn in a physics class is that gravity is an attractive force between two objects
-[03:36] whose strength is proportional to each of their masses.
-[03:40] Gravity keeps planets locked in orbit around the Sun,
-[03:44] it keeps stars grouped together in the Milky Way,
-[03:47] and it even attracts galaxies together to form galaxy clusters and superclusters.
-[03:53] But if we zoom out further,
-[03:56] this gravitational attraction begins to act in reverse,
+[03:28] One of the first things you might learn in a physics class is that gravity is an attractive force between two objects whose strength is proportional to each of their masses.
+[03:39] Gravity keeps planets locked in orbit around the Sun.
+[03:44] It keeps stars grouped together in the Milky Way, and it even attracts galaxies together to form galaxy clusters and superclusters.
+[03:53] But if we zoom out further, this gravitational attraction begins to act in reverse,
 [04:00] causing galaxy clusters to accelerate away from each other rather than drawing each other in.
-[04:07] So, what's going on here?
-[04:10] Einstein's theory of General Relativity gives us a lens through which we can understand this strange behavior.
-[04:17] In General Relativity, space isn't just some background in which other things can move around.
-[04:24] Instead, space itself can stretch and warp and evolve over time.
-[04:30] Einstein showed that in this framework, gravity is no longer a force,
-[04:34] but rather a distortion of an object's inertial path in a dynamical spacetime.
-[04:42] For example, when a planet orbits around the Sun,
-[04:46] in Einstein's description, it's merely following a straight-line path in a curved space.
-[04:53] This means what we observe as a repulsive force between galaxy clusters
-[04:58] should really be thought of as an accelerated stretching of the space between them.
+[04:07] So what's going on here?
+[04:10] Einstein's theory of general relativity gives us a lens through which we can understand this strange behavior.
+[04:17] In general relativity, space isn't just some background in which other things can move around. Instead, space itself can stretch and warp and evolve over time.
+[04:30] Einstein showed that in this framework, gravity is no longer a force, but rather a distortion of an object's inertial path in a dynamical spacetime.
+[04:42] For example, when a planet orbits around the Sun, in Einstein's description, it's merely following a straight-line path in a curved space.
+[04:54] This means what we observe as a repulsive force between galaxy clusters should really be thought of as an accelerated stretching of the space between them.
 [05:04] But what could possibly cause the expansion of space to accelerate like this on the largest scales of the universe?
 [05:12] To begin to answer this question, we need to know what causes spacetime to stretch and warp to begin with.
-[05:19] In Newton's theory of gravity, all objects with mass exerted a gravitational pull,
-[05:26] and in General Relativity, all objects with mass curve the spacetime around them.
-[05:32] But Einstein showed that in addition to mass, any form of energy or pressure
-[05:38] will also influence the dynamics of spacetime.
-[05:41] Energy density is how much energy is found within a given volume—
-[05:46] how much pop, heat, zap, and motion exists within a given space.
-[05:52] And in our universe, has always been found to be positive.
-[05:56] Pressure is how much force over an area the contents of that space sends pushing into the rest of the universe around it.
+[05:20] In Newton's theory of gravity, all objects with mass exerted a gravitational pull.
+[05:26] And in general relativity, all objects with mass curve the spacetime around them.
+[05:32] But Einstein showed that in addition to mass, any form of energy or pressure will also influence the dynamics of spacetime.
+[05:41] Energy density is how much energy is found within a given volume—how much pop, heat, zap, and motion exists within a given space.
+[05:51] And in our universe, has always been found to be positive.
+[05:57] Pressure is how much force over an area the contents of that space send pushing into the rest of the universe around it.
 [06:05] Think interstellar dust pushing on each other whenever they bump into each other in the void.
-[06:12] As you can imagine, for objects so far apart,
-[06:16] this pressure value hovers a little over zero on a cosmic scale.
-[06:22] When these values are cumulatively positive, as in the following formula,
-[06:28] their influence on the space around them causes the space around them to contract in.
+[06:12] As you can imagine, for objects so far apart, this pressure value hovers a little over zero on a cosmic scale.
+[06:21] When these values are cumulatively positive, as in the following formula, their influence on the space around them causes the space around them to contract in.
 [06:34] Essentially, they create gravity by decelerating the stretching of space.
-[06:41] However, conceivably, if you were somehow to set the values of this equation so that pressure was negative
-[06:49] and greater than the positive energy density,
-[06:53] that minus sign would cause the whole thing to flip,
-[06:56] and you would accelerate the stretching of space.
-[07:01] In effect, you would end up with a volume of space filled with a kind of anti-gravity—
-[07:07] a dark energy.
-[07:10] It's a little nebulous, as it's tricky to visualize anything with a truly negative pressure.
-[07:16] How can you have less than zero atoms in a patch of space, after all?
+[06:41] However, conceivably, if you were somehow to set the values of this equation so that pressure was negative and greater than the positive energy density,
+[06:54] that minus sign would cause the whole thing to flip, and you would accelerate the stretching of space.
+[07:00] In effect, you would end up with a volume of space filled with a kind of anti-gravity—a dark energy.
+[07:10] It's a little nebulous, as it's tricky to visualize anything with a truly negative pressure. How can you have less than zero atoms in a patch of space, after all?
 [07:22] But atoms are not the only thing that exerts pressure.
-[07:26] After all, pressure is simply a force applied across an area.
-[07:31] Fields can also apply forces.
-[07:34] Think a magnetic field dragging a piece of iron in towards a bar magnet,
-[07:39] or two magnets pushing each other away.
-[07:42] If dark energy were some kind of field that pushed away not just other magnets, but everything,
-[07:50] then this would match what we see the universe doing:
-[07:53] vacuum itself having dark energy and enough of it to slowly, very gently push the universe apart.
-[08:04] Scientists have thought a lot about dark energy over the years
-[08:08] and have even figured out what its combined energy density and pressure needed to be
-[08:13] to create the rate of spatial expansion that we witness.
-[08:17] It's around 10^-9 in SI units,
-[08:22] which is a very small number, which is why we don't notice it here on Earth
-[08:26] and only spot it on the grand cosmological scale of the universe.
-[08:32] This is actually good news, because it turns out that if the number was much higher or lower than this,
-[08:39] things would get very bad for our chance of existing.
-[08:45] Let me show you what I mean with a quick sketch of the history of the universe.
-[08:50] Here is the full history of the universe from the moment just after the Big Bang to the present.
-[08:58] This is the dark energy density measured by astronomers.
+[07:27] After all, pressure is simply a force applied across an area. Fields can also apply forces.
+[07:34] Think a magnetic field dragging a piece of iron in towards a bar magnet, or two magnets pushing each other away.
+[07:42] If dark energy were some kind of field that pushed away not just other magnets, but everything, then this would match what we see the universe doing—
+[07:54] vacuum itself having dark energy and enough of it to slowly, very gently, push the universe apart.
+[08:04] Scientists have thought a lot about dark energy over the years, and have even figured out what its combined energy density and pressure needed to be to create the rate of spatial expansion that we witness.
+[08:18] It's around 10 to the power minus 9 in SI units, which is a very small number, which is why we don't notice it here on Earth
+[08:27] and only spot it on the grand, cosmological scale of the universe.
+[08:32] This is actually good news, because it turns out that if the number was much higher or lower than this, things would get very bad for our chance of existing.
+[08:46] Let me show you what I mean with a quick sketch of the history of the universe.
+[08:51] Here is the full history of the universe from the moment just after the Big Bang to the present.
+[08:57] This is the dark energy density measured by astronomers.
 [09:03] Scientists believe its negative pressure has kept this density roughly constant for billions of years.
-[09:10] And although there is new evidence coming to light that shows dark energy may be weakening over time,
-[09:16] for our purposes, we can just keep the value consistent.
-[09:20] It doesn't change the point we're making, as you'll see in a moment.
-[09:24] This is the density of ordinary matter in the universe, which has little to no pressure.
-[09:30] The density decreases over time because the expansion of the universe dilutes the matter within it.
-[09:37] Finally, this is the density of radiation in the universe,
-[09:41] including photons and other extremely light particles.
-[09:45] The positive pressure of radiation makes it dilute away even more quickly than ordinary matter.
-[09:52] Towards the beginning of time, for a very short period, there were no atoms.
-[09:58] Very quickly though...
+[09:10] And although there is new evidence coming to light that shows dark energy may be weakening over time, for our purposes, we can just keep the value consistent.
+[09:24] It doesn't change the point we're making, as you'll see in a moment.
+[09:25] This is the density of ordinary matter in the universe, which has little to no pressure. The density decreases over time because the expansion of the universe dilutes the matter within it.
+[09:37] Finally, this is the density of radiation in the universe, including photons and other extremely light particles. The positive pressure of radiation makes it dilute away even more quickly than ordinary matter.
+[09:51] Towards the beginning of time, for a very short period, there were no atoms. Very quickly, though,

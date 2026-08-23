@@ -1059,7 +1059,17 @@ class VerdandiADK:
         final: List[Dict[str, Any]] = []
 
         for clip in rendered_clips:
-            meta = by_id.get(clip["clip_id"], {})
+            # A collision suffix (see unique_clip_id) means the rendered id
+            # can be the model's id plus "_2". Matching only on equality
+            # silently dropped the model's copy and every such clip came
+            # back titled "Autonomous Core Insight" with a default score.
+            meta = by_id.get(clip["clip_id"])
+            if meta is None:
+                meta = next(
+                    (m for key, m in by_id.items()
+                     if clip["clip_id"].startswith(f"{key}_")
+                     and clip["clip_id"][len(key) + 1:].isdigit()),
+                    {})
             # Start from the render record wholesale rather than copying
             # fields across one by one. The previous field-by-field build
             # silently dropped anything not explicitly listed, so
