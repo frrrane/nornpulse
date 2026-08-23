@@ -352,6 +352,7 @@ def forecast_reach(
     has_subtitles: bool = True,
     upload_day: Optional[str] = None,
     facts: Optional[pd.DataFrame] = None,
+    age_days: Optional[float] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     What reach is plausible for this clip, from the global data.
@@ -427,7 +428,7 @@ def forecast_reach(
                     "banded": True,
                 })
 
-    return {
+    result = {
         "size_band": band,
         "p10": p10 * multiplier,
         "p50": p50 * multiplier,
@@ -437,6 +438,19 @@ def forecast_reach(
         "components": components,
         "sample_videos": int(row["sample_videos"]),
     }
+
+    # Every figure above is a lifetime median — the dataset observed each
+    # video once, at whatever age it happened to be. A clip published this
+    # morning has not had the time those videos had, so comparing the two
+    # is a category error rather than a forecast miss.
+    if age_days is not None:
+        maturity = maturity_fraction(age_days, band, facts)
+        if maturity:
+            result["age_days"] = age_days
+            result["maturity"] = maturity
+            result["expected_by_now_p50"] = result["p50"] * maturity["fraction"]
+            result["too_early_to_judge"] = maturity["extrapolated"]
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -489,21 +503,30 @@ _HOOK_CLASSIFIER = """multiIf(
     'plain')"""
 
 
-def _hook_window_sql(low: str, high: str) -> str:
-    return f"""
-    SELECT title, view_count, like_count, uploader_sub_count
+def _window_union(columns: str, extra_filter: str = "") -> str:
+    """
+    Sample the remote table across lettered uploader ranges.
+
+    The table is sorted by uploader, so a range predicate prunes on the
+    primary index; a predicate on any other column (uploader_sub_count,
+    a date) does not, and a full scan exceeds the 120s cap. Several
+    windows unioned spread the sample instead of taking whichever
+    channels sort first.
+    """
+    return "\n    UNION ALL\n".join(
+        f"""
+    SELECT {columns}
     FROM {REMOTE}
     WHERE uploader >= {ch.sql_literal(low)} AND uploader < {ch.sql_literal(high)}
-      AND {_BASE_FILTER}
+      AND {_BASE_FILTER} {extra_filter}
     LIMIT {WINDOW_LIMIT}
     """
+        for low, high in zip(UPLOADER_WINDOWS, UPLOADER_WINDOWS[1:])
+    )
 
 
 def hook_pattern_query() -> str:
-    union = "\n    UNION ALL\n".join(
-        _hook_window_sql(low, high)
-        for low, high in zip(UPLOADER_WINDOWS, UPLOADER_WINDOWS[1:])
-    )
+    union = _window_union("title, view_count, like_count, uploader_sub_count")
     return f"""
     SELECT
         'hook_pattern' AS dimension,
@@ -598,3 +621,160 @@ def best_hook(size_band: str = "0-100", facts: Optional[pd.DataFrame] = None,
         "size_band": size_band,
         "thin_buckets": int((rows["sample_videos"] < min_sample).sum()),
     }
+
+
+# ---------------------------------------------------------------------------
+# Age curve — what "expected reach" means before a clip has had time
+# ---------------------------------------------------------------------------
+# Every median in this module is a lifetime figure: the dataset observed
+# each video once, at whatever age it happened to be. Comparing a clip
+# published this morning against a lifetime median is not a forecast miss,
+# it is a category error — three of ours sat at 1-3 views against a 2,455
+# forecast and the cross-validation chart read as catastrophic failure.
+#
+# The dataset can answer this directly, because it carries both upload_date
+# and fetch_date: the gap is the video's age when its view count was taken.
+# Grouping by that gap gives an observed growth curve, and the ratio of a
+# young bucket's median to the mature bucket's is the fraction of lifetime
+# reach a clip of that age should have accumulated.
+
+AGE_BUCKETS = ["0-1d", "1-3d", "3-7d", "7-14d", "14-30d", "30-90d", "90-365d", "365d+"]
+MATURE_BUCKET = "365d+"
+
+_AGE_BUCKET_EXPR = """multiIf(
+    age <= 1, '0-1d', age <= 3, '1-3d', age <= 7, '3-7d', age <= 14, '7-14d',
+    age <= 30, '14-30d', age <= 90, '30-90d', age <= 365, '90-365d', '365d+')"""
+
+
+def age_curve_query() -> str:
+    union = _window_union(
+        "upload_date, fetch_date, view_count, uploader_sub_count",
+        "AND upload_date > '2015-01-01'")
+    return f"""
+    SELECT
+        'age_at_observation' AS dimension,
+        {_AGE_BUCKET_EXPR} AS bucket,
+        {SIZE_BAND_EXPR} AS size_band,
+        count() AS sample_videos,
+        round(median(view_count), 2) AS median_views,
+        round(quantile(0.10)(view_count), 2) AS p10_views,
+        round(quantile(0.90)(view_count), 2) AS p90_views,
+        0 AS median_views_per_sub,
+        0 AS like_rate_pct,
+        0 AS sample_divisor
+    FROM (
+        SELECT dateDiff('day', upload_date, toDate(fetch_date)) AS age,
+               view_count, uploader_sub_count
+        FROM ({union})
+    )
+    WHERE age >= 0
+    GROUP BY bucket, size_band
+    HAVING sample_videos > 200
+    ORDER BY bucket, size_band
+    """
+
+
+def materialise_age_curve() -> Optional[pd.DataFrame]:
+    ensure_table()
+    logger.info("Materialising the view-growth curve by video age...")
+    try:
+        df = ch.run_query_df(age_curve_query())
+    except Exception as e:
+        logger.warning(f"Age-curve fact did not complete: {ch._unwrap_exception(e)[:200]}")
+        return None
+    if df.empty:
+        return None
+
+    note = ("Median views by video age at observation, from upload_date vs "
+            "fetch_date, within a channel-size band.")
+    values = ", ".join(
+        "(" + ", ".join([
+            ch.sql_literal("age_at_observation"), ch.sql_literal(str(r["bucket"])),
+            ch.sql_literal(str(r["size_band"])), ch.sql_literal(int(r["sample_videos"])),
+            ch.sql_literal(float(r["median_views"])), ch.sql_literal(float(r["p10_views"])),
+            ch.sql_literal(float(r["p90_views"])), ch.sql_literal(0.0),
+            ch.sql_literal(0.0), ch.sql_literal(0), ch.sql_literal(note),
+        ]) + ")"
+        for _, r in df.iterrows()
+    )
+    ch.run_query(
+        f"INSERT INTO {TABLE} (dimension, bucket, size_band, sample_videos, median_views, "
+        f"p10_views, p90_views, median_views_per_sub, like_rate_pct, sample_divisor, note) "
+        f"VALUES {values}")
+    return df
+
+
+def age_bucket_for(age_days: float) -> str:
+    for limit, name in ((1, "0-1d"), (3, "1-3d"), (7, "3-7d"), (14, "7-14d"),
+                        (30, "14-30d"), (90, "30-90d"), (365, "90-365d")):
+        if age_days <= limit:
+            return name
+    return MATURE_BUCKET
+
+
+def maturity_fraction(age_days: float, size_band: str = "0-100",
+                      facts: Optional[pd.DataFrame] = None) -> Optional[Dict[str, Any]]:
+    """
+    What share of its lifetime reach a clip this old should have by now.
+
+    The young buckets are frequently missing: the 2021 crawl caught few
+    videos in their first week, and for small channels nothing under
+    7 days clears the sample threshold — which is precisely the age a
+    just-published clip is. When the clip is younger than anything
+    measured, this reports the youngest measured bucket and marks the
+    result `extrapolated`, because the true figure is *below* that and a
+    caller must not present it as a measurement. Nothing here invents a
+    curve between buckets.
+
+    Returns None when the band has no curve at all.
+    """
+    df = _select(facts, "age_at_observation")
+    if df.empty or "size_band" not in df.columns:
+        return None
+    df = df[df["size_band"] == size_band]
+    if df.empty:
+        return None
+
+    mature = df[df["bucket"] == MATURE_BUCKET]
+    if mature.empty or not float(mature.iloc[0]["median_views"]):
+        return None
+    mature_views = float(mature.iloc[0]["median_views"])
+
+    order = {b: i for i, b in enumerate(AGE_BUCKETS)}
+    present = sorted((b for b in df["bucket"] if b in order), key=lambda b: order[b])
+    if not present:
+        return None
+
+    wanted = age_bucket_for(age_days)
+    extrapolated = wanted not in present
+    bucket = wanted if not extrapolated else present[0]
+    # Only extrapolate downwards. A clip older than every measured bucket
+    # is simply mature.
+    if extrapolated and order[wanted] > order[present[0]]:
+        bucket, extrapolated = present[-1], False
+
+    row = df[df["bucket"] == bucket].iloc[0]
+    return {
+        "bucket": bucket,
+        "requested_bucket": wanted,
+        "extrapolated": extrapolated,
+        "youngest_measured_bucket": present[0],
+        "fraction": min(float(row["median_views"]) / mature_views, 1.0),
+        "median_views_at_age": float(row["median_views"]),
+        "mature_median_views": mature_views,
+        "sample_videos": int(row["sample_videos"]),
+    }
+
+
+def too_early_to_judge(age_days: float, size_band: str = "0-100",
+                       facts: Optional[pd.DataFrame] = None) -> bool:
+    """
+    Whether a clip is younger than anything the growth curve measured.
+
+    Such a clip cannot be scored against a forecast — not because it is
+    underperforming, but because there is no observation to compare it
+    with. Plotting it anyway is what made three hours-old clips read as
+    catastrophic misses on the cross-validation chart.
+    """
+    maturity = maturity_fraction(age_days, size_band, facts)
+    return bool(maturity and maturity["extrapolated"])

@@ -46,15 +46,18 @@ def main() -> int:
             print(f"  {f.dimension:20s} 1/{f.divisor:<5d} {f.note}")
         print(f"  {'hook_pattern':20s} {'windows':7s} Title-pattern hooks from English "
               f"titles, sampled across uploader ranges.")
+        print(f"  {'age_at_observation':20s} {'windows':7s} View growth by video age, so a "
+              f"fresh clip is not scored against a lifetime median.")
         return 0
 
     # hook_pattern is not a generic Fact: it is the only one that reads the
     # title column, so it needs uploader-window sampling and a language
     # filter rather than the shared hash-modulo path.
     want_hooks = args.dimension in (None, "hook_pattern")
+    want_age = args.dimension in (None, "age_at_observation")
     if args.dimension:
         facts = [f for f in facts if f.dimension == args.dimension]
-        if not facts and not want_hooks:
+        if not facts and not (want_hooks or want_age):
             raise SystemExit(f"❌ Unknown dimension '{args.dimension}'. Try --list.")
     if args.divisor:
         facts = [gb.Fact(f.dimension, f.bucket_expr, f.extra_filter, args.divisor, f.note)
@@ -64,6 +67,19 @@ def main() -> int:
           f"(4.56B rows). Each takes roughly a minute.\n")
 
     results = gb.materialise_all(facts) if facts else {}
+
+    if want_age:
+        age = gb.materialise_age_curve()
+        results["age_at_observation"] = age
+        if age is not None:
+            small = age[age["size_band"] == "0-100"]
+            order = {b: i for i, b in enumerate(gb.AGE_BUCKETS)}
+            small = small.assign(_o=small["bucket"].map(order)).sort_values("_o")
+            print(f"✅ age_at_observation: {len(age)} bucket(s), "
+                  f"{int(age['sample_videos'].sum()):,} videos")
+            for _, r in small.iterrows():
+                print(f"      [   0-100] {str(r['bucket']):10s} "
+                      f"median_views={r['median_views']:>9,.0f}  n={int(r['sample_videos']):,}")
 
     if want_hooks:
         hooks = gb.materialise_hook_patterns()
@@ -80,7 +96,7 @@ def main() -> int:
     skipped = [d for d, df in results.items() if df is None]
 
     for dimension, df in results.items():
-        if dimension == "hook_pattern":
+        if dimension in ("hook_pattern", "age_at_observation"):
             continue                      # already printed above, in band order
         if df is None:
             print(f"⏭️  {dimension}: skipped (query did not complete)")

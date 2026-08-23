@@ -1525,6 +1525,22 @@ def page_intelligence():
                 f"below, since an unmeasurable clip isn't a missed prediction."
             )
 
+        # Age context, shown whether or not a forecast exists. Without it a
+        # reader sees "3 views" and concludes the system failed, when the
+        # clip is hours old and a video from a channel this size reaches
+        # only ~70% of its lifetime views after a week or two.
+        if not measurable_df.empty and "published_at" in measurable_df.columns:
+            ages = (pd.Timestamp.utcnow().tz_localize(None)
+                    - pd.to_datetime(measurable_df["published_at"])).dt.total_seconds() / 86400
+            fresh = int(sum(gb.too_early_to_judge(float(a), band, facts) for a in ages))
+            if fresh:
+                st.caption(
+                    f"⏳ {fresh} of {len(measurable_df)} published clip(s) are younger than the "
+                    f"youngest age bucket the growth curve measures (median age "
+                    f"{ages.median():.1f} days). Their view counts are real but not yet "
+                    f"comparable to a lifetime median — reach accrues over months."
+                )
+
         synced_df = measurable_df[measurable_df["actual_view_count"] > 0]
         if not synced_df.empty:
             scatter_fig = px.scatter(
@@ -1546,6 +1562,25 @@ def page_intelligence():
             (measurable_df.get("forecast_views_p50", pd.Series(dtype=float)) > 0)
             & (measurable_df["actual_view_count"] > 0)
         ] if "forecast_views_p50" in measurable_df.columns else pd.DataFrame()
+
+        # A clip younger than anything the growth curve measured cannot be
+        # scored against a lifetime forecast. It is not underperforming;
+        # there is simply nothing to compare it with. Plotting it anyway is
+        # what made hours-old clips read as catastrophic misses.
+        if not forecast_df.empty and "published_at" in forecast_df.columns:
+            ages = (pd.Timestamp.utcnow().tz_localize(None)
+                    - pd.to_datetime(forecast_df["published_at"])).dt.total_seconds() / 86400
+            too_young = ages.apply(
+                lambda a: gb.too_early_to_judge(float(a), band, facts))
+            n_young = int(too_young.sum())
+            forecast_df = forecast_df[~too_young]
+            if n_young:
+                st.caption(
+                    f"⏳ {n_young} clip(s) are younger than the youngest age bucket the growth "
+                    f"curve measures, so they are held out of the chart below rather than "
+                    f"scored as misses. Reach accrues over months: a {band}-subscriber video "
+                    f"reaches roughly 70% of its lifetime views only after a week or two."
+                )
 
         if not forecast_df.empty:
             fig = px.scatter(

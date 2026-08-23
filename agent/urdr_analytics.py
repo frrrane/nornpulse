@@ -398,6 +398,16 @@ class UrdrAnalytics:
             ALTER TABLE published_clip_outcomes
             ADD COLUMN IF NOT EXISTS video_unavailable Bool DEFAULT false
             """)
+            # Rows are appended, never updated, so reads need to know which
+            # row is newest. published_at cannot answer that: once it is
+            # carried forward correctly every row for a video shares it, and
+            # the pick becomes arbitrary. Existing rows default to their
+            # published_at, which is a fair approximation of write time
+            # precisely because it used to be restamped on every sync.
+            ch.run_query("""
+            ALTER TABLE published_clip_outcomes
+            ADD COLUMN IF NOT EXISTS row_written_at DateTime DEFAULT published_at
+            """)
 
             # Grounds Bragi's Lyria-composed background scores: correlates
             # musical attributes (genre/mood/bpm/energy) with global YouTube
@@ -759,10 +769,10 @@ class UrdrAnalytics:
             existing = ch.run_query_df(f"""
                 SELECT clip_id, youtube_url, hook_type,
                        predicted_virality_score, predicted_3s_retention_pct,
-                       forecast_views_p50, forecast_views_p90
+                       forecast_views_p50, forecast_views_p90, published_at
                 FROM published_clip_outcomes
                 WHERE youtube_video_id = {ch.sql_literal(youtube_video_id)}
-                ORDER BY published_at DESC
+                ORDER BY row_written_at DESC
                 LIMIT 1
             """)
             if existing.empty:
@@ -775,7 +785,8 @@ class UrdrAnalytics:
                 "(clip_id, youtube_video_id, youtube_url, hook_type, "
                 "predicted_virality_score, predicted_3s_retention_pct, "
                 "forecast_views_p50, forecast_views_p90, video_unavailable, "
-                "actual_view_count, actual_like_count, actual_comment_count, last_synced_at) VALUES ("
+                "actual_view_count, actual_like_count, actual_comment_count, "
+                "last_synced_at, published_at, row_written_at) VALUES ("
                 + ", ".join([
                     ch.sql_literal(row["clip_id"]),
                     ch.sql_literal(youtube_video_id),
@@ -794,6 +805,15 @@ class UrdrAnalytics:
                     ch.sql_literal(int(view_count)),
                     ch.sql_literal(int(like_count)),
                     ch.sql_literal(int(comment_count)),
+                    ch.sql_literal(datetime.datetime.utcnow()),
+                    # Carried forward, not defaulted. published_at defaults to
+                    # now(), so every sync was silently restamping the
+                    # publication date as the sync time — which made every
+                    # clip permanently zero days old and broke any age-aware
+                    # reading of its performance.
+                    ch.sql_literal(pd.Timestamp(row["published_at"]).to_pydatetime()
+                                   if row.get("published_at") is not None
+                                   else datetime.datetime.utcnow()),
                     ch.sql_literal(datetime.datetime.utcnow()),
                 ]) + ")"
             )
@@ -929,7 +949,7 @@ class UrdrAnalytics:
                     actual_view_count, actual_like_count, actual_comment_count,
                     last_synced_at, published_at
                 FROM published_clip_outcomes
-                ORDER BY youtube_video_id, published_at DESC
+                ORDER BY youtube_video_id, row_written_at DESC
                 LIMIT 1 BY youtube_video_id
             )
             ORDER BY published_at DESC

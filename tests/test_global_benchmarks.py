@@ -420,3 +420,82 @@ def test_best_hook_returns_none_when_everything_is_thin():
 
 def test_best_hook_returns_none_without_facts():
     assert gb.best_hook("0-100", facts=pd.DataFrame()) is None
+
+
+# --------------------------------------------------------------------------
+# Age awareness
+# --------------------------------------------------------------------------
+# Every median in this module is a lifetime figure. Three clips published
+# the same morning sat at 1-3 views against a 2,455 forecast, and the
+# cross-validation chart read as catastrophic failure — it was comparing a
+# few hours against videos observed after years.
+
+_AGE_FACTS = _facts([
+    {"dimension": "age_at_observation", "bucket": b, "size_band": "0-100",
+     "median_views": mv, "sample_videos": n}
+    # The young buckets are deliberately absent: the 2021 crawl caught too
+    # few first-week videos from small channels to clear the threshold.
+    for b, mv, n in [("7-14d", 1679.0, 214), ("14-30d", 1624.0, 689),
+                     ("30-90d", 1751.0, 4388), ("90-365d", 1959.0, 13492),
+                     ("365d+", 2395.0, 385916)]
+])
+
+
+@pytest.mark.parametrize("age,bucket", [
+    (0, "0-1d"), (1, "0-1d"), (2, "1-3d"), (5, "3-7d"), (10, "7-14d"),
+    (20, "14-30d"), (60, "30-90d"), (200, "90-365d"), (900, "365d+"),
+])
+def test_age_bucketing(age, bucket):
+    assert gb.age_bucket_for(age) == bucket
+
+
+def test_maturity_uses_the_measured_bucket_when_it_exists():
+    m = gb.maturity_fraction(10, "0-100", facts=_AGE_FACTS)
+    assert m["bucket"] == "7-14d"
+    assert m["extrapolated"] is False
+    assert m["fraction"] == pytest.approx(1679.0 / 2395.0, abs=0.001)
+
+
+def test_a_clip_younger_than_any_measurement_is_flagged_not_guessed():
+    """
+    The true fraction for a half-day-old clip is below the youngest
+    measured bucket. Reporting that bucket's value silently would present
+    an upper bound as a measurement.
+    """
+    m = gb.maturity_fraction(0.5, "0-100", facts=_AGE_FACTS)
+    assert m["extrapolated"] is True
+    assert m["bucket"] == "7-14d"
+    assert m["youngest_measured_bucket"] == "7-14d"
+    assert gb.too_early_to_judge(0.5, "0-100", facts=_AGE_FACTS) is True
+
+
+def test_an_old_clip_is_mature_not_extrapolated():
+    m = gb.maturity_fraction(2000, "0-100", facts=_AGE_FACTS)
+    assert m["fraction"] == 1.0
+    assert m["extrapolated"] is False
+    assert gb.too_early_to_judge(2000, "0-100", facts=_AGE_FACTS) is False
+
+
+def test_maturity_returns_none_without_a_curve():
+    assert gb.maturity_fraction(10, "0-100", facts=pd.DataFrame()) is None
+    assert gb.too_early_to_judge(10, "0-100", facts=pd.DataFrame()) is False
+
+
+def test_forecast_without_an_age_is_unchanged():
+    facts = pd.concat([_REACH_WITH_QUANTILES, _AGE_FACTS])
+    f = gb.forecast_reach(0, has_subtitles=False, facts=facts)
+    assert "expected_by_now_p50" not in f
+
+
+def test_forecast_with_an_age_adds_an_expected_so_far_figure():
+    facts = pd.concat([_REACH_WITH_QUANTILES, _AGE_FACTS])
+    f = gb.forecast_reach(0, has_subtitles=False, facts=facts, age_days=10)
+    assert f["expected_by_now_p50"] < f["p50"]
+    assert f["too_early_to_judge"] is False
+    assert f["maturity"]["bucket"] == "7-14d"
+
+
+def test_a_fresh_clip_is_marked_too_early():
+    facts = pd.concat([_REACH_WITH_QUANTILES, _AGE_FACTS])
+    f = gb.forecast_reach(0, has_subtitles=False, facts=facts, age_days=0.5)
+    assert f["too_early_to_judge"] is True

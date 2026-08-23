@@ -295,6 +295,7 @@ def test_sync_carries_the_forecast_forward(monkeypatch, offline_urdr):
         "clip_id": "c", "youtube_url": "u", "hook_type": "h",
         "predicted_virality_score": 80.0, "predicted_3s_retention_pct": 90.0,
         "forecast_views_p50": 2455.0, "forecast_views_p90": 14989.0,
+        "published_at": pd.Timestamp("2026-08-22 18:30:20"),
     }])
     captured = {}
     monkeypatch.setattr(offline_urdr, "_connected", True)
@@ -414,3 +415,29 @@ def test_insights_are_derived_not_hardcoded(offline_urdr, with_global_hooks):
     joined = " ".join(insights)
     assert "shock_stat" in joined and "underperforms" in joined
     assert ">92%" not in joined
+
+
+def test_sync_carries_the_publication_date_forward(monkeypatch, offline_urdr):
+    """
+    Regression guard. sync_actual_stats appends a row and published_at
+    defaults to now(), so every sync silently restamped the publication
+    date as the sync time. Every clip therefore read as zero days old, and
+    any age-aware judgement of its performance was impossible — a clip
+    published yesterday looked freshly posted forever.
+    """
+    published = pd.Timestamp("2026-08-22 18:30:20")
+    existing = pd.DataFrame([{
+        "clip_id": "clip_1", "youtube_url": "u", "hook_type": "curiosity_gap",
+        "predicted_virality_score": 72.5, "predicted_3s_retention_pct": 90.0,
+        "forecast_views_p50": 2455.0, "forecast_views_p90": 14989.0,
+        "published_at": published,
+    }])
+    captured = {}
+    monkeypatch.setattr(offline_urdr, "_connected", True)
+    monkeypatch.setattr(ch, "run_query_df", lambda q: existing)
+    monkeypatch.setattr(ch, "run_query", lambda q: captured.setdefault("sql", q))
+    monkeypatch.setattr(offline_urdr, "log_actual_outcome_to_benchmarks", lambda **kw: True)
+
+    assert offline_urdr.sync_actual_stats("vid", 338, 5, 1) is True
+    assert "published_at" in captured["sql"]
+    assert "2026-08-22 18:30:20" in captured["sql"]
