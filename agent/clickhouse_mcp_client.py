@@ -14,22 +14,24 @@ server itself expects (CLICKHOUSE_HOST, CLICKHOUSE_USER, etc.) — set them
 in .env exactly as documented at
 https://github.com/ClickHouse/mcp-clickhouse.
 
-Note on performance: each call here spawns a fresh mcp-clickhouse
-subprocess and tears it down afterward (~300-500ms overhead per call,
-confirmed against ClickHouse Cloud during development). That's an
-acceptable tradeoff for a hackathon demo's query volume, but a persistent
-session (kept alive across a background event loop) would be the right
-next step for production use, since it'd avoid subprocess startup cost on
-every single query.
+Note on performance: the MCP server is kept alive as a persistent stdio
+session rather than respawned per call. Spawning cost about 3 seconds per
+query against ClickHouse Cloud, which was fine at a handful of queries and
+became the dominant cost once the dashboard grounded itself in the global
+benchmark tables. Set NORNPULSE_MCP_PERSISTENT=0 to fall back to the
+per-call behaviour.
 """
 
 import asyncio
+import atexit
+import concurrent.futures
 import datetime
 import json
 import logging
 import os
 import shutil
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -113,16 +115,239 @@ def _server_params() -> StdioServerParameters:
     return StdioServerParameters(command=resolve_mcp_command(), args=[], env=env)
 
 
-async def _call_tool_async(tool_name: str, arguments: Dict[str, Any]) -> str:
-    params = _server_params()
-    async with stdio_client(params) as (read, write):
+def _result_text(tool_name: str, result) -> str:
+    text = "".join(getattr(block, "text", "") for block in result.content)
+    if result.isError:
+        raise RuntimeError(f"ClickHouse MCP '{tool_name}' failed: {text}")
+    return text
+
+
+async def _call_tool_ephemeral(tool_name: str, arguments: Dict[str, Any]) -> str:
+    """Spawn a server, make one call, tear it down. The fallback path."""
+    async with stdio_client(_server_params()) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
-            result = await session.call_tool(tool_name, arguments)
-            text = "".join(getattr(block, "text", "") for block in result.content)
-            if result.isError:
-                raise RuntimeError(f"ClickHouse MCP '{tool_name}' failed: {text}")
-            return text
+            return _result_text(tool_name, await session.call_tool(tool_name, arguments))
+
+
+# ---------------------------------------------------------------------------
+# Persistent session
+# ---------------------------------------------------------------------------
+# One mcp-clickhouse subprocess, held open across an event loop running in a
+# background thread.
+#
+# The structure is dictated by anyio: stdio_client and ClientSession are
+# async context managers backed by task groups, and a task group must be
+# exited by the same task that entered it. Holding the session in one place
+# and calling it from arbitrary tasks raises "Attempted to exit cancel scope
+# in a different task". So a single runner task owns both context managers
+# and serves calls from a queue — every await on the session happens inside
+# that one task, and callers only ever touch futures.
+#
+# Calls are therefore serialised. That is a real constraint (a 3-minute
+# materialisation blocks a dashboard read behind it) but Streamlit reruns are
+# sequential anyway, and it is much cheaper than a subprocess per query.
+
+_PERSISTENT_ENABLED = os.getenv("NORNPULSE_MCP_PERSISTENT", "1").lower() not in ("0", "false", "no")
+_SHUTDOWN = object()
+
+
+def _call_timeout() -> float:
+    """
+    Client-side ceiling, kept above the server's own query timeout so the
+    server reports its own failures rather than being cut off mid-flight.
+    """
+    try:
+        server_timeout = float(os.getenv("CLICKHOUSE_MCP_QUERY_TIMEOUT", "30"))
+    except ValueError:
+        server_timeout = 30.0
+    return server_timeout + 60.0
+
+
+class _PersistentSession:
+    def __init__(self, params: StdioServerParameters, fingerprint: str):
+        self._params = params
+        self.fingerprint = fingerprint
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._thread: Optional[threading.Thread] = None
+        self._queue: Optional[asyncio.Queue] = None
+        self._ready: Optional[asyncio.Future] = None
+        self.alive = False
+
+    # -- lifecycle ---------------------------------------------------------
+
+    def start(self, timeout: float = 60.0) -> None:
+        started = threading.Event()
+
+        def _thread_main():
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+            self._queue = asyncio.Queue()
+            self._ready = self._loop.create_future()
+            started.set()
+            try:
+                self._loop.run_until_complete(self._runner())
+            finally:
+                try:
+                    self._loop.close()
+                finally:
+                    self.alive = False
+
+        self._thread = threading.Thread(
+            target=_thread_main, name="clickhouse-mcp", daemon=True)
+        self._thread.start()
+        if not started.wait(timeout=10):
+            raise ClickHouseUnavailable("The ClickHouse MCP session thread did not start.")
+
+        # Surfaces a startup failure (missing binary, unreachable host) to
+        # the caller instead of letting the first query fail obscurely.
+        future = asyncio.run_coroutine_threadsafe(self._await_ready(), self._loop)
+        future.result(timeout=timeout)
+        self.alive = True
+
+    async def _await_ready(self):
+        await self._ready
+
+    async def _runner(self):
+        try:
+            async with stdio_client(self._params) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    if not self._ready.done():
+                        self._ready.set_result(True)
+                    while True:
+                        item = await self._queue.get()
+                        if item is _SHUTDOWN:
+                            break
+                        tool_name, arguments, result_future = item
+                        if result_future.cancelled():
+                            continue
+                        try:
+                            result = await session.call_tool(tool_name, arguments)
+                            result_future.set_result(_result_text(tool_name, result))
+                        except Exception as exc:            # noqa: BLE001
+                            result_future.set_exception(exc)
+        except Exception as exc:                            # noqa: BLE001
+            if self._ready is not None and not self._ready.done():
+                self._ready.set_exception(exc)
+            logger.warning(f"Persistent ClickHouse MCP session ended: {_unwrap_exception(exc)[:200]}")
+        finally:
+            self.alive = False
+            self._drain()
+
+    def _drain(self):
+        """Fail anything still queued rather than leaving callers hanging."""
+        if self._queue is None:
+            return
+        while not self._queue.empty():
+            item = self._queue.get_nowait()
+            if item is _SHUTDOWN:
+                continue
+            _, _, result_future = item
+            if not result_future.done():
+                result_future.set_exception(
+                    ClickHouseUnavailable("The ClickHouse MCP session closed before this query ran."))
+
+    def stop(self):
+        if self._loop is None or not self._loop.is_running():
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(
+                self._queue.put(_SHUTDOWN), self._loop).result(timeout=5)
+        except Exception:                                   # noqa: BLE001
+            pass
+        self.alive = False
+
+    # -- calling -----------------------------------------------------------
+
+    async def _submit(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+        result_future = self._loop.create_future()
+        await self._queue.put((tool_name, arguments, result_future))
+        return await result_future
+
+    def call(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+        if not self.alive:
+            raise ClickHouseUnavailable("The ClickHouse MCP session is not running.")
+        future = asyncio.run_coroutine_threadsafe(
+            self._submit(tool_name, arguments), self._loop)
+        try:
+            return future.result(timeout=_call_timeout())
+        except concurrent.futures.TimeoutError:
+            # The server may still be mid-response, so the stream state is
+            # unknown — tear the session down rather than reuse it and get
+            # a stale reply on the next query.
+            future.cancel()
+            self.stop()
+            raise ClickHouseUnavailable(
+                f"ClickHouse MCP '{tool_name}' exceeded {_call_timeout():.0f}s; "
+                f"the session was restarted.")
+
+
+_session: Optional[_PersistentSession] = None
+_session_lock = threading.Lock()
+
+
+def _fingerprint(params: StdioServerParameters) -> str:
+    """Config identity. A change (host, credentials, timeout) restarts the session."""
+    return json.dumps({"command": params.command, "env": params.env or {}}, sort_keys=True)
+
+
+def _get_session() -> "_PersistentSession":
+    """The live session, started or restarted as needed."""
+    global _session
+    params = _server_params()
+    fingerprint = _fingerprint(params)
+    with _session_lock:
+        if _session is not None and _session.alive and _session.fingerprint == fingerprint:
+            return _session
+        if _session is not None:
+            # Either it died, or the configuration changed under it — the
+            # subprocess reads its settings once, at spawn.
+            _session.stop()
+        session = _PersistentSession(params, fingerprint)
+        session.start()
+        _session = session
+        logger.info("Started persistent ClickHouse MCP session.")
+        return session
+
+
+def reset_session() -> None:
+    """Drop the persistent session; the next call starts a fresh one."""
+    global _session
+    with _session_lock:
+        if _session is not None:
+            _session.stop()
+            _session = None
+
+
+atexit.register(reset_session)
+
+
+def _call_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
+    """
+    One MCP tool call, over the persistent session when possible.
+
+    A session that fails to start falls back to the per-call path rather
+    than taking ClickHouse down entirely: the ephemeral route is slower but
+    it is the behaviour this bridge shipped with, and a broken optimisation
+    should not be worse than not having it.
+    """
+    if _PERSISTENT_ENABLED:
+        try:
+            return _get_session().call(tool_name, arguments)
+        except ClickHouseUnavailable:
+            raise
+        except Exception as exc:                            # noqa: BLE001
+            logger.warning(
+                f"Persistent MCP session unusable ({_unwrap_exception(exc)[:160]}); "
+                f"falling back to a per-call subprocess.")
+            reset_session()
+    return _run_sync(_call_tool_ephemeral(tool_name, arguments))
+
+
+async def _call_tool_async(tool_name: str, arguments: Dict[str, Any]) -> str:
+    """Retained for callers that already have a loop; always ephemeral."""
+    return await _call_tool_ephemeral(tool_name, arguments)
 
 
 def _run_sync(coro):
@@ -165,7 +390,7 @@ def run_query(query: str) -> Dict[str, Any]:
     parsed {"columns": [...], "rows": [[...], ...]} dict for SELECTs, or
     {} for statements with no result set (CREATE TABLE, INSERT).
     """
-    raw = _run_sync(_call_tool_async("run_query", {"query": query}))
+    raw = _call_tool("run_query", {"query": query})
     if not raw or not raw.strip():
         return {}
     try:
@@ -186,7 +411,7 @@ def run_query_df(query: str) -> pd.DataFrame:
 
 
 def list_databases() -> List[str]:
-    raw = _run_sync(_call_tool_async("list_databases", {}))
+    raw = _call_tool("list_databases", {})
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
