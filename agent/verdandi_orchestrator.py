@@ -400,7 +400,7 @@ class VerdandiADK:
             music_path = None
             music_benchmark = self.urdr.get_top_music_benchmark(hook_type=hook_type, topic_category=topic_focus)
             if music_benchmark:
-                _emit("bragi", f"🎵 Bragi is composing a {music_benchmark.get('mood', 'custom')} score (clip {clip_counter[0]})...")
+                _emit("bragi", f"🎵 Bragi (music) is composing a {music_benchmark.get('mood', 'custom')} score (clip {clip_counter[0]})...")
                 music_path = self.bragi.compose_track(hook_type, music_benchmark)
 
             # Ground the clip's crop framing, camera motion, and color grade
@@ -420,7 +420,7 @@ class VerdandiADK:
             # clip — the render simply falls back to no custom thumbnail.
             thumbnail_path = None
             if music_benchmark:
-                _emit("heimdall", f"👁️ Heimdall is generating the cover thumbnail (clip {clip_counter[0]})...")
+                _emit("heimdall", f"👁️ Heimdall (cover art) is generating the cover thumbnail (clip {clip_counter[0]})...")
                 thumbnail_path = self.heimdall.compose_thumbnail(
                     clip_id=clip_id, hook_title=hook_banner_text, music_benchmark=music_benchmark,
                     output_dir=self.skuld.output_dir,
@@ -439,7 +439,7 @@ class VerdandiADK:
             narration_path = None
             energy_level = float(music_benchmark.get("energy_level", 0.5)) if music_benchmark else 0.5
             if vision_mode:
-                _emit("mimir", f"🗣️ Mímir is narrating the hook line (clip {clip_counter[0]})...")
+                _emit("mimir", f"🗣️ Mímir (narration) is narrating the hook line (clip {clip_counter[0]})...")
                 narration_path = self.mimir.narrate(
                     clip_id=clip_id, script_text=hook_banner_text, energy_level=energy_level,
                     output_dir=self.skuld.output_dir,
@@ -457,13 +457,13 @@ class VerdandiADK:
                             f"(below {NARRATION_FALLBACK_VOLUME_THRESHOLD_DB}dB threshold) — "
                             f"narrating via Mímir fallback."
                         )
-                        _emit("mimir", f"🗣️ Mímir is narrating over hard-to-hear audio (clip {clip_counter[0]})...")
+                        _emit("mimir", f"🗣️ Mímir (narration) is narrating over hard-to-hear audio (clip {clip_counter[0]})...")
                         narration_path = self.mimir.narrate(
                             clip_id=clip_id, script_text=window_text, energy_level=energy_level,
                             output_dir=self.skuld.output_dir,
                         )
 
-            _emit("skuld", f"🎬 Skuld is rendering the vertical short via FFmpeg (clip {clip_counter[0]})...")
+            _emit("skuld", f"🎬 Skuld (rendering) is cutting the vertical short via FFmpeg (clip {clip_counter[0]})...")
             result = self.skuld.render_vertical_short(
                 input_video_path=input_video_path,
                 start_time=start_time,
@@ -528,7 +528,7 @@ class VerdandiADK:
                  if c["clip_id"] == namespaced or c["clip_id"].startswith(f"{namespaced}_")),
                 namespaced)
             logger.info(f"Logging Urðr telemetry for clip_id: {clip_id}, hook_type: {hook_type}")
-            _emit("urdr_log", f"📊 Urðr is logging telemetry for clip {clip_counter[0]}...")
+            _emit("urdr_log", f"📊 Urðr (analytics) is logging telemetry for clip {clip_counter[0]}...")
 
             match = next((c for c in rendered_clips if c["clip_id"] == clip_id), None)
             if match:
@@ -823,7 +823,7 @@ class VerdandiADK:
         # Pull real ClickHouse-grounded retention intelligence BEFORE
         # prompting, so the model reasons over it rather than guessing.
         # Optionally scoped to a single topic_category the user selected.
-        _emit("urdr", "🔮 Urðr is pulling ClickHouse retention benchmarks...")
+        _emit("urdr", "🔮 Urðr (analytics) is pulling ClickHouse retention benchmarks...")
         _t0 = time.perf_counter()
         # Channel size decides which band the hook ranking is read from:
         # curiosity_gap leads for a new channel, story_in_medias_res for a
@@ -888,7 +888,7 @@ class VerdandiADK:
             # comparing it against the sum of the FFmpeg encode times above
             # tells you how much is Gemini's own reasoning/latency vs. the
             # actual rendering work.
-            _emit("verdandi", "🧠 Verðandi is reasoning over hook types & moments...")
+            _emit("verdandi", "🧠 Verðandi (reasoning) is choosing hook types & moments...")
             _t1 = time.perf_counter()
             response = chat.send_message([video_file, prompt])
             logger.info(f"⏱️ Gemini reasoning + all tool calls took {time.perf_counter() - _t1:.1f}s total")

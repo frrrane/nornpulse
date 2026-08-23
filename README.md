@@ -218,7 +218,7 @@ Every clip carries a **How this was decided** panel listing each choice the pipe
 - **Seeded prior** — from a hand-written benchmark table. Framing, camera motion, colour grade and score. The public dataset has no visual or audio features, so there is nothing external to measure these against, and the panel says so rather than letting them sit next to the measured figures looking equally solid.
 - **Model judgement** — Verðandi's reading of this specific transcript. The cut.
 
-A typical clip is 3 measured, 4 assumed, 1 model. That ratio is the honest state of the system, and showing it is more useful than implying everything is grounded.
+A typical clip is 3 measured, 4 assumed, 1 model, and one worked example sits on the Home page rather than only inside a clip card. That ratio is the honest state of the system, and showing it is more useful than implying everything is grounded.
 
 ## 📈 Syncing real performance
 

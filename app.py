@@ -365,14 +365,27 @@ def render_provenance(clip_meta: dict, key: str) -> None:
         )
 
 
+# Each agent is named for a Norse figure and does one job. A judge meeting
+# these mid-run has no glossary to hand, so the role travels with the name
+# everywhere it appears first — the name is what makes the architecture
+# memorable, the role is what makes it legible.
+AGENT_ROLES = {
+    "urdr": "analytics",
+    "verdandi": "reasoning",
+    "skuld": "rendering",
+    "bragi": "music",
+    "heimdall": "cover art",
+    "mimir": "narration",
+}
+
 PIPELINE_STAGES = [
-    ("urdr", "🔮 Urðr"),
+    ("urdr", "🔮 Urðr · analytics"),
     ("upload", "📤 Upload"),
-    ("verdandi", "🧠 Verðandi"),
-    ("bragi", "🎵 Bragi"),
-    ("heimdall", "👁️ Heimdall"),
-    ("mimir", "🗣️ Mímir"),
-    ("skuld", "🎬 Skuld"),
+    ("verdandi", "🧠 Verðandi · reasoning"),
+    ("bragi", "🎵 Bragi · music"),
+    ("heimdall", "👁️ Heimdall · cover"),
+    ("mimir", "🗣️ Mímir · narration"),
+    ("skuld", "🎬 Skuld · rendering"),
     ("urdr_log", "📊 Log"),
 ]
 
@@ -597,15 +610,66 @@ def page_home():
     else:
         st.info("Run `python seed_global_benchmarks.py` to materialise the global grounding.")
 
+    # The stratification result is the most interesting thing the data
+    # produced, and it was three clicks deep. The contrast between bands is
+    # the point: the same decision has opposite effects depending on channel
+    # size, which is why nothing here is quoted unbanded.
+    big = gb.subtitle_lift("100k-1M", facts=facts)
     if lift:
-        direction = ("lifts engagement sharply but not reach at this channel size"
-                     if lift["views_lift_pct"] < 1 else "lifts both reach and engagement")
+        st.markdown("<div class='workflow-header'>What the data actually says"
+                    "<span class='eyebrow'>same decision, opposite answer by channel size</span>"
+                    "</div>", unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric(f"Captions · {lift['size_band']} subs",
+                      f"{lift['views_lift_pct']:+.0f}% reach",
+                      delta=f"{lift['like_lift_pct']:+.0f}% engagement",
+                      help=f"{lift['sample_videos']:,} real videos.")
+        with c2:
+            if big:
+                st.metric("Captions · 100k-1M subs",
+                          f"{big['views_lift_pct']:+.0f}% reach",
+                          delta=f"{big['like_lift_pct']:+.0f}% engagement",
+                          help=f"{big['sample_videos']:,} real videos.")
         st.markdown(
-            f"<div class='thread-note' style='margin-top:1rem;'>Captioning {direction} — "
-            f"<span style='color:var(--thread);font-family:var(--data);'>"
-            f"{lift['like_lift_pct']:+.0f}%</span> like rate across "
-            f"{lift['sample_videos']:,} videos, which is why Skuld burns subtitles in by default."
-            f"</div>", unsafe_allow_html=True)
+            "<div class='thread-note'>Captioning lifts engagement at every channel size, "
+            "but only buys reach once a channel has an audience. Read across all of YouTube "
+            "the effect reverses, because captioned videos skew to large channels — which is "
+            "why every figure here is read within a size band, and why "
+            "<strong>Skuld (rendering)</strong> burns subtitles in regardless.</div>",
+            unsafe_allow_html=True)
+
+    # One worked example of provenance, above the fold. A judge should not
+    # have to open a clip card to learn that the system distinguishes what
+    # it measured from what it assumed.
+    clips_for_example = rq.list_clips(rq.APPROVED)
+    example = next((c for c in clips_for_example if c["metadata"].get("hook_type")), None)
+    if example:
+        decisions = pv.decisions_for_clip(
+            example["metadata"], int(st.session_state.channel_subs), facts)
+        counts = pv.grounding_summary(decisions)
+        st.markdown("<div class='workflow-header'>How a clip gets decided"
+                    f"<span class='eyebrow'>{counts[pv.MEASURED]} measured · "
+                    f"{counts[pv.PRIOR]} assumed · {counts[pv.MODEL]} model judgement</span>"
+                    "</div>", unsafe_allow_html=True)
+        shown = [d for d in decisions if d.level == pv.MEASURED][:1] + \
+                [d for d in decisions if d.level == pv.PRIOR][:1]
+        for d in shown:
+            colour, mark = _PROVENANCE_STYLE.get(d.level, ("var(--bone-dim)", "·"))
+            sample = f" · n={d.sample:,}" if d.sample else ""
+            st.markdown(
+                f"<div style='margin:.3rem 0 .6rem 0;'>"
+                f"<span style='color:{colour};'>{mark}</span> <strong>{d.step}</strong> — "
+                f"<span style='font-family:var(--data);'>{d.choice}</span> "
+                f"<span style='color:{colour};font-size:.72rem;text-transform:uppercase;"
+                f"letter-spacing:.08em;'>{d.label}</span><br>"
+                f"<span style='color:var(--bone-dim);font-size:.83rem;'>{d.evidence}{sample}"
+                f"</span></div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='thread-note'>Framing, motion, colour and music are marked assumed "
+            "because the public dataset carries no visual or audio features — there is nothing "
+            "to measure them against, and saying so beats implying otherwise. Every clip shows "
+            "its full breakdown on the Review page.</div>", unsafe_allow_html=True)
 
     st.markdown("<div class='workflow-header'>Your clips</div>", unsafe_allow_html=True)
     counts = rq.state_counts()
@@ -624,7 +688,13 @@ def page_home():
             m3.metric("Best real reach", f"{int(live['actual_view_count'].max()):,} views"
                       if not live.empty else "—")
 
-        for clip in clips[:3]:
+        # Approved first, then anything still pending. Showing the newest
+        # regardless of state put rejected clips — including a near-duplicate
+        # title — at the top of the page, directly under a metric saying
+        # three were approved.
+        showcase = ([c for c in clips if c["state"] == rq.APPROVED]
+                    + [c for c in clips if c["state"] == rq.PENDING])
+        for clip in showcase[:3]:
             meta = clip["metadata"]
             c1, c2 = st.columns([1, 3], gap="medium")
             with c1:
