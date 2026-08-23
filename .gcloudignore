@@ -1,0 +1,41 @@
+# Controls what `gcloud run deploy --source .` uploads to Cloud Build.
+#
+# Without this file gcloud derives one from .gitignore, which keeps venv/
+# and output_clips/ out but still uploads the ~180MB of tracked sample
+# media — slow, and none of it is used at runtime. Keep this in step with
+# .dockerignore.
+
+.git/
+.gcloudignore
+.gitignore
+
+# Secrets — supplied as mounted Secret Manager values, never uploaded.
+.env
+.env.*
+client_secrets.json
+.credentials/
+*.pem
+*.key
+
+# Local state and generated media.
+output/
+output_clips/
+.nornpulse_last_session.json
+
+# Sample media: multi-MB, and the deployed demo does not ingest.
+sample_data/*.mp4
+sample_data/*.webm
+sample_data/*.wav
+sample_data/*.mp3
+sample_data/*.part
+sample_data/*.png
+
+# Tooling.
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+tests/
+.github/
+.vscode/
+.idea/

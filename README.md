@@ -177,7 +177,15 @@ The image is built for Cloud Run: it listens on `$PORT` (default 8080) and binds
 - **`mcp-clickhouse`** — must land in the same environment that runs the app, since Urðr launches it as a subprocess resolved relative to `sys.executable`. Missing it would degrade the app to in-memory fallback benchmarks while still looking healthy, so the build fails instead.
 - **A black-weight caption font** — `Arial Black` doesn't exist on a slim Debian image, and fontconfig was measured falling all the way back to `DejaVu Sans "Book"`, i.e. *regular* weight, with nothing logged. The image installs Roboto Black, sets `CAPTION_FONT` to it, and fails the build if no black-weight face resolves.
 
-Secrets are never baked in — `.env`, `client_secrets.json` and `.credentials/` are excluded via `.dockerignore` and must be supplied as environment variables or mounted secrets.
+Secrets are never baked in — `.env`, `client_secrets.json` and `.credentials/` are excluded via `.dockerignore` and `.gcloudignore`, and are supplied as mounted Secret Manager values.
+
+Deploying also needs the runtime service account to hold `roles/secretmanager.secretAccessor` on each secret; `--set-secrets` fails without it. Grant it once per secret:
+
+```bash
+gcloud secrets add-iam-policy-binding nornpulse-gemini-api-key \
+  --member="serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor" --project=PROJECT
+```
 
 Note that **YouTube publishing does not work in the container as-is**: it needs `client_secrets.json` plus an interactive OAuth consent flow. Generation, rendering and analytics all work; publishing is expected to happen from a local run.
 
