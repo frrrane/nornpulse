@@ -655,11 +655,32 @@ def page_create():
     # --- 1. Source ---
     with st.container():
         st.markdown("<div class='workflow-header'>1️⃣ Source<span class='eyebrow'>a link, or a file from anywhere</span></div>", unsafe_allow_html=True)
-        yt_url = st.text_input(
-            "Video link", key="yt_url",
-            placeholder="Paste a video URL — or upload a file below",
-            help="Any link yt-dlp can resolve. NornPulse works on the video, "
-                 "not on where it came from.")
+        # Ingestion is a spend path in its own right: pasting a link starts a
+        # download and then a Gemini transcription immediately, before the
+        # Execute button is ever pressed. The demo gate covered generation
+        # and missed this entirely.
+        #
+        # It also cannot work here. YouTube bot-blocks datacenter IPs
+        # ("Sign in to confirm you're not a bot"), so yt-dlp fails from Cloud
+        # Run regardless of credit. Better to say that than to offer a field
+        # that always errors.
+        if DEMO_MODE:
+            st.text_input(
+                "Video link", key="yt_url_locked", disabled=True,
+                placeholder="Ingestion is disabled on the public demo")
+            st.caption(
+                "🔒 Pasting a link would start a download and a paid transcription. "
+                "It would also fail: YouTube blocks datacenter IPs, so downloads "
+                "cannot run from Cloud Run without browser cookies. The clips on "
+                "the Review page were produced by this pipeline running locally."
+            )
+            yt_url = ""
+        else:
+            yt_url = st.text_input(
+                "Video link", key="yt_url",
+                placeholder="Paste a video URL — or upload a file below",
+                help="Any link yt-dlp can resolve. NornPulse works on the video, "
+                     "not on where it came from.")
         active_video_path = None
 
         if yt_url:

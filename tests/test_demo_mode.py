@@ -87,3 +87,19 @@ def test_guarded_labels_match_their_real_buttons():
         assert re.search(rf'st\.button\( ?f?"{escaped}"', FLAT), (
             f"no real st.button matches the guarded label {label!r}"
         )
+
+
+def test_ingestion_is_gated_by_demo_mode():
+    """
+    Regression guard. The demo gate covered the Execute button and missed
+    ingestion, which is a spend path of its own: pasting a link starts a
+    download and a paid Gemini transcription immediately, with no button
+    press. It is also impossible on Cloud Run — YouTube bot-blocks
+    datacenter IPs — so the field could only ever take money and fail.
+    """
+    block = SOURCE[SOURCE.index("1️⃣ Source"):]
+    block = block[:block.index("Batch Mode")]
+    assert "if DEMO_MODE:" in block, "the source field is reachable on the public demo"
+    assert "yt_url_locked" in block
+    # The real input must sit on the else branch, not run unconditionally.
+    assert block.index("if DEMO_MODE:") < block.index('key="yt_url"')
