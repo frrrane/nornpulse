@@ -382,6 +382,16 @@ class UrdrAnalytics:
             ALTER TABLE published_clip_outcomes
             ADD COLUMN IF NOT EXISTS forecast_views_p90 Float32 DEFAULT 0
             """)
+            # Distinguishes "measured zero views" from "cannot be measured".
+            # Several early rows point at videos that are deleted, private,
+            # or were never published at all; zeroing them without a marker
+            # would put them on the forecast-vs-actual chart as genuine
+            # misses and drag the apparent accuracy down with data that
+            # never existed.
+            ch.run_query("""
+            ALTER TABLE published_clip_outcomes
+            ADD COLUMN IF NOT EXISTS video_unavailable Bool DEFAULT false
+            """)
 
             # Grounds Bragi's Lyria-composed background scores: correlates
             # musical attributes (genre/mood/bpm/energy) with global YouTube
@@ -684,6 +694,7 @@ class UrdrAnalytics:
         predicted_3s_retention_pct: float,
         forecast_views_p50: float = 0.0,
         forecast_views_p90: float = 0.0,
+        video_unavailable: bool = False,
     ) -> bool:
         """
         Records that a generated clip was actually published to YouTube.
@@ -699,7 +710,7 @@ class UrdrAnalytics:
                 "INSERT INTO published_clip_outcomes "
                 "(clip_id, youtube_video_id, youtube_url, hook_type, "
                 "predicted_virality_score, predicted_3s_retention_pct, "
-                "forecast_views_p50, forecast_views_p90, "
+                "forecast_views_p50, forecast_views_p90, video_unavailable, "
                 "actual_view_count, actual_like_count, actual_comment_count, last_synced_at) VALUES ("
                 + ", ".join([
                     ch.sql_literal(clip_id),
@@ -710,6 +721,7 @@ class UrdrAnalytics:
                     ch.sql_literal(float(predicted_3s_retention_pct)),
                     ch.sql_literal(float(forecast_views_p50)),
                     ch.sql_literal(float(forecast_views_p90)),
+                    ch.sql_literal(bool(video_unavailable)),
                     ch.sql_literal(0), ch.sql_literal(0), ch.sql_literal(0),
                     ch.sql_literal(None),
                 ]) + ")"
@@ -722,7 +734,8 @@ class UrdrAnalytics:
             return False
 
     def sync_actual_stats(
-        self, youtube_video_id: str, view_count: int, like_count: int, comment_count: int
+        self, youtube_video_id: str, view_count: int, like_count: int, comment_count: int,
+        unavailable: bool = False,
     ) -> bool:
         """
         Writes real YouTube performance numbers back onto a previously
@@ -755,7 +768,7 @@ class UrdrAnalytics:
                 "INSERT INTO published_clip_outcomes "
                 "(clip_id, youtube_video_id, youtube_url, hook_type, "
                 "predicted_virality_score, predicted_3s_retention_pct, "
-                "forecast_views_p50, forecast_views_p90, "
+                "forecast_views_p50, forecast_views_p90, video_unavailable, "
                 "actual_view_count, actual_like_count, actual_comment_count, last_synced_at) VALUES ("
                 + ", ".join([
                     ch.sql_literal(row["clip_id"]),
@@ -769,6 +782,9 @@ class UrdrAnalytics:
                     # re-deriving it later would quietly rewrite history.
                     ch.sql_literal(float(row.get("forecast_views_p50", 0) or 0)),
                     ch.sql_literal(float(row.get("forecast_views_p90", 0) or 0)),
+                    # Reached the API and got numbers back, so it is available
+                    # regardless of what a previous row claimed.
+                    ch.sql_literal(bool(unavailable)),
                     ch.sql_literal(int(view_count)),
                     ch.sql_literal(int(like_count)),
                     ch.sql_literal(int(comment_count)),
@@ -903,7 +919,7 @@ class UrdrAnalytics:
                 SELECT
                     clip_id, youtube_video_id, youtube_url, hook_type,
                     predicted_virality_score, predicted_3s_retention_pct,
-                    forecast_views_p50, forecast_views_p90,
+                    forecast_views_p50, forecast_views_p90, video_unavailable,
                     actual_view_count, actual_like_count, actual_comment_count,
                     last_synced_at, published_at
                 FROM published_clip_outcomes

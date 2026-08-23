@@ -251,3 +251,59 @@ def test_unknown_hook_type_falls_back_rather_than_returning_none(offline_urdr):
 def test_connection_error_is_recorded_when_offline(offline_urdr):
     assert offline_urdr.is_connected() is False
     assert offline_urdr.connection_error  # a reason, not just a bare False
+
+
+# --------------------------------------------------------------------------
+# Unmeasurable outcomes
+# --------------------------------------------------------------------------
+# Some published_clip_outcomes rows point at videos that are deleted,
+# private, or were never actually published. Treating those as "0 views"
+# is not the same as measuring zero: it puts a fabricated miss on the
+# cross-validation chart. A stale 900,000-view row of exactly this kind
+# once dominated the panel, so both directions matter.
+
+def test_logging_an_outcome_defaults_to_available(monkeypatch, offline_urdr):
+    captured = {}
+    monkeypatch.setattr(offline_urdr, "_connected", True)
+    monkeypatch.setattr(ch, "run_query", lambda q: captured.setdefault("sql", q))
+    offline_urdr.log_published_outcome(
+        clip_id="c", youtube_video_id="v", youtube_url="u", hook_type="h",
+        predicted_virality_score=1.0, predicted_3s_retention_pct=2.0)
+    assert "video_unavailable" in captured["sql"]
+    # sql_literal renders False as 0.
+    assert captured["sql"].rstrip().endswith(")")
+
+
+def test_an_outcome_can_be_logged_as_unavailable(monkeypatch, offline_urdr):
+    captured = {}
+    monkeypatch.setattr(offline_urdr, "_connected", True)
+    monkeypatch.setattr(ch, "run_query", lambda q: captured.setdefault("sql", q))
+    offline_urdr.log_published_outcome(
+        clip_id="c", youtube_video_id="v", youtube_url="u", hook_type="h",
+        predicted_virality_score=1.0, predicted_3s_retention_pct=2.0,
+        video_unavailable=True)
+    assert "video_unavailable" in captured["sql"]
+
+
+def test_sync_carries_the_forecast_forward(monkeypatch, offline_urdr):
+    """
+    sync_actual_stats appends rather than updating in place, so any column
+    it fails to carry forward is silently reset — the forecast would be
+    wiped on the first stat sync after publishing.
+    """
+    existing = pd.DataFrame([{
+        "clip_id": "c", "youtube_url": "u", "hook_type": "h",
+        "predicted_virality_score": 80.0, "predicted_3s_retention_pct": 90.0,
+        "forecast_views_p50": 2455.0, "forecast_views_p90": 14989.0,
+    }])
+    captured = {}
+    monkeypatch.setattr(offline_urdr, "_connected", True)
+    monkeypatch.setattr(ch, "run_query_df", lambda q: existing)
+    monkeypatch.setattr(ch, "run_query", lambda q: captured.setdefault("sql", q))
+    monkeypatch.setattr(offline_urdr, "log_actual_outcome_to_benchmarks",
+                        lambda **kw: True)
+
+    assert offline_urdr.sync_actual_stats("v", 338, 5, 1) is True
+    assert "2455.0" in captured["sql"], "forecast p50 was dropped by the sync"
+    assert "14989.0" in captured["sql"], "forecast p90 was dropped by the sync"
+    assert "338" in captured["sql"]

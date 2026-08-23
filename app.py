@@ -1236,7 +1236,24 @@ with nav_tab3:
         # Predicted vs. actual scatter — the real "does grounding work"
         # story: does a higher predicted_virality_score actually correlate
         # with more real views? Only meaningful once views are non-zero.
-        synced_df = outcomes_df[outcomes_df["actual_view_count"] > 0]
+        # A row whose video is deleted, private, or was never published
+        # cannot be measured. Plotting it as zero actual views would put a
+        # fabricated miss on the chart and drag the apparent accuracy down
+        # with data that never existed — which is exactly how a stale
+        # 900,000-view row came to dominate this panel.
+        unavailable_mask = (outcomes_df["video_unavailable"].astype(bool)
+                            if "video_unavailable" in outcomes_df.columns
+                            else pd.Series(False, index=outcomes_df.index))
+        measurable_df = outcomes_df[~unavailable_mask]
+        n_unavailable = int(unavailable_mask.sum())
+        if n_unavailable:
+            st.caption(
+                f"⚠️ {n_unavailable} row(s) point at videos that are deleted, private, or were "
+                f"never published. They're kept for the audit trail but excluded from the charts "
+                f"below, since an unmeasurable clip isn't a missed prediction."
+            )
+
+        synced_df = measurable_df[measurable_df["actual_view_count"] > 0]
         if not synced_df.empty:
             scatter_fig = px.scatter(
                 synced_df, x="predicted_virality_score", y="actual_view_count",
@@ -1253,10 +1270,10 @@ with nav_tab3:
         # ranking, so plotting it against view counts only ever shows
         # whether the ordering held. The forecast is in views, so it can be
         # checked against the diagonal.
-        forecast_df = outcomes_df[
-            (outcomes_df.get("forecast_views_p50", pd.Series(dtype=float)) > 0)
-            & (outcomes_df["actual_view_count"] > 0)
-        ] if "forecast_views_p50" in outcomes_df.columns else pd.DataFrame()
+        forecast_df = measurable_df[
+            (measurable_df.get("forecast_views_p50", pd.Series(dtype=float)) > 0)
+            & (measurable_df["actual_view_count"] > 0)
+        ] if "forecast_views_p50" in measurable_df.columns else pd.DataFrame()
 
         if not forecast_df.empty:
             fig = px.scatter(
@@ -1292,7 +1309,7 @@ with nav_tab3:
                     "clip_id", "hook_type", "predicted_virality_score",
                     "predicted_3s_retention_pct", "forecast_views_p50",
                     "actual_view_count", "actual_like_count", "actual_comment_count",
-                    "youtube_url", "last_synced_at",
+                    "video_unavailable", "youtube_url", "last_synced_at",
                 ] if c in display_df.columns
             ]],
             width='stretch',
