@@ -838,21 +838,136 @@ with nav_tab1:
 # TAB 2: LIBRARY
 # =========================================================================
 with nav_tab2:
-    st.markdown("<div class='workflow-header'>📚 Generated & Archived Shorts Library</div>", unsafe_allow_html=True)
-    lib_dir = Path("output_clips")
-    lib_files = list(lib_dir.glob("*_9x16.mp4")) if lib_dir.exists() else []
+    st.markdown("<div class='workflow-header'>📚 Review Queue & Library</div>", unsafe_allow_html=True)
 
-    if not lib_files: st.info("Library archive is empty.")
-    else:
-        for lib_path in lib_files:
-            col_l1, col_l2 = st.columns([1, 2], gap="small")
-            with col_l1: st.video(str(lib_path))
-            with col_l2:
-                st.markdown(f"**Asset:** `{lib_path.stem}.mp4`")
-                if st.button("🗑️ Delete from Archive", key=f"del_{lib_path.stem}"):
-                    lib_path.unlink(missing_ok=True)
-                    st.rerun()
-            st.divider()
+    # One view over three directories plus the decision ledger. The old
+    # version globbed output_clips/*_9x16.mp4 non-recursively, which stopped
+    # working the moment rejection began archiving into a subdirectory —
+    # archived clips were safe on disk but invisible here.
+    counts = rq.state_counts()
+    st.caption(
+        f"**{counts.get(rq.PENDING, 0)}** awaiting review · "
+        f"**{counts.get(rq.APPROVED, 0)}** approved · "
+        f"**{counts.get(rq.REJECTED, 0)}** rejected. "
+        "Decisions made here and by email reply share one ledger, so this list "
+        "is the same either way."
+    )
+
+    filter_labels = {
+        f"⏳ Pending ({counts.get(rq.PENDING, 0)})": rq.PENDING,
+        f"✅ Approved ({counts.get(rq.APPROVED, 0)})": rq.APPROVED,
+        f"🗑️ Rejected ({counts.get(rq.REJECTED, 0)})": rq.REJECTED,
+        "All": None,
+    }
+    chosen = st.radio("Show", list(filter_labels), horizontal=True,
+                      label_visibility="collapsed", key="library_filter")
+    clips = rq.list_clips(state=filter_labels[chosen])
+
+    if not clips:
+        st.info("Nothing here yet. Generate clips from the Pipeline tab.")
+
+    for clip in clips:
+        meta = clip["metadata"]
+        decision = clip["decision"]
+        cid = clip["clip_id"]
+        title = meta.get("hook_title") or cid
+
+        badge = {rq.PENDING: "⏳ Pending review",
+                 rq.APPROVED: "✅ Approved",
+                 rq.REJECTED: "🗑️ Rejected"}.get(clip["state"], clip["state"])
+
+        with st.container(border=True):
+            head, body = st.columns([1, 2], gap="medium")
+            with head:
+                st.video(clip["video_path"], width=210)
+                if clip["thumbnail_path"]:
+                    st.image(clip["thumbnail_path"], width=90, caption="👁️ Heimdall cover")
+
+            with body:
+                st.markdown(f"### {title}")
+                st.caption(f"{badge} · `{cid}` · {clip['size_mb']} MB · "
+                           f"{clip['modified_at'].strftime('%Y-%m-%d %H:%M')} UTC")
+
+                if meta.get("social_caption"):
+                    st.markdown(f"*{meta['social_caption']}*")
+
+                # Everything below was already sitting in the sidecar JSON
+                # next to the render; the old library showed only a filename.
+                facts = []
+                if meta.get("virality_score") is not None:
+                    facts.append(f"**{meta['virality_score']}**/100 virality")
+                if meta.get("hook_type"):
+                    rank = meta.get("hook_rank")
+                    facts.append(f"hook `{meta['hook_type']}`" + (f" (Urðr #{rank})" if rank else ""))
+                if meta.get("start_time"):
+                    facts.append(f"cut {meta['start_time']}–{meta.get('end_time', '?')}")
+                if facts:
+                    st.markdown(" · ".join(facts))
+
+                treatment = [meta.get(k) for k in ("crop_mode", "motion_effect", "color_grade")]
+                treatment = [t for t in treatment if t]
+                if treatment:
+                    st.caption("🎬 " + " · ".join(treatment))
+
+                extras = []
+                if meta.get("has_subtitles"):
+                    lang = meta.get("caption_language")
+                    extras.append(f"💬 subtitles{f' ({lang})' if lang else ''}")
+                if meta.get("has_bragi_score"):
+                    extras.append(f"🎵 {meta.get('music_genre') or 'original score'}")
+                if meta.get("has_narration"):
+                    extras.append("🗣️ narration")
+                if extras:
+                    st.caption(" · ".join(extras))
+
+                if decision:
+                    line = (f"Decided **{decision['status']}** via {decision.get('source', '?')} "
+                            f"on {decision.get('decided_at', '?')[:16].replace('T', ' ')}")
+                    if decision.get("youtube_url"):
+                        line += f" — [watch]({decision['youtube_url']})"
+                    st.markdown(line)
+                    if decision.get("comment"):
+                        st.info(f"💬 {decision['comment']}")
+                    if decision.get("previous"):
+                        prev = decision["previous"]
+                        st.caption(f"↩️ previously {prev.get('status')} via {prev.get('source', '?')}"
+                                   + (f" — “{prev['comment']}”" if prev.get("comment") else ""))
+
+                # --- actions ---
+                if clip["state"] == rq.PENDING:
+                    comment = st.text_area(
+                        "Review comment", key=f"lib_cmt_{cid}", height=68,
+                        placeholder="Why this works, or why it doesn't — recorded with either decision.",
+                    )
+                    a1, a2 = st.columns(2, gap="small")
+                    with a1:
+                        if st.button("✅ Approve", key=f"lib_app_{cid}", type="primary"):
+                            rq.record_decision(cid, rq.APPROVED, comment, source="ui")
+                            st.rerun()
+                    with a2:
+                        if st.button("🗑️ Reject", key=f"lib_rej_{cid}"):
+                            rq.record_decision(cid, rq.REJECTED, comment, source="ui")
+                            rq.archive_rejected(cid)
+                            st.rerun()
+                    st.caption(
+                        "Approving records the decision; publishing to YouTube stays a "
+                        "separate, deliberate step."
+                    )
+
+                # Deletion is two-step and separate from rejection: rejecting
+                # archives, because the render cost real API spend and the
+                # comment is the useful part. This is the irreversible one.
+                confirm_key = f"lib_confirm_{cid}"
+                with st.expander("⚠️ Delete permanently"):
+                    st.caption(
+                        "Removes the render, subtitles, thumbnail and metadata from disk. "
+                        "This cannot be undone — reject instead if you only want it out of the way."
+                    )
+                    if st.checkbox("I understand this is permanent", key=confirm_key):
+                        if st.button("Delete forever", key=f"lib_del_{cid}"):
+                            removed = rq.delete_clip(cid, location=clip["location"])
+                            st.warning(f"Deleted {len(removed)} file(s) for {cid}.")
+                            st.rerun()
 
 # =========================================================================
 # TAB 3: LIVE CLICKHOUSE ANALYTICS + PREDICTED-VS-ACTUAL CROSS-VALIDATION

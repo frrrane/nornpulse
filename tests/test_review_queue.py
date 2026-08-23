@@ -10,6 +10,7 @@ reviewer's comment.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -256,3 +257,113 @@ def test_the_email_carries_both_decision_buttons(tmp_path, monkeypatch):
     html = next(p.get_payload(decode=True).decode()
                 for p in msg.walk() if p.get_content_subtype() == "html")
     assert "APPROVE%20clip_1" in html and "REJECT%20clip_1" in html
+
+
+# --------------------------------------------------------------------------
+# Clip discovery
+# --------------------------------------------------------------------------
+
+def _write_clip(out: Path, clip_id: str, meta: dict | None = None):
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{clip_id}_9x16.mp4").write_bytes(b"video")
+    (out / f"{clip_id}_thumb.jpg").write_bytes(b"jpg")
+    if meta is not None:
+        (out / f"{clip_id}_metadata.json").write_text(json.dumps(meta))
+
+
+
+@pytest.fixture
+def library(tmp_path):
+    out = tmp_path / "output_clips"
+    _write_clip(out, "clip_pending", {"hook_title": "Pending One", "virality_score": 70.0})
+    _write_clip(out / "rejected", "clip_gone", {"hook_title": "Rejected One"})
+    _write_clip(out / "published", "clip_live", {"hook_title": "Published One"})
+    return out
+
+
+def test_clips_are_found_across_all_three_locations(library, ledger):
+    """
+    Regression guard. The library globbed output_clips/*_9x16.mp4
+    non-recursively, so the moment rejection began archiving into a
+    subdirectory every archived clip disappeared from the UI — safe on
+    disk, invisible to the user.
+    """
+    found = {c["clip_id"]: c["location"]
+             for c in rq.list_clips(output_dir=library, ledger_path=ledger)}
+    assert found == {"clip_pending": "staged", "clip_gone": "rejected",
+                     "clip_live": "published"}
+
+
+def test_state_comes_from_the_ledger_not_the_directory(library, ledger):
+    """
+    The ledger records intent; the directory only records where a file
+    move happened to land. A move that failed must not rewrite history.
+    """
+    rq.record_decision("clip_pending", rq.REJECTED, "too slow", path=ledger,
+                       mirror_to_clickhouse=False)
+    clip = rq.load_clip("clip_pending", "staged", library, ledger)
+    assert clip["state"] == rq.REJECTED       # despite still sitting in staged/
+    assert clip["location"] == "staged"
+    assert clip["decision"]["comment"] == "too slow"
+
+
+def test_an_undecided_clip_is_pending(library, ledger):
+    assert rq.load_clip("clip_pending", "staged", library, ledger)["state"] == rq.PENDING
+
+
+def test_sidecar_metadata_is_attached(library, ledger):
+    clip = rq.load_clip("clip_pending", "staged", library, ledger)
+    assert clip["metadata"]["hook_title"] == "Pending One"
+    assert clip["thumbnail_path"].endswith("clip_pending_thumb.jpg")
+    assert clip["size_mb"] >= 0
+
+
+def test_a_clip_without_metadata_still_lists(library, ledger):
+    """Older renders predate the sidecar; they must not vanish from the library."""
+    _write_clip(library, "clip_bare", None)
+    clip = rq.load_clip("clip_bare", "staged", library, ledger)
+    assert clip is not None and clip["metadata"] == {}
+
+
+def test_corrupt_metadata_degrades_to_the_render(library, ledger):
+    (library / "clip_pending_metadata.json").write_text("{ broken")
+    clip = rq.load_clip("clip_pending", "staged", library, ledger)
+    assert clip is not None and clip["metadata"] == {}
+
+
+def test_load_clip_returns_none_when_the_render_is_missing(library, ledger):
+    assert rq.load_clip("nope", "staged", library, ledger) is None
+
+
+def test_filtering_by_state(library, ledger):
+    rq.record_decision("clip_live", rq.APPROVED, path=ledger, mirror_to_clickhouse=False)
+    approved = rq.list_clips(rq.APPROVED, output_dir=library, ledger_path=ledger)
+    assert [c["clip_id"] for c in approved] == ["clip_live"]
+    assert len(rq.list_clips(rq.PENDING, output_dir=library, ledger_path=ledger)) == 2
+
+
+def test_state_counts_add_up(library, ledger):
+    rq.record_decision("clip_live", rq.APPROVED, path=ledger, mirror_to_clickhouse=False)
+    counts = rq.state_counts(output_dir=library, ledger_path=ledger)
+    assert counts[rq.APPROVED] == 1 and counts[rq.PENDING] == 2
+
+
+def test_a_clip_present_in_two_places_is_listed_once(library, ledger):
+    """A stale staged copy left behind by a partial move must not double up."""
+    _write_clip(library, "clip_live", {"hook_title": "Published One"})
+    ids = [c["clip_id"] for c in rq.list_clips(output_dir=library, ledger_path=ledger)]
+    assert ids.count("clip_live") == 1
+
+
+def test_delete_removes_every_artifact(library):
+    removed = rq.delete_clip("clip_pending", "staged", library)
+    assert len(removed) == 3
+    assert not (library / "clip_pending_9x16.mp4").exists()
+    assert not (library / "clip_pending_thumb.jpg").exists()
+
+
+def test_delete_targets_the_right_directory(library):
+    rq.delete_clip("clip_gone", "rejected", library)
+    assert not (library / "rejected" / "clip_gone_9x16.mp4").exists()
+    # The staged clip is untouched.
+    assert (library / "clip_pending_9x16.mp4").exists()

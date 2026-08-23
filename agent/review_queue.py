@@ -187,3 +187,132 @@ def archive_published(clip_id: str, output_dir: Path = OUTPUT_DIR) -> List[str]:
     with no way to re-check what was actually published.
     """
     return _move_artifacts(clip_id, output_dir / PUBLISHED_DIR.name, output_dir)
+
+
+# ---------------------------------------------------------------------------
+# Discovery — one view over renders, sidecar metadata, and decisions
+# ---------------------------------------------------------------------------
+# Clips live in three places: output_clips/ (rendered, not yet decided),
+# output_clips/rejected/ and output_clips/published/. The dashboard needs
+# them as one list annotated with what was decided and why, which means
+# joining three sources: the file on disk, the sidecar JSON Verðandi wrote
+# beside it, and this module's ledger.
+
+PENDING = "pending"
+
+_LOCATIONS = {
+    "staged": None,               # the output dir itself
+    "rejected": REJECTED_DIR.name,
+    "published": PUBLISHED_DIR.name,
+}
+
+_THUMB_SUFFIXES = ("_thumb.jpg", "_thumb.png")
+
+
+def _clip_dir(location: str, output_dir: Path) -> Path:
+    sub = _LOCATIONS.get(location)
+    return output_dir if sub is None else output_dir / sub
+
+
+def load_clip(clip_id: str, location: str = "staged",
+              output_dir: Path = OUTPUT_DIR,
+              ledger_path: Path = LEDGER_PATH) -> Optional[Dict[str, Any]]:
+    """
+    Everything known about one clip: its render, its generation metadata,
+    and the human decision recorded against it.
+
+    `state` is taken from the ledger when there is a decision, because the
+    ledger is the record of intent; the directory only reflects where the
+    files happened to be moved, and a failed move would otherwise silently
+    rewrite history.
+    """
+    directory = _clip_dir(location, output_dir)
+    video = directory / f"{clip_id}_9x16.mp4"
+    if not video.exists():
+        return None
+
+    metadata: Dict[str, Any] = {}
+    sidecar = directory / f"{clip_id}_metadata.json"
+    if sidecar.exists():
+        try:
+            metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Sidecar metadata for {clip_id} unreadable ({e}); showing the render alone.")
+
+    thumbnail = next(
+        (str(directory / f"{clip_id}{suffix}") for suffix in _THUMB_SUFFIXES
+         if (directory / f"{clip_id}{suffix}").exists()), None)
+
+    decision = get_decision(clip_id, path=ledger_path)
+    return {
+        "clip_id": clip_id,
+        "location": location,
+        "state": (decision or {}).get("status") or PENDING,
+        "video_path": str(video),
+        "thumbnail_path": thumbnail,
+        "size_mb": round(video.stat().st_size / 1048576, 1),
+        "modified_at": datetime.fromtimestamp(video.stat().st_mtime, timezone.utc),
+        "metadata": metadata,
+        "decision": decision,
+    }
+
+
+def list_clips(state: Optional[str] = None, output_dir: Path = OUTPUT_DIR,
+               ledger_path: Path = LEDGER_PATH) -> List[Dict[str, Any]]:
+    """
+    Every rendered clip across all three locations, newest first.
+
+    Deliberately not a recursive glob over output_dir: that would also
+    sweep up unrelated renders (unit-test fixtures, one-off experiments)
+    living in subdirectories, and it would lose the location distinction
+    the dashboard needs.
+    """
+    clips: List[Dict[str, Any]] = []
+    seen: set = set()
+    for location in _LOCATIONS:
+        directory = _clip_dir(location, output_dir)
+        if not directory.is_dir():
+            continue
+        for video in sorted(directory.glob("*_9x16.mp4")):
+            clip_id = video.name[: -len("_9x16.mp4")]
+            # A clip archived while a stale copy remains staged should be
+            # shown once, in the place its decision put it.
+            if clip_id in seen:
+                continue
+            clip = load_clip(clip_id, location, output_dir, ledger_path)
+            if clip:
+                seen.add(clip_id)
+                clips.append(clip)
+
+    clips.sort(key=lambda c: c["modified_at"], reverse=True)
+    return [c for c in clips if state is None or c["state"] == state]
+
+
+def state_counts(output_dir: Path = OUTPUT_DIR,
+                 ledger_path: Path = LEDGER_PATH) -> Dict[str, int]:
+    counts = {PENDING: 0, APPROVED: 0, REJECTED: 0}
+    for clip in list_clips(output_dir=output_dir, ledger_path=ledger_path):
+        counts[clip["state"]] = counts.get(clip["state"], 0) + 1
+    return counts
+
+
+def delete_clip(clip_id: str, location: str = "staged",
+                output_dir: Path = OUTPUT_DIR) -> List[str]:
+    """
+    Permanently remove a clip's artifacts.
+
+    Kept separate from rejection on purpose: rejecting archives, because a
+    render costs real API spend and its comment is the useful part. This is
+    the deliberate, irreversible version, and the dashboard asks twice.
+    """
+    directory = _clip_dir(location, output_dir)
+    removed = []
+    for suffix in _ARTIFACT_SUFFIXES:
+        path = directory / f"{clip_id}{suffix}"
+        if path.exists():
+            try:
+                path.unlink()
+                removed.append(path.name)
+            except OSError as e:
+                logger.warning(f"Could not delete {path.name}: {e}")
+    return removed
