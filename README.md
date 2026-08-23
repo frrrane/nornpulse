@@ -202,6 +202,16 @@ The session restarts automatically if the subprocess dies or if any `CLICKHOUSE_
 
 Calls are serialised through one session, so a long materialisation blocks reads behind it. Streamlit reruns are sequential, so this hasn't mattered in practice.
 
+## 🧾 Decision provenance
+
+Every clip carries a **How this was decided** panel listing each choice the pipeline made and the basis for it, at one of three levels:
+
+- **Measured** — read from the materialised global facts, within this channel's size band, with a sample size attached. Hook, captions and the reach forecast.
+- **Seeded prior** — from a hand-written benchmark table. Framing, camera motion, colour grade and score. The public dataset has no visual or audio features, so there is nothing external to measure these against, and the panel says so rather than letting them sit next to the measured figures looking equally solid.
+- **Model judgement** — Verðandi's reading of this specific transcript. The cut.
+
+A typical clip is 3 measured, 4 assumed, 1 model. That ratio is the honest state of the system, and showing it is more useful than implying everything is grounded.
+
 ## 🔒 Public demo mode
 
 The Devpost submission needs a URL a judge can open, which means `--allow-unauthenticated`. `NORNPULSE_DEMO_MODE=1` (set by `deploy_cloud_run.sh`, off by default locally) closes off everything that writes or spends:
@@ -261,7 +271,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-295 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, Verðandi's duration/window clamp and metadata reconciliation, the HITL staging email's MIME structure and HTML escaping, the review-decision ledger, the global-grounding accessors' stratification and degradation paths, and the persistent MCP session's reuse, restart and fallback logic. They need no API keys, no ClickHouse, no FFmpeg and no SMTP connection, and run in about ten seconds.
+309 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, Verðandi's duration/window clamp and metadata reconciliation, the HITL staging email's MIME structure and HTML escaping, the review-decision ledger, the global-grounding accessors' stratification and degradation paths, and the persistent MCP session's reuse, restart and fallback logic. They need no API keys, no ClickHouse, no FFmpeg and no SMTP connection, and run in about ten seconds.
 
 Several cases are regression guards for bugs found by live testing: caption overlap, the crop-before-blur ordering in `blurred_background`, the `split=2` rule for named filter pads, `ORDER BY` binding to only the last `SELECT` of a `UNION ALL`, a clamp that could emit an end timestamp *before* its start when the model requested a range outside the user's Cut Range, and metadata reconciliation silently dropping every render field it didn't list by name.
 

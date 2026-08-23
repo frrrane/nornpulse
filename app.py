@@ -22,6 +22,7 @@ from agent.skuld_renderer import get_video_duration_seconds, format_seconds_to_m
 from agent.norn_publisher import NornPublisher, PublishError
 from agent import review_queue as rq
 from agent import global_benchmarks as gb
+from agent import provenance as pv
 from agent import trending_ingest as ti
 from utils.ingest import download_youtube_video, list_playlist_video_urls, get_youtube_duration
 from utils.transcribe import get_or_create_transcript
@@ -66,6 +67,13 @@ st.markdown("""
     }
 
     .stApp { background: var(--well); }
+
+    /* layout="wide" is right for the charts on Intelligence and wrong for
+       everything else: a full-width paragraph on a 27" display runs past
+       any comfortable measure, and the vertical Create form would stretch
+       its inputs the whole way across. A cap keeps prose readable while
+       still leaving charts room. */
+    .block-container { max-width: 1180px; padding-top: 2.2rem; }
     html, body, [class*="css"] {
         font-family: var(--body); color: var(--bone); font-size: 0.97rem;
     }
@@ -298,6 +306,59 @@ def demo_banner() -> None:
         "disabled — the clips below were produced by this pipeline before deployment.",
         icon="🔒",
     )
+
+
+# Provenance colours: measured evidence and a seeded assumption must not
+# look alike. Mint is already reserved in the palette for things that were
+# measured, so it carries over here; copper marks a human/model call, and
+# a muted tone marks an assumption so it reads as weaker at a glance
+# rather than only on reading.
+_PROVENANCE_STYLE = {
+    pv.MEASURED: ("var(--thread)", "◆"),
+    pv.PRIOR:    ("var(--bone-dim)", "○"),
+    pv.MODEL:    ("var(--copper)", "◇"),
+}
+
+
+def render_provenance(clip_meta: dict, key: str) -> None:
+    """
+    Show where each decision behind a clip came from.
+
+    The pipeline makes seven or eight choices per clip and used to present
+    them as a flat list of values, which gave a hook ranked against 9,100
+    real videos exactly the same weight as a colour grade read out of a
+    sixteen-row table someone typed. Those are different claims.
+    """
+    decisions = pv.decisions_for_clip(
+        clip_meta, subscribers=int(st.session_state.channel_subs),
+        facts=_cached_global_facts())
+    if not decisions:
+        return
+
+    counts = pv.grounding_summary(decisions)
+    with st.expander(
+        f"How this was decided — {counts[pv.MEASURED]} measured, "
+        f"{counts[pv.PRIOR]} assumed, {counts[pv.MODEL]} model", expanded=False
+    ):
+        for d in decisions:
+            colour, mark = _PROVENANCE_STYLE.get(d.level, ("var(--bone-dim)", "·"))
+            sample = (f" · <span style='font-family:var(--data);'>n={d.sample:,}</span>"
+                      if d.sample else "")
+            st.markdown(
+                f"<div style='margin:.45rem 0 .7rem 0;'>"
+                f"<span style='color:{colour};'>{mark}</span> "
+                f"<strong>{d.step}</strong> — "
+                f"<span style='font-family:var(--data);'>{d.choice}</span> "
+                f"<span style='color:{colour};font-size:.72rem;text-transform:uppercase;"
+                f"letter-spacing:.08em;'>{d.label}</span><br>"
+                f"<span style='color:var(--bone-dim);font-size:.83rem;'>{d.evidence}{sample}</span>"
+                f"</div>", unsafe_allow_html=True)
+        st.caption(
+            "Measured figures come from the materialised global facts, read within this "
+            "channel's size band. Assumed ones come from seeded benchmark tables — the "
+            "public dataset carries no visual or audio features, so framing, motion, "
+            "colour and score have nothing external to be measured against."
+        )
 
 
 PIPELINE_STAGES = [
@@ -587,12 +648,15 @@ def page_home():
 def page_create():
     """Ingest a source, set the controls, run the pipeline."""
     demo_banner()
-    col_left, col_mid, col_right = st.columns(3, gap="medium")
 
-    # --- COLUMN 1: Source Video & Ingestion ---
-    with col_left:
-        st.markdown("<div class='workflow-header'>1️⃣ Source Video Ingestion</div>", unsafe_allow_html=True)
-        yt_url = st.text_input("YouTube Video Source:", key="yt_url")
+    # --- 1. Source ---
+    with st.container():
+        st.markdown("<div class='workflow-header'>1️⃣ Source<span class='eyebrow'>a link, or a file from anywhere</span></div>", unsafe_allow_html=True)
+        yt_url = st.text_input(
+            "Video link", key="yt_url",
+            placeholder="Paste a video URL — or upload a file below",
+            help="Any link yt-dlp can resolve. NornPulse works on the video, "
+                 "not on where it came from.")
         active_video_path = None
 
         if yt_url:
@@ -631,7 +695,7 @@ def page_create():
                 try:
                     active_video_path = cached_download(yt_url, download_time_range)
                     if active_video_path and os.path.exists(active_video_path):
-                        st.video(active_video_path)
+                        st.video(active_video_path, width=440)
                         if download_time_range:
                             st.caption(
                                 f"✂️ Downloaded {format_seconds_to_mmss(download_time_range[0])}–"
@@ -715,9 +779,10 @@ def page_create():
             for pub in reversed(st.session_state.recently_published[-5:]):
                 st.markdown(f"🔗 [{pub['title']}]({pub['url']}) · `{pub['privacy_status']}`")
 
-    # --- COLUMN 2: Compact Transcript, Style, & Execution Controls ---
-    with col_mid:
-        st.markdown("<div class='workflow-header'>2️⃣ Compact Transcript & Controls</div>", unsafe_allow_html=True)
+    # --- 2. Transcript and controls ---
+    st.divider()
+    with st.container():
+        st.markdown("<div class='workflow-header'>2️⃣ Transcript &amp; controls</div>", unsafe_allow_html=True)
 
         if active_video_path and os.path.exists(active_video_path):
             @st.cache_data(show_spinner=True)
@@ -745,7 +810,10 @@ def page_create():
                 "Works well for silent/instrumental sources; adds upload + processing latency."
             )
 
-        target_clips = st.slider("Target Iteration Count", min_value=1, max_value=3, value=1)
+        target_clips = st.slider(
+            "Clips to generate", min_value=1, max_value=3, value=1,
+            help="Verðandi picks this many distinct moments from the transcript. "
+                 "Each one costs a full pipeline run.")
 
         st.markdown("<div class='workflow-header'>🎨 Caption Style</div>", unsafe_allow_html=True)
         warmth = st.slider(
@@ -911,12 +979,21 @@ def page_create():
                 progress_placeholder.empty()
                 st.error(f"Pipeline execution failed: {e}")
 
-    # --- COLUMN 3: Generated Output Preview & Publishing ---
-    with col_right:
-        st.markdown("<div class='workflow-header'>3️⃣ Review & Publish</div>", unsafe_allow_html=True)
+    # --- 3. What this run produced ---
+    # Deliberately not a second review queue: this is the immediate result
+    # of the run you just started, with its forecast. Everything ever
+    # generated, and every decision made, lives on the Review page.
+    st.divider()
+    with st.container():
+        st.markdown("<div class='workflow-header'>3️⃣ This run's output"
+                    "<span class='eyebrow'>every clip and decision lives on the Review page</span>"
+                    "</div>", unsafe_allow_html=True)
 
         if not st.session_state.current_generation:
-            st.info("No active generated shorts to review yet. Run the pipeline from column 2.")
+            st.markdown(
+                "<p style='color:var(--bone-dim);'>Nothing generated in this session yet. "
+                "Set a source above and run the pipeline — clips appear here as they finish, "
+                "and stay on the Review page afterwards.</p>", unsafe_allow_html=True)
         else:
             output_dir = Path("output_clips")
 
@@ -1024,6 +1101,8 @@ def page_create():
                     st.warning(f"⚠️ **{hook_type}** ranks #{hook_rank} in Urðr's benchmarks — top pick was **{top_hook}**")
                 else:
                     st.caption(f"Hook type: {hook_type} (not found in Urðr's benchmark taxonomy)")
+
+                render_provenance(item, key=f"prov_run_{c_id}")
 
                 similar_df = _cached_similar_shorts(st.session_state.verdandi_adk.urdr, hook_type)
                 if not similar_df.empty:
@@ -1261,6 +1340,8 @@ def page_review():
                         "Approving records the decision; publishing to YouTube stays a "
                         "separate, deliberate step."
                     )
+
+                render_provenance(meta, key=f"prov_lib_{cid}")
 
                 # Deletion is two-step and separate from rejection: rejecting
                 # archives, because the render cost real API spend and the
