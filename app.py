@@ -257,6 +257,49 @@ def fate_thread(p10: float, p50: float, p90: float,
     </div>"""
 
 
+# =========================================================================
+# DEMO MODE
+# =========================================================================
+# The submission needs a URL a judge can open, which means --allow-
+# unauthenticated. Everything that writes or spends therefore has to be
+# closed off: the SQL console runs user SQL with write access enabled and
+# remoteSecure() available, and every generate button spends real Gemini,
+# Lyria and Imagen credit with no ceiling.
+#
+# The point is not to hide the product. A judge sees every page, every
+# chart, every grounded decision and every clip already produced — only
+# the actions that would write to ClickHouse, call a paid API or touch
+# YouTube are stood down, each saying so where it stands.
+DEMO_MODE = os.getenv("NORNPULSE_DEMO_MODE", "0").lower() in ("1", "true", "yes")
+
+
+def demo_locked(label: str, explanation: str, key: str) -> bool:
+    """
+    Render a disabled action that explains itself, or the real control.
+
+    Returns True only when the action should proceed, so call sites read
+    `if demo_locked(...)` in place of `if st.button(...)` and cannot
+    accidentally run the body.
+    """
+    if not DEMO_MODE:
+        return False
+    st.button(label, key=key, disabled=True, help=explanation)
+    st.caption(f"🔒 {explanation}")
+    return True
+
+
+def demo_banner() -> None:
+    if not DEMO_MODE:
+        return
+    st.info(
+        "**Read-only demo.** Every page, chart and grounded decision is live against the "
+        "real ClickHouse warehouse and the 4.56-billion-row public dataset. Actions that "
+        "would write to the database, spend model credit or publish to YouTube are "
+        "disabled — the clips below were produced by this pipeline before deployment.",
+        icon="🔒",
+    )
+
+
 PIPELINE_STAGES = [
     ("urdr", "🔮 Urðr"),
     ("upload", "📤 Upload"),
@@ -451,6 +494,7 @@ def page_home():
     global data, so that is what the first screen shows, with the clips
     already produced as the proof and a single obvious way to make more.
     """
+    demo_banner()
     facts = _cached_global_facts()
     subs = int(st.session_state.channel_subs)
     band = gb.size_band_for(subs)
@@ -542,6 +586,7 @@ def page_home():
 
 def page_create():
     """Ingest a source, set the controls, run the pipeline."""
+    demo_banner()
     col_left, col_mid, col_right = st.columns(3, gap="medium")
 
     # --- COLUMN 1: Source Video & Ingestion ---
@@ -614,7 +659,9 @@ def page_create():
                 "🌐 Translate Captions (optional)", key="batch_caption_language",
                 placeholder="e.g. English — leave blank to keep the source language",
             ).strip() or None
-            if st.button("🗂️ Run Batch", key="run_batch"):
+            if demo_locked("🗂️ Run Batch", 'Runs the real pipeline against paid Gemini, Lyria and Imagen APIs — disabled on the public demo.', "run_batch_locked"):
+                pass
+            elif st.button("🗂️ Run Batch", key="run_batch"):
                 if not batch_url:
                     st.error("Enter a channel or playlist URL first.")
                 else:
@@ -790,7 +837,16 @@ def page_create():
                      "itself is still always enforced.",
             )
 
-        generate_clicked = st.button("⚡ EXECUTE PIPELINE", type="primary")
+        generate_clicked = (
+            False
+            if demo_locked(
+                "⚡ EXECUTE PIPELINE",
+                "Runs the real pipeline against paid Gemini, Lyria and Imagen APIs "
+                "— disabled on the public demo.",
+                "execute_locked",
+            )
+            else st.button("⚡ EXECUTE PIPELINE", type="primary")
+        )
 
         if generate_clicked and not active_video_path:
             st.error("No video loaded — check the YouTube URL in Column 1.")
@@ -1011,7 +1067,9 @@ def page_create():
 
                 b1, b2 = st.columns(2, gap="small")
                 with b1:
-                    if st.button("🚀 Publish", key=f"pub_{c_id}", type="primary"):
+                    if demo_locked("🚀 Publish", 'Publishes to a real YouTube channel — disabled on the public demo.', f"pub_locked_{c_id}"):
+                        pass
+                    elif st.button("🚀 Publish", key=f"pub_{c_id}", type="primary"):
                         with st.spinner("Publishing..."):
                             try:
                                 result = st.session_state.publisher.upload_to_youtube_shorts(
@@ -1067,7 +1125,9 @@ def page_create():
                             except PublishError as e:
                                 st.error(f"❌ Publish failed: {e}")
                 with b2:
-                    if st.button("🗑️ Reject", key=f"rej_{c_id}"):
+                    if demo_locked("🗑️ Reject", 'Writes to the shared ClickHouse warehouse — disabled on the public demo.', f"rej_locked_{c_id}"):
+                        pass
+                    elif st.button("🗑️ Reject", key=f"rej_{c_id}"):
                         rq.record_decision(c_id, rq.REJECTED, comment, source="ui")
                         moved = rq.archive_rejected(c_id)
                         st.session_state.current_generation.pop(idx)
@@ -1081,6 +1141,7 @@ def page_create():
 
 def page_review():
     """The durable queue: every clip and the decision against it."""
+    demo_banner()
     st.markdown("<div class='workflow-header'>📚 Review Queue & Library</div>", unsafe_allow_html=True)
 
     # One view over three directories plus the decision ledger. The old
@@ -1184,11 +1245,15 @@ def page_review():
                     )
                     a1, a2 = st.columns(2, gap="small")
                     with a1:
-                        if st.button("✅ Approve", key=f"lib_app_{cid}", type="primary"):
+                        if demo_locked("✅ Approve", 'Writes to the shared ClickHouse warehouse — disabled on the public demo.', f"lib_app_locked_{cid}"):
+                            pass
+                        elif st.button("✅ Approve", key=f"lib_app_{cid}", type="primary"):
                             rq.record_decision(cid, rq.APPROVED, comment, source="ui")
                             st.rerun()
                     with a2:
-                        if st.button("🗑️ Reject", key=f"lib_rej_{cid}"):
+                        if demo_locked("🗑️ Reject", 'Writes to the shared ClickHouse warehouse — disabled on the public demo.', f"lib_rej_locked_{cid}"):
+                            pass
+                        elif st.button("🗑️ Reject", key=f"lib_rej_{cid}"):
                             rq.record_decision(cid, rq.REJECTED, comment, source="ui")
                             rq.archive_rejected(cid)
                             st.rerun()
@@ -1207,7 +1272,9 @@ def page_review():
                         "This cannot be undone — reject instead if you only want it out of the way."
                     )
                     if st.checkbox("I understand this is permanent", key=confirm_key):
-                        if st.button("Delete forever", key=f"lib_del_{cid}"):
+                        if demo_locked("Delete forever", 'Permanently deletes files — disabled on the public demo.', f"lib_del_locked_{cid}"):
+                            pass
+                        elif st.button("Delete forever", key=f"lib_del_{cid}"):
                             removed = rq.delete_clip(cid, location=clip["location"])
                             st.warning(f"Deleted {len(removed)} file(s) for {cid}.")
                             st.rerun()
@@ -1216,6 +1283,7 @@ def page_review():
 
 def page_intelligence():
     """ClickHouse analytics and the global grounding."""
+    demo_banner()
     st.markdown("<div class='workflow-header'>📊 Live ClickHouse Analytics Hub</div>", unsafe_allow_html=True)
 
     urdr = st.session_state.verdandi_adk.urdr
@@ -1485,7 +1553,9 @@ def page_intelligence():
     if outcomes_df.empty:
         st.info("Publish a short from Tab 1 to start collecting real outcomes here.")
     else:
-        if st.button("🔄 Sync Actual Performance"):
+        if demo_locked("🔄 Sync Actual Performance", 'Publishes to a real YouTube channel — disabled on the public demo.', "sync_locked"):
+            pass
+        elif st.button("🔄 Sync Actual Performance"):
             with st.spinner("Pulling live stats from YouTube..."):
                 synced, failed = 0, 0
                 for video_id in outcomes_df["youtube_video_id"].unique():
@@ -1625,20 +1695,27 @@ def page_intelligence():
             },
         )
 
-    with st.expander("🔎 SQL Query Console"):
-        default_query = (
-            "SELECT hook_type, avg(virality_score) AS avg_virality\n"
-            "FROM video_hook_retention\n"
-            "GROUP BY hook_type\n"
-            "ORDER BY avg_virality DESC"
+    if DEMO_MODE:
+        st.caption(
+            "🔒 The SQL console is disabled on the public demo. It runs user-supplied SQL "
+            "against the shared warehouse with write access enabled, which is not something "
+            "to expose on an unauthenticated URL."
         )
-        user_query = st.text_area("Run a custom ClickHouse query:", value=default_query, height=90)
-        if st.button("▶️ Execute Query"):
-            try:
-                result_df = urdr.execute_custom_query(user_query)
-                st.dataframe(result_df, width='stretch')
-            except Exception as e:
-                st.error(f"Query failed: {e}")
+    else:
+        with st.expander("🔎 SQL Query Console"):
+            default_query = (
+                "SELECT hook_type, avg(virality_score) AS avg_virality\n"
+                "FROM video_hook_retention\n"
+                "GROUP BY hook_type\n"
+                "ORDER BY avg_virality DESC"
+            )
+            user_query = st.text_area("Run a custom ClickHouse query:", value=default_query, height=90)
+            if st.button("▶️ Execute Query"):
+                try:
+                    result_df = urdr.execute_custom_query(user_query)
+                    st.dataframe(result_df, width='stretch')
+                except Exception as e:
+                    st.error(f"Query failed: {e}")
 
 # =========================================================================
 # NAVIGATION

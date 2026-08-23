@@ -10,6 +10,14 @@
 # their values never appear in the service config, the deploy command, or
 # shell history, and rotating a key doesn't require a redeploy.
 #
+# NORNPULSE_DEMO_MODE=1 is not optional on a public URL. The submission
+# requires --allow-unauthenticated, and without demo mode an anonymous
+# visitor can run the SQL console (user SQL, write access enabled,
+# remoteSecure available) and spend unmetered Gemini/Lyria/Imagen credit
+# from the generate buttons. Demo mode leaves every page, chart and
+# grounded decision fully live and stands down only the actions that
+# write, spend, or publish.
+#
 # Region matches the ClickHouse Cloud instance (europe-west2). Each page load
 # makes several ClickHouse round-trips, so a cross-region hop is paid many
 # times over.
@@ -40,6 +48,7 @@ gcloud run deploy "$SERVICE" \
   --set-env-vars="CLICKHOUSE_SECURE=true" \
   --set-env-vars="CLICKHOUSE_DATABASE=default" \
   --set-env-vars="CLICKHOUSE_MCP_QUERY_TIMEOUT=180" \
+  --set-env-vars="NORNPULSE_DEMO_MODE=1" \
   --set-env-vars="CAPTION_FONT=Roboto Black" \
   --set-env-vars="GMAIL_USER=franeppotrc@gmail.com" \
   --set-env-vars="NOTIFY_EMAIL=franeppotrc@gmail.com" \
