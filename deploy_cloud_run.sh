@@ -18,15 +18,20 @@
 # grounded decision fully live and stands down only the actions that
 # write, spend, or publish.
 #
-# Region matches the ClickHouse Cloud instance (europe-west2). Each page load
-# makes several ClickHouse round-trips, so a cross-region hop is paid many
-# times over.
+# Region is europe-west1, not europe-west2 where ClickHouse lives, because
+# Cloud Run refuses to create domain mappings in europe-west2:
+#   "Creating domain mappings is not allowed in europe-west2" (501)
+# Belgium is ~10ms from London, which is negligible against the ~0.35s a
+# ClickHouse query costs through the persistent MCP session, and it is the
+# nearest region that can host nornpulse.nornlabs.ai without a load
+# balancer. Check with:
+#   gcloud beta run domain-mappings list --region=REGION
 #
 # Usage:  ./deploy_cloud_run.sh
 set -euo pipefail
 
 PROJECT=norn-labs
-REGION=europe-west2
+REGION=europe-west1
 SERVICE=nornpulse
 
 # concurrency is deliberately low and memory high: a render shells out to
