@@ -168,7 +168,30 @@ def _windows(run: List[str]) -> List[str]:
     return out
 
 
-def candidate_terms(clip: Dict[str, Any], extra_text: str = "") -> List[str]:
+def declared_hints(profile_hints: Sequence[str]) -> List[str]:
+    """
+    Channel-level descriptors the owner declared, normalised.
+
+    These are not derived from the clip, so they are never eligible for
+    MEASURED however widely they trend: the trending snapshot establishes
+    that a term is in circulation, not that this video is about it. A
+    channel-brand tag is the owner asserting something about their own
+    channel, which is a PRIOR — the same status as any other hand-written
+    assumption in this system.
+
+    They also bypass the minimum length, because a declared acronym like
+    "ai" is a real tag that the generic floor would silently discard.
+    """
+    out: List[str] = []
+    for hint in profile_hints:
+        term = " ".join(normalise(str(hint)).replace("_", " ").split())
+        if term and len(term) <= MAX_TAG_LEN and term not in out:
+            out.append(term)
+    return out
+
+
+def candidate_terms(clip: Dict[str, Any], extra_text: str = "",
+                    profile_hints: Sequence[str] = ()) -> List[str]:
     """
     Terms the clip is demonstrably about, in descending order of authority.
 
@@ -194,6 +217,7 @@ def candidate_terms(clip: Dict[str, Any], extra_text: str = "") -> List[str]:
     push(clip.get("topic_category"))
     for explicit in clip.get("tags") or []:
         push(explicit)
+
 
     for phrase in _phrases(str(clip.get("hook_title") or "")):
         push(phrase)
@@ -273,6 +297,7 @@ def select_tags(
     trending: Optional[pd.DataFrame] = None,
     limit: int = MAX_TAGS,
     extra_text: str = "",
+    profile_hints: Sequence[str] = (),
 ) -> Tuple[List[str], List[pv.Decision]]:
     """
     Pick this clip's tags, with a provenance record for each.
@@ -332,6 +357,23 @@ def select_tags(
             choice=term,
             level=pv.MODEL,
             evidence="describes this clip; not present in the current trending snapshot",
+        ))
+
+    # Declared channel descriptors, after everything the clip itself
+    # justified, and never dressed up as measured evidence.
+    chosen = {normalise(t) for t in tags}
+    for term in declared_hints(profile_hints):
+        if len(tags) >= budget or not _fits(tags, term):
+            break
+        if term in chosen:
+            continue
+        chosen.add(term)
+        tags.append(term)
+        decisions.append(pv.Decision(
+            step="Tag",
+            choice=term,
+            level=pv.PRIOR,
+            evidence="declared for this channel, not derived from this clip",
         ))
 
     for term in STRUCTURAL_TAGS:

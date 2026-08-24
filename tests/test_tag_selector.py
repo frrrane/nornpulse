@@ -168,3 +168,49 @@ def test_empty_clip_falls_back_to_structural_only():
 @pytest.mark.parametrize("field", ["hook_title", "social_caption"])
 def test_none_fields_do_not_raise(field):
     ts.select_tags({"clip_id": "c6", field: None}, trending=TRENDING)
+
+
+# --- channel-declared hints -----------------------------------------------
+
+HINTS = ["funny", "comedy", "ai"]
+
+
+def test_declared_hints_are_prior_never_measured():
+    """
+    A channel-brand tag is the owner asserting something about their own
+    channel. The trending snapshot can say a term is in circulation; it
+    cannot say this video is about it. Labelling "funny" as measured on a
+    science clip would be exactly the overstatement this module avoids.
+    """
+    _tags, decisions = ts.select_tags(
+        SCIENCE_CLIP, trending=TRENDING, profile_hints=HINTS)
+    funny = next(d for d in decisions if d.choice == "funny")
+    assert funny.level == pv.PRIOR
+    assert "declared for this channel" in funny.evidence
+
+
+def test_declared_short_acronym_survives_the_length_floor():
+    """MIN_TAG_LEN silently discarded "ai", which is a real tag."""
+    tags, _ = ts.select_tags(SCIENCE_CLIP, trending=TRENDING, profile_hints=HINTS)
+    assert "ai" in tags
+
+
+def test_hints_rank_below_terms_the_clip_justified():
+    tags, _ = ts.select_tags(SCIENCE_CLIP, trending=TRENDING, profile_hints=HINTS)
+    assert tags.index("white hole") < tags.index("funny")
+
+
+def test_hints_do_not_duplicate_a_term_the_clip_already_earned():
+    clip = dict(COMEDY_CLIP)
+    tags, decisions = ts.select_tags(clip, trending=TRENDING, profile_hints=["funny"])
+    assert tags.count("funny") == 1
+    # The clip genuinely is about "funny", so it keeps its measured status.
+    assert next(d for d in decisions if d.choice == "funny").level == pv.MEASURED
+
+
+def test_hints_still_respect_the_character_cap():
+    tags, _ = ts.select_tags(
+        SCIENCE_CLIP, trending=TRENDING,
+        profile_hints=[f"declaredhint{i}" for i in range(40)])
+    assert sum(len(t) for t in tags) + len(tags) <= ts.MAX_TAG_CHARS
+    assert len(tags) <= ts.MAX_TAGS

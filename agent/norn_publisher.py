@@ -325,7 +325,8 @@ class NornPublisher:
             trending = None
         try:
             tags, decisions = ts.select_tags(
-                clip, trending=trending, extra_text=f"{title} {description}")
+                clip, trending=trending, extra_text=f"{title} {description}",
+                profile_hints=self.channel.profile.topic_hints)
         except Exception as e:
             logger.warning(f"Tag selection failed, falling back to structural: {e}")
             return list(ts.STRUCTURAL_TAGS), []
