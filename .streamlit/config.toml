@@ -9,6 +9,11 @@ secondaryBackgroundColor = "#103133"
 textColor = "#EDE6D8"             # bone
 font = "sans serif"
 
+[client]
+# The stock Deploy button and hamburger sit on top of an otherwise fully
+# custom theme and offer a viewer nothing.
+toolbarMode = "minimal"
+
 [server]
 maxUploadSize = 2048
 

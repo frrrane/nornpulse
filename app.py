@@ -317,6 +317,41 @@ def demo_banner() -> None:
 # measured, so it carries over here; copper marks a human/model call, and
 # a muted tone marks an assumption so it reads as weaker at a glance
 # rather than only on reading.
+# Charts were falling back to Plotly's default qualitative palette, which
+# has nothing to do with this app's tokens — a chart is data, and the
+# palette already says what data looks like here. Mint leads because it is
+# the colour reserved for measured values; copper is the human/action
+# accent; the rest extend the same family rather than introducing new hues.
+CHART_COLORS = ["#6FD3C0", "#C8703C", "#93A8A6", "#D9A441", "#4E9E92", "#8F4E29"]
+
+CHART_LAYOUT = dict(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(family="Public Sans, system-ui, sans-serif", color="#EDE6D8", size=12),
+    title_font=dict(family="Bricolage Grotesque, sans-serif", size=15),
+    xaxis=dict(gridcolor="#17403F", zerolinecolor="#17403F"),
+    yaxis=dict(gridcolor="#17403F", zerolinecolor="#17403F"),
+    legend=dict(bgcolor="rgba(0,0,0,0)"),
+    margin=dict(t=48, b=40, l=8, r=8),
+)
+
+
+def styled(fig):
+    """
+    Apply the app's palette and chrome to a Plotly figure.
+
+    title_font is applied only when the figure actually has a title:
+    setting it on an untitled figure makes Plotly render the string
+    "undefined" where the heading would be.
+    """
+    layout = dict(CHART_LAYOUT)
+    title_font = layout.pop("title_font")
+    if getattr(fig.layout.title, "text", None):
+        layout["title_font"] = title_font
+    fig.update_layout(**layout)
+    return fig
+
+
 _PROVENANCE_STYLE = {
     pv.MEASURED: ("var(--thread)", "◆"),
     pv.PRIOR:    ("var(--bone-dim)", "○"),
@@ -449,6 +484,22 @@ def _save_last_session(yt_url: str, transcript: str) -> None:
 @st.cache_data(ttl=30, show_spinner=False)
 def _cached_hook_benchmarks(_urdr):
     return _urdr.get_hook_type_benchmarks()
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _cached_hook_ranking(_urdr, channel_subscribers: int):
+    """
+    The hook ranking exactly as the generator sees it.
+
+    Not the same order as _cached_hook_benchmarks: that frame is sorted by
+    avg_virality_score, and the intelligence summary then reorders it again
+    where measured global data disagrees with the seeded prior. Alignment has
+    to be scored against the list Verðandi actually chose from, or it reports
+    misalignment for a choice that was in fact top-ranked.
+    """
+    summary = _urdr.get_retention_intelligence_summary(
+        channel_subscribers=channel_subscribers)
+    return [t["hook_type"] for t in summary.get("hook_taxonomies", [])]
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -1503,21 +1554,39 @@ def page_intelligence():
 
     benchmarks_df = _cached_hook_benchmarks(urdr)
 
+    # Published count and alignment used to come from session counters, which
+    # meant they read 0 and "—" forever on the read-only demo: nothing
+    # generates or publishes there, so the counters never leave their initial
+    # value. The warehouse already holds the real history, so read that and
+    # keep the session counters only as the offline fallback.
+    outcomes_df = _cached_published_outcomes(urdr)
+
     col_a1, col_a2, col_a3, col_a4, col_a5 = st.columns(5)
     with col_a1: st.metric("ADK Reasoning Engine", "Active 🟢")
-    with col_a2: st.metric("Published Shorts", st.session_state.published_count)
+    with col_a2:
+        if not outcomes_df.empty and "youtube_video_id" in outcomes_df.columns:
+            published = int(outcomes_df["youtube_video_id"].nunique())
+        else:
+            published = st.session_state.published_count
+        st.metric("Published Shorts", published)
     with col_a3:
         avg_retention = float(benchmarks_df["avg_3s_retention"].mean()) if not benchmarks_df.empty else 0.0
         st.metric("Avg. 3s Retention", f"{avg_retention:.1f}%")
     with col_a4:
         st.metric("ClickHouse State", "Connected 🟢" if connected else "Fallback 🟡")
     with col_a5:
-        history = st.session_state.alignment_history
+        history = list(st.session_state.alignment_history)
+        if not history and not outcomes_df.empty and "hook_type" in outcomes_df.columns:
+            # Same rule the generator applies per clip: rank <= 2 counts.
+            ranked = _cached_hook_ranking(urdr, int(st.session_state.channel_subs))
+            top2 = set(ranked[:2])
+            history = [h in top2 for h in outcomes_df["hook_type"].dropna()]
         alignment_rate = (100 * sum(history) / len(history)) if history else None
         st.metric(
             "Grounding Alignment",
             f"{alignment_rate:.0f}%" if alignment_rate is not None else "—",
-            help="Share of generated clips where Verðandi's chosen hook_type ranked in Urðr's top 2 benchmarks.",
+            help="Share of published clips whose chosen hook_type ranked in Urðr's "
+                 "top 2 benchmarks. Clips generated in this session count first.",
         )
 
     if not benchmarks_df.empty:
@@ -1526,10 +1595,11 @@ def page_intelligence():
             x="hook_type",
             y=["avg_3s_retention", "avg_completion_rate"],
             barmode="group",
-            template="plotly_dark",
+            template="plotly_dark", color_discrete_sequence=CHART_COLORS,
+            title="Seeded hook benchmarks · the prior the pipeline chooses from",
             labels={"value": "Percent", "hook_type": "Hook Type", "variable": "Metric"},
         )
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(styled(fig), width='stretch')
 
         # Retention drop-off curve: the README describes Urðr tracking
         # 3s/15s/30s drop-off curves per hook type — this is the first
@@ -1544,11 +1614,11 @@ def page_intelligence():
         curve_fig = px.line(
             curve_df.sort_values("seconds"),
             x="seconds", y="retention_pct", color="hook_type",
-            markers=True, template="plotly_dark",
+            markers=True, template="plotly_dark", color_discrete_sequence=CHART_COLORS,
             title="Retention Drop-Off Curves by Hook Type",
             labels={"seconds": "Seconds into clip", "retention_pct": "Retention %"},
         )
-        st.plotly_chart(curve_fig, width='stretch')
+        st.plotly_chart(styled(curve_fig), width='stretch')
 
         # Observed performance per visual dimension. All three treatments
         # Skuld applies (framing, camera motion, color grade) are now
@@ -1622,12 +1692,12 @@ def page_intelligence():
                 reach_df["bucket"] = pd.Categorical(reach_df["bucket"], order, ordered=True)
                 fig = px.bar(
                     reach_df.sort_values("bucket"), x="bucket", y="median_views",
-                    template="plotly_dark", log_y=True,
+                    template="plotly_dark", color_discrete_sequence=CHART_COLORS, log_y=True,
                     title="Median reach by channel size (4.56B-row dataset)",
                     labels={"bucket": "Subscribers", "median_views": "Median views (log)"},
                 )
                 fig.add_vline(x=order.index(band), line_dash="dash", line_color="#00E5FF")
-                st.plotly_chart(fig, width='stretch')
+                st.plotly_chart(styled(fig), width='stretch')
 
         with g2:
             # Must be filtered to one band: upload_weekday is stratified, so
@@ -1644,11 +1714,11 @@ def page_intelligence():
                 wd["day"] = pd.Categorical(wd["day"], list(names.values()), ordered=True)
                 fig = px.bar(
                     wd.sort_values("day"), x="day", y="median_views",
-                    template="plotly_dark",
+                    template="plotly_dark", color_discrete_sequence=CHART_COLORS,
                     title=f"Median views by upload day · {band} subscribers",
                     labels={"day": "", "median_views": "Median views"},
                 )
-                st.plotly_chart(fig, width='stretch')
+                st.plotly_chart(styled(fig), width='stretch')
                 st.caption(
                     "Within a size band the upload day barely matters — the large "
                     "weekend effect visible across all of YouTube is a channel-size "
@@ -1671,11 +1741,11 @@ def page_intelligence():
             )
         fig = px.bar(
             hooks.sort_values("median_views"), x="median_views", y="bucket",
-            orientation="h", template="plotly_dark", hover_data=["sample_videos"],
+            orientation="h", template="plotly_dark", color_discrete_sequence=CHART_COLORS, hover_data=["sample_videos"],
             title=f"Median views by title hook pattern · {band} subscribers",
             labels={"median_views": "Median views", "bucket": ""},
         )
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(styled(fig), width='stretch')
         st.caption(
             "Sampled across 14 uploader ranges rather than one contiguous block, and "
             "restricted to English-language titles — an unfiltered sample is mostly "
@@ -1702,7 +1772,17 @@ def page_intelligence():
                     "Tags carried by currently-trending videos — real hashtags in circulation now, "
                     "rather than invented ones."
                 )
-                st.dataframe(tags, width='stretch', hide_index=True)
+                st.dataframe(
+                    tags, width='stretch', hide_index=True,
+                    column_config={
+                        "tag": st.column_config.TextColumn("Tag"),
+                        "videos": st.column_config.NumberColumn(
+                            "Videos", format="%d",
+                            help="Trending videos in the snapshot carrying this tag."),
+                        "median_views": st.column_config.NumberColumn(
+                            "Median views", format="%d"),
+                    },
+                )
         else:
             st.caption(
                 "No trending snapshot stored yet. Run `python ingest_trending.py --regions US,GB` "
@@ -1734,12 +1814,13 @@ def page_intelligence():
                     st.caption(f"No {_label.lower()} data recorded yet.")
                 elif len(_df) > 1:
                     st.plotly_chart(
-                        px.bar(
+                        styled(px.bar(
                             _df, x=_dim,
                             y=["avg_3s_retention", "avg_completion_rate", "avg_virality_score"],
                             barmode="group", template="plotly_dark",
+                            color_discrete_sequence=CHART_COLORS,
                             labels={"value": "Score / Percent", _dim: _label, "variable": "Metric"},
-                        ),
+                        )),
                         width='stretch',
                     )
                 else:
@@ -1819,10 +1900,10 @@ def page_intelligence():
             scatter_fig = px.scatter(
                 synced_df, x="predicted_virality_score", y="actual_view_count",
                 color="hook_type", size="actual_view_count", hover_data=["clip_id"],
-                template="plotly_dark", title="Predicted Virality vs. Actual Views",
+                template="plotly_dark", color_discrete_sequence=CHART_COLORS, title="Predicted Virality vs. Actual Views",
                 labels={"predicted_virality_score": "Predicted Virality Score", "actual_view_count": "Actual Views"},
             )
-            st.plotly_chart(scatter_fig, width='stretch')
+            st.plotly_chart(styled(scatter_fig), width='stretch')
         else:
             st.caption("Sync actual performance above once your published clips have real view counts to compare against.")
 
@@ -1859,7 +1940,7 @@ def page_intelligence():
             fig = px.scatter(
                 forecast_df, x="forecast_views_p50", y="actual_view_count",
                 color="hook_type", hover_data=["clip_id", "forecast_views_p90"],
-                template="plotly_dark", log_x=True, log_y=True,
+                template="plotly_dark", color_discrete_sequence=CHART_COLORS, log_x=True, log_y=True,
                 title="Grounded Forecast vs. Actual Views",
                 labels={"forecast_views_p50": "Forecast views (p50, global data)",
                         "actual_view_count": "Actual views"},
@@ -1870,7 +1951,7 @@ def page_intelligence():
                            forecast_df["actual_view_count"].max()))
             fig.add_shape(type="line", x0=lo, y0=lo, x1=hi, y1=hi,
                           line=dict(dash="dash", color="#00E5FF"))
-            st.plotly_chart(fig, width='stretch')
+            st.plotly_chart(styled(fig), width='stretch')
             st.caption(
                 "Points on the dashed line landed exactly where the global data said "
                 "comparable videos land. Above it, the clip beat its cohort."
@@ -1881,21 +1962,47 @@ def page_intelligence():
                 "recorded from the next publish onward."
             )
 
+        # One row per published video, newest first. A clip id can legitimately
+        # appear several times: clip_001 was uploaded seven times during early
+        # testing, and each upload is its own video with its own outcome. The
+        # dedup is per video, not per clip.
         display_df = outcomes_df.copy()
-        display_df["youtube_url"] = display_df["youtube_url"]
+        if "video_unavailable" in display_df.columns:
+            display_df["measurable"] = ~display_df["video_unavailable"].astype(bool)
         st.dataframe(
             display_df[[
                 c for c in [
-                    "clip_id", "hook_type", "predicted_virality_score",
-                    "predicted_3s_retention_pct", "forecast_views_p50",
-                    "actual_view_count", "actual_like_count", "actual_comment_count",
-                    "video_unavailable", "youtube_url", "last_synced_at",
+                    "clip_id", "hook_type", "measurable", "predicted_virality_score",
+                    "forecast_views_p50", "actual_view_count", "actual_like_count",
+                    "actual_comment_count", "youtube_url", "last_synced_at",
                 ] if c in display_df.columns
             ]],
             width='stretch',
+            hide_index=True,
             column_config={
-                "youtube_url": st.column_config.LinkColumn("Video"),
+                "clip_id": st.column_config.TextColumn("Clip", width="medium"),
+                "hook_type": st.column_config.TextColumn("Hook"),
+                "measurable": st.column_config.CheckboxColumn(
+                    "Live", help="Unticked means the video is deleted, private, or was "
+                                 "never published, so it cannot be measured and is "
+                                 "excluded from the charts above."),
+                "predicted_virality_score": st.column_config.NumberColumn(
+                    "Score", format="%.1f",
+                    help="Verðandi's internal 0-100 ranking. Relative, not predictive."),
+                "forecast_views_p50": st.column_config.NumberColumn(
+                    "Forecast", format="%d",
+                    help="Grounded p50 reach, recorded before publishing."),
+                "actual_view_count": st.column_config.NumberColumn("Views", format="%d"),
+                "actual_like_count": st.column_config.NumberColumn("Likes", format="%d"),
+                "actual_comment_count": st.column_config.NumberColumn("Comments", format="%d"),
+                "youtube_url": st.column_config.LinkColumn("Video", display_text="watch"),
+                "last_synced_at": st.column_config.DatetimeColumn(
+                    "Synced", format="YYYY-MM-DD HH:mm"),
             },
+        )
+        st.caption(
+            "A clip id can appear more than once — each row is a separate upload with its "
+            "own outcome, and early testing published some clips repeatedly."
         )
 
     if DEMO_MODE:
