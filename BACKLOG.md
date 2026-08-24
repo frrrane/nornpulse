@@ -22,17 +22,6 @@ submission is **Wed 9 September 2026, 2pm PDT**.
 
 ## Next
 
-- [ ] **Trend-driven sloptok generation.** Read the trending snapshot, pick a
-  topic SlopTokDaily could speak to, write a brief, generate footage, and take
-  it through the existing clip → caption → forecast → publish path. This is the
-  loop that makes the system agentic rather than a tool, and it is the natural
-  home for the comedy profile that already exists in `channels.json`.
-
-  Constraints that shape it: footage must be copyright-clean, so generated
-  (Veo / Grok Imagine) first, with public-domain archives — Internet Archive,
-  NASA, Prelinger, Wikimedia Commons — behind the same interface. Music is
-  already clean via Lyria. Never re-cut trending videos; that is the trap.
-
 - [ ] **Upload cadence.** Six uploads/day maximum (1,600 quota units each
   against 10,000/day). Views need days to mature, so elapsed time is the
   binding constraint — every day without publishing is outcome data that will
@@ -80,6 +69,9 @@ submission is **Wed 9 September 2026, 2pm PDT**.
 - [x] Existing channel history ingestion (`channel_video_history`)
 - [x] Per-channel calibrated reach forecast
 - [x] `publish_file.py` for externally-produced video
+- [x] Trend-driven generation (`agent/trend_loop.py`, `agent/footage.py`,
+      `trend_publish.py`) — planning is free and default; generation is
+      behind an explicit flag because Veo bills per second
 - [x] Forecast calibration scoreboard (`agent/scoreboard.py`) — currently
       reports 0 of 13 gradeable, which is the correct answer until
       forecasts age past the 3-day floor
