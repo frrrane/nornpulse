@@ -201,8 +201,16 @@ def main() -> int:
             "angle": brief.angle,
             "source": "generated",
             "footage_provider": shot.provider,
+            "video_prompt": brief.video_prompt,
             "tags": tags,
         })
+        if not args.no_finish:
+            clip_record["hook_burned"] = finished.get("hook") or ""
+            clip_record["has_narration"] = finished.get("narrated", False)
+        if forecast:
+            clip_record["forecast_p50"] = f"{forecast['p50']:,.0f} views"
+            clip_record["forecast_range"] = (
+                f"{forecast['p10']:,.0f} - {forecast['p90']:,.0f} views")
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         sidecar = OUTPUT_DIR / f"{clip_id}_metadata.json"
         sidecar.write_text(json.dumps(clip_record, indent=2), encoding="utf-8")

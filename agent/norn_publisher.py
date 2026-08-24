@@ -83,6 +83,19 @@ class NornPublisher:
         ("caption_language", "Caption language"),
         ("music_genre", "Music genre"),
         ("music_mood", "Music mood"),
+        # Trend-generated clips have almost none of the fields above: there
+        # is no source video, so no cut range, no crop and no colour grade.
+        # Reviewed without these the email is nearly empty, which tells a
+        # reviewer nothing about the one thing they are being asked to judge.
+        ("trend_topic", "Trending topic"),
+        ("trend_videos", "Trending videos carrying it"),
+        ("angle", "Angle (model judgement)"),
+        ("video_prompt", "Prompt given to the generator"),
+        ("footage_provider", "Footage from"),
+        ("hook_burned", "Burned-in hook"),
+        ("forecast_p50", "Forecast reach (p50)"),
+        ("forecast_range", "Forecast range (p10-p90)"),
+        ("tags", "Tags"),
     ]
 
     # A reply-based decision needs no hosting and no public callback URL,
@@ -101,8 +114,12 @@ class NornPublisher:
         rows = []
         for key, label in NornPublisher._REVIEW_FIELDS:
             value = clip.get(key)
-            if value is None or value == "":
+            if value is None or value == "" or value == []:
                 continue
+            # A list rendered with str() shows its Python repr, brackets and
+            # quotes included, which looks like a bug in an email.
+            if isinstance(value, (list, tuple)):
+                value = ", ".join(str(v) for v in value)
             rows.append((label, str(value)))
         flags = [
             label for key, label in (

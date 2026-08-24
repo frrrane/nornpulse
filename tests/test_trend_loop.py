@@ -179,3 +179,51 @@ def test_json_is_recovered_from_the_shapes_models_actually_return(wrapped):
 def test_json_parsing_gives_up_cleanly():
     assert tl._json_from("no json here") is None
     assert tl._json_from("") is None
+
+
+# --- voice grounding -------------------------------------------------------
+
+def test_voice_reference_reaches_the_prompt(monkeypatch):
+    """
+    Asking a model to "be funny" returns the median of everything it has
+    read, which is polished corporate deadpan. This channel's actual
+    register is chaotic mashups, and it has already demonstrated that in
+    titles with real view counts attached.
+    """
+    seen = {}
+
+    class _Resp:
+        text = json.dumps(BRIEF)
+
+    class _Models:
+        def generate_content(self, **kw):
+            seen["prompt"] = kw.get("contents", "")
+            return _Resp()
+
+    class _Client:
+        def __init__(self, **kw): self.models = _Models()
+
+    import google.genai as genai
+    monkeypatch.setattr(genai, "Client", _Client)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
+
+    tl.write_brief(_Channel(), tl.candidate_topics(TRENDING),
+                   voice=[{"title": "The Sopurranos but it's Cats", "views": 1299}])
+    assert "Sopurranos" in seen["prompt"]
+    assert "1,299" in seen["prompt"]
+
+
+def test_prompt_warns_against_the_deadpan_default(monkeypatch):
+    """A regression guard: this direction was added because output kept
+    converging on boardrooms and unbothered pitchmen."""
+    assert "CORPORATE DEADPAN" in tl._BRIEF_PROMPT
+    assert "boardroom" in tl._BRIEF_PROMPT
+
+
+def test_ip_constraint_survives_the_voice_reference():
+    """
+    The channel's best performers lean heavily on copyrighted characters and
+    real people. Matching its energy must not mean copying that.
+    """
+    assert "no copyrighted characters" in tl._BRIEF_PROMPT
+    assert "no real identifiable people" in tl._BRIEF_PROMPT

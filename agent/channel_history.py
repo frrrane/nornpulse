@@ -266,3 +266,30 @@ def calibration(channel_slug: str, shorts_only: bool = True) -> Optional[Dict[st
         "benchmark_sample_videos": sample_videos,
         "ratio": (actual_median / predicted) if predicted else None,
     }
+
+
+def voice_reference(channel_slug: str, limit: int = 12,
+                    shorts_only: bool = True) -> List[Dict[str, Any]]:
+    """
+    A channel's own best-performing titles, strongest first.
+
+    Written for the trend loop's brief prompt. Asking a model to "be funny"
+    produces the median of everything it has read, which is polished
+    corporate deadpan — and for a channel whose actual voice is chaotic
+    mashups and deliberately mangled names, that is not merely bland, it is
+    off-brand in a way a viewer notices immediately.
+
+    The channel has already answered the question. These are real titles
+    with real view counts attached, so the voice handed to the model is
+    measured rather than assumed, which is the same standard every other
+    decision here is held to.
+    """
+    df = latest_history(channel_slug, shorts_only=shorts_only)
+    if df.empty:
+        return []
+    top = df.nlargest(limit, "view_count")
+    return [
+        {"title": str(r["title"]), "views": int(r["view_count"])}
+        for _, r in top.iterrows()
+        if str(r["title"]).strip()
+    ]

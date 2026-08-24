@@ -156,6 +156,7 @@ CHANNEL
   name: {title}
   what it publishes: {hints}
   tone: {tone}
+{voice}
 
 CURRENTLY TRENDING (measured — tag, how many trending videos carry it, their median views)
 {topics}
@@ -177,20 +178,45 @@ identifiable people, logos, or brands. Describe an original scene.
 and is better than forcing a bad fit.
 
 MAKING IT ACTUALLY FUNNY (if this channel is a comedy channel)
-A cute animal doing a human activity is not a joke. It is a stock image with \
-motion, and it is what every AI video looks like. Do better than that:
-- The humour needs a TURN — something that is one thing for three seconds and \
-then reveals itself as another. Escalation, an unexpected consequence, a \
-reaction shot that recontextualises what came before.
-- Be SPECIFIC. "A dog in a suit" is nothing. "A dog in an ill-fitting suit \
-sweating through a performance review it clearly organised itself" is a joke, \
-because the detail implies a whole situation.
-- The funniest thing on screen should be a BEHAVIOUR, not a costume.
-- Commit to one absurd premise completely and play it dead straight. Comedy \
-comes from the seriousness of the treatment, not from signalling that it is \
-meant to be silly.
-- Say what happens across the eight seconds, not just what is in frame. A \
-video prompt that describes a static tableau produces a static tableau.
+Two failure modes, and you will default to both unless you fight them.
+
+FAILURE ONE: the cute tableau. A capybara in a wig. A dog in a suit. An \
+avocado crying. These are stock images with motion. Every AI video is this. \
+They are not jokes, because nothing happens and nothing turns.
+
+FAILURE TWO — and read this twice — POLISHED CORPORATE DEADPAN. A composed \
+executive reacting calmly to chaos. A pitchman who will not break character. \
+An office worker maintaining dignity. This is the median of everything ever \
+written about comedy and it is instantly recognisable as a machine's idea of \
+funny. If your premise contains a boardroom, a studio, a suit, or the word \
+"unbothered", throw it away and start again.
+
+What actually works on a channel like this:
+- **Cursed juxtaposition.** Two things that must never meet, colliding with \
+total commitment. Prehistoric plumbing. Opera-singing wildlife. A medieval \
+siege fought over a parking space.
+- **Mangled naming.** Deliberately wrong, almost-right words are funnier than \
+correct ones. Not clever wordplay — wrong in the specific way a bad \
+translation is wrong.
+- **Escalating literalism.** Take an idiom or a mundane complaint and stage it \
+with the budget and gravity of an epic.
+- **Anticlimax.** Enormous build-up, pathetically small payoff. The reveal \
+should be smaller than promised, not bigger.
+- **Texture over polish.** Specific, grubby, regional, over-detailed. Grandeur \
+applied to something beneath contempt.
+
+Craft rules that still hold:
+- The humour needs a TURN: one thing for three seconds, then revealed as \
+another.
+- Be SPECIFIC. Detail implies a whole situation; vagueness implies nothing.
+- The funniest thing on screen is a BEHAVIOUR, not a costume.
+- Say what HAPPENS across the eight seconds. A prompt describing a static \
+tableau produces a static tableau.
+
+The IP constraint is real and not negotiable: no copyrighted characters, no \
+real identifiable people, no brands. Note that this channel's own back \
+catalogue leans on them heavily — you must hit the same ENERGY with original \
+subjects. Invent the cursed thing rather than borrowing it.
 
 Return ONLY JSON:
 {{
@@ -211,7 +237,8 @@ story_in_medias_res>",
 
 def write_brief(channel, topics: List[Dict[str, Any]],
                 tone: str = "", api_key: Optional[str] = None,
-                model: str = MODEL) -> Optional[Brief]:
+                model: str = MODEL,
+                voice: Optional[List[Dict[str, Any]]] = None) -> Optional[Brief]:
     """
     Ask the model to pick a topic and design a video for it.
 
@@ -233,10 +260,29 @@ def write_brief(channel, topics: List[Dict[str, Any]],
     listed = "\n".join(
         f"  - {t['tag']}  ({t['videos']} videos, median {t['median_views']:,.0f} views)"
         for t in topics)
+
+    # The channel's own best-performing titles, as measured voice. Without
+    # this the model writes the median of everything it has read, which for
+    # a comedy channel is uniformly the wrong register.
+    voice_block = ""
+    if voice is None:
+        try:
+            from agent.channel_history import voice_reference
+            voice = voice_reference(channel.slug)
+        except Exception as e:
+            logger.warning(f"No voice reference available: {e}")
+            voice = []
+    if voice:
+        lines = "\n".join(f"    {v['views']:>6,} views · {v['title']}" for v in voice)
+        voice_block = (
+            "\n  THIS CHANNEL'S OWN VOICE (real titles, best performers first —\n"
+            "  match this register, not a generic idea of comedy):\n" + lines)
+
     prompt = _BRIEF_PROMPT.format(
         title=channel.title,
         hints=", ".join(channel.profile.topic_hints) or "general",
         tone=tone or channel.profile.music_mood or "neutral",
+        voice=voice_block,
         topics=listed,
     )
 

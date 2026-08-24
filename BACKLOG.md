@@ -28,7 +28,26 @@ submission is **Wed 9 September 2026, 2pm PDT**.
   not exist by the deadline. `publish_file.py` handles externally-made video;
   `test_hitl.py` → `check_approvals.py` handles pipeline-generated clips.
 
+## Housekeeping
+
+- [ ] **GitHub sync and repo clean-up.** Several root scripts predate the
+  current structure and are either dead or misleadingly named:
+  `approve_and_publish.py` (a one-off with a hardcoded title, superseded by
+  `check_approvals.py`), `probe_clickhouse_mcp.py`, `generate_test_assets.py`,
+  `daemon.py`, and `test_pipeline.py` / `test_hitl.py`, which sit at the root
+  looking like pytest files while being manual end-to-end runners that spend
+  real API credit. Decide what stays, move the runners out of the way of
+  `pytest`, and keep the README's structure block honest afterwards.
+
+  Also check what is committed that should not be, and what is ignored that
+  should be tracked.
+
 ## Known problems worth fixing
+
+- [ ] **DEMO_SCRIPT.md and demo_beats.py have drifted.** The prose script
+  predates the scoreboard and the trend loop; the machine-readable beats
+  include the scoreboard. They are supposed to say the same thing, and the
+  capture is driven by the latter.
 
 - [ ] **SlopTokDaily's existing tags are malformed.** 36 of 57 tag entries
   across the 37 published videos are a single space- or newline-separated
