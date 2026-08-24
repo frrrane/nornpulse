@@ -109,3 +109,30 @@ def test_generate_audio_is_not_sent_by_default():
     src = inspect.getsource(fg.generate_with_veo)
     assert "generate_audio: Optional[bool] = None" in src
     assert "if generate_audio is not None:" in src
+
+
+# --- telling failures apart ------------------------------------------------
+
+@pytest.mark.parametrize("code", sorted(fg.TRANSIENT_ERROR_CODES))
+def test_backend_fault_codes_are_known_transient(code):
+    assert code in fg.TRANSIENT_ERROR_CODES
+
+
+def test_the_real_backend_message_reads_as_transient():
+    """
+    The exact text Veo returned in production. It was being reported as
+    "the prompt was refused", which sends someone to rewrite a prompt that
+    was never the problem — and costs them the next generation too.
+    """
+    assert fg._looks_transient(
+        "Video generation failed due to an internal server issue. "
+        "Please try again in a few minutes.")
+
+
+@pytest.mark.parametrize("message", [
+    "the prompt was blocked by safety filters",
+    "invalid argument",
+    "",
+])
+def test_genuine_refusals_are_not_treated_as_transient(message):
+    assert not fg._looks_transient(message)

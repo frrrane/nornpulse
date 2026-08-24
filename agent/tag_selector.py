@@ -178,10 +178,14 @@ def _windows(run: List[str]) -> List[str]:
     """
     if len(run) > MAX_PHRASE_WORDS:
         return list(run)
-    out: List[str] = []
-    for size in range(len(run), 0, -1):
-        for i in range(len(run) - size + 1):
-            out.append(" ".join(run[i:i + size]))
+    # The whole run, then its individual words — but never the windows in
+    # between. "Florida humidity claims another fan" yields the run
+    # [florida, humidity, claims], and the intermediate window "humidity
+    # claims" is a sentence fragment nobody searches for, sitting in the tag
+    # list next to the phrase it was cut out of. The full phrase is the
+    # search term; the single words are the fallback; the middle is debris.
+    out: List[str] = [" ".join(run)] if len(run) > 1 else []
+    out.extend(run)
     return out
 
 

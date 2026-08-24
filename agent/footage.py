@@ -65,6 +65,17 @@ DEFAULT_DURATION_SEC = 8
 POLL_INTERVAL_SEC = 10
 POLL_TIMEOUT_SEC = 900
 
+# gRPC codes that mean "the backend broke", not "your request was wrong".
+# 13 INTERNAL, 14 UNAVAILABLE, 4 DEADLINE_EXCEEDED, 8 RESOURCE_EXHAUSTED.
+TRANSIENT_ERROR_CODES = {4, 8, 13, 14}
+_TRANSIENT_RE = re.compile(
+    r"internal (server )?(issue|error)|unavailable|try again|temporarily|"
+    r"deadline exceeded|overloaded", re.I)
+
+
+def _looks_transient(message: str) -> bool:
+    return bool(message and _TRANSIENT_RE.search(message))
+
 
 @dataclass
 class Footage:
@@ -169,11 +180,29 @@ def generate_with_veo(
     response = getattr(operation, "response", None) or getattr(operation, "result", None)
     videos = getattr(response, "generated_videos", None) if response else None
     if not videos:
-        # A refusal arrives as a completed operation with no video, which is
-        # not an error to the SDK but is a failure to the caller.
+        # Two very different failures arrive here and must not be reported
+        # as one. A refusal is a completed operation carrying no video and
+        # no error, and means the prompt needs changing. A backend fault
+        # carries an error, and means try again — telling someone to rewrite
+        # a prompt that was never the problem wastes their time and, if they
+        # take the advice, their next generation too.
+        err = getattr(operation, "error", None)
+        code = None
+        message = ""
+        if err is not None:
+            code = getattr(err, "code", None) or (
+                err.get("code") if isinstance(err, dict) else None)
+            message = str(getattr(err, "message", None) or (
+                err.get("message") if isinstance(err, dict) else err))
+        if code in TRANSIENT_ERROR_CODES or _looks_transient(message):
+            raise FootageError(
+                f"Veo hit a backend fault, not a problem with the prompt — "
+                f"retry in a few minutes. ({message or code})")
+        if err is not None:
+            raise FootageError(f"Veo failed: {message or err}")
         raise FootageError(
-            f"Veo returned no video. This usually means the prompt was refused. "
-            f"Operation: {getattr(operation, 'error', None) or 'no error reported'}")
+            "Veo returned no video and reported no error, which usually means "
+            "the prompt was refused. Try rewording it.")
 
     video = videos[0].video
     try:

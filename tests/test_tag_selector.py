@@ -251,3 +251,19 @@ def test_no_tag_exceeds_the_phrase_word_limit():
     tags, _ = ts.select_tags(clip, trending=TRENDING)
     for tag in tags:
         assert len(tag.split()) <= ts.MAX_PHRASE_WORDS, tag
+
+
+def test_intermediate_windows_are_not_emitted():
+    """
+    "Florida humidity claims another fan" gives the run
+    [florida, humidity, claims]. The whole phrase is a search term and the
+    single words are a fallback, but "humidity claims" is a slice out of the
+    middle of a sentence, sitting in the tag list beside the phrase it was
+    cut from.
+    """
+    clip = {"clip_id": "c9", "hook_title": "Florida humidity claims another fan"}
+    tags, _ = ts.select_tags(clip, trending=TRENDING)
+    assert "florida humidity claims" in tags
+    assert "florida" in tags
+    for slice_ in ("humidity claims", "florida humidity"):
+        assert slice_ not in tags
