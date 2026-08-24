@@ -33,11 +33,6 @@ submission is **Wed 9 September 2026, 2pm PDT**.
   NASA, Prelinger, Wikimedia Commons — behind the same interface. Music is
   already clean via Lyria. Never re-cut trending videos; that is the trap.
 
-- [ ] **Calibration scoreboard.** Every forecast against what actually
-  happened, and the share that landed inside its own p10–p90 band. Both numbers
-  are already stored; this is a view, not new plumbing. Needs published
-  forecasts to age a few days before it shows anything real.
-
 - [ ] **Upload cadence.** Six uploads/day maximum (1,600 quota units each
   against 10,000/day). Views need days to mature, so elapsed time is the
   binding constraint — every day without publishing is outcome data that will
@@ -85,5 +80,8 @@ submission is **Wed 9 September 2026, 2pm PDT**.
 - [x] Existing channel history ingestion (`channel_video_history`)
 - [x] Per-channel calibrated reach forecast
 - [x] `publish_file.py` for externally-produced video
+- [x] Forecast calibration scoreboard (`agent/scoreboard.py`) — currently
+      reports 0 of 13 gradeable, which is the correct answer until
+      forecasts age past the 3-day floor
 - [x] `nornlabs.ai` rebuilt, privacy policy published
 - [x] OAuth consent screen published — refresh tokens no longer expire weekly

@@ -30,6 +30,7 @@ from agent import global_benchmarks as gb
 from agent import calibration as cal
 from agent import channels as chans
 from agent import provenance as pv
+from agent import scoreboard as sb
 from agent import trending_ingest as ti
 from utils.ingest import download_youtube_video, list_playlist_video_urls, get_youtube_duration
 from utils.transcribe import get_or_create_transcript
@@ -506,6 +507,13 @@ def _cached_calibrated_forecast(slug: str, subscribers: int, has_subtitles: bool
     return cal.calibrated_forecast(
         channel, has_subtitles=has_subtitles, upload_day=upload_day,
         facts=_cached_global_facts())
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_scoreboard(size_band: str):
+    facts = _cached_global_facts()
+    return (sb.calibration_summary(size_band, facts=facts),
+            sb.scoreboard_frame(size_band, facts=facts))
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -1771,6 +1779,67 @@ def page_intelligence():
                 f"{gap['observed_videos']} videos, which is thin, and gets less thin as more "
                 f"history accumulates."
             )
+
+        # The scoreboard. Every forecast is written down before publication,
+        # so this is where it gets marked. The counts that are *not* graded
+        # are shown next to the ones that are: a hit rate computed over two
+        # of thirteen videos is not a track record, and hiding the
+        # denominator would be the flattering version of this panel.
+        score, score_df = _cached_scoreboard(band)
+        if score["total"]:
+            st.markdown("<div class='workflow-header'>Forecast scoreboard"
+                        "<span class='eyebrow'>predictions made before publishing, "
+                        "graded against what happened</span></div>",
+                        unsafe_allow_html=True)
+            s1, s2, s3, s4 = st.columns(4)
+            with s1:
+                st.metric("Gradeable", f"{score['graded']} of {score['total']}",
+                          help="Published videos old enough to judge, that had a "
+                               "forecast recorded, and that still exist.")
+            with s2:
+                st.metric(
+                    "Landed in band",
+                    f"{score['in_band_pct']:.0f}%" if score["in_band_pct"] is not None else "—",
+                    help="Share of graded forecasts whose actual reach fell inside "
+                         "their own p10-p90 range, scaled to the clip's age.")
+            with s3:
+                st.metric(
+                    "Median actual ÷ predicted",
+                    f"{score['median_ratio']:.2f}×" if score["median_ratio"] is not None else "—",
+                    help="1.00 would be a perfectly centred forecast. Below 1 means "
+                         "the forecast runs high.")
+            with s4:
+                st.metric("Awaiting maturity", score["pending"],
+                          help="Published with a forecast, but too young to judge. A "
+                               "lifetime forecast cannot be scored against a clip that "
+                               "has not had a lifetime yet.")
+
+            if not score["enough_to_judge"]:
+                st.caption(
+                    f"**Not enough graded forecasts to report an accuracy figure yet.** "
+                    f"{score['graded']} of {score['total']} published videos are gradeable: "
+                    f"{score['pending']} are still too young, {score['no_forecast']} were "
+                    f"published before forecasts were recorded, and {score['unavailable']} "
+                    f"point at videos that no longer exist. This panel is deliberately "
+                    f"empty rather than showing a percentage derived from one or two clips."
+                )
+
+            if not score_df.empty:
+                show = score_df[["clip_id", "status", "age_days", "forecast_p50",
+                                 "actual_views", "hook_type"]].copy()
+                st.dataframe(
+                    show, width='stretch', hide_index=True,
+                    column_config={
+                        "clip_id": st.column_config.TextColumn("Clip"),
+                        "status": st.column_config.TextColumn(
+                            "Status", help="graded · pending · no_forecast · unavailable"),
+                        "age_days": st.column_config.NumberColumn("Age (days)", format="%d"),
+                        "forecast_p50": st.column_config.NumberColumn(
+                            "Forecast p50", format="%d"),
+                        "actual_views": st.column_config.NumberColumn("Actual", format="%d"),
+                        "hook_type": st.column_config.TextColumn("Hook"),
+                    },
+                )
 
         facts = _cached_global_facts()
         reach = gb.expected_reach(int(subs), facts=facts)
