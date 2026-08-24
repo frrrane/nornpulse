@@ -1,17 +1,91 @@
-# ⚡ NornPulse: Autonomous Media Engine
+# ⚡ NornPulse
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Norn Labs](https://img.shields.io/badge/By-Norn%20Labs-blueviolet)](https://nornlabs.ai)
-[![Gemini](https://img.shields.io/badge/Powered%20By-Gemini%202.0%20Flash-orange)](https://ai.google.dev/)
+[![Gemini](https://img.shields.io/badge/Powered%20By-Gemini%203.6%20Flash-orange)](https://ai.google.dev/)
 [![ClickHouse](https://img.shields.io/badge/Database-ClickHouse-yellow)](https://clickhouse.com/)
+[![Demo](https://img.shields.io/badge/Live-nornpulse.nornlabs.ai-6FD3C0)](https://nornpulse.nornlabs.ai)
 
-**NornPulse** is an autonomous media intelligence and video generation engine developed for **[Norn Labs](https://nornlabs.ai)**. It transforms 16:9 widescreen videos into viral, high-retention 9:16 vertical shorts (for TikTok, YouTube Shorts, and Instagram Reels) by orchestrating historical retention telemetry with real-time multimodal AI reasoning.
+> **The advice you are given was measured on channels that already made it.**
+
+Add captions to a video on a 100K–1M subscriber channel and it earns **+34%
+reach**. Add them to a video on a 0–100 subscriber channel and it *loses* **4%**.
+
+Same decision. Opposite answer. Both figures measured inside their own size
+band, across 4,557,605,031 real YouTube videos.
+
+This is not an edge case. Almost every piece of short-form advice in
+circulation — post at the weekend, always caption, open with a shock stat — was
+derived from channels that already have an audience, then sold to channels that
+do not. Applied at the wrong scale some of it is not merely weaker: it
+reverses, because the mechanism that made it work (an existing subscriber base
+feeding browse traffic) does not exist yet.
+
+**NornPulse reads every creative decision inside the size band of the channel
+actually publishing it — and says so when it does not know.**
+
+It takes a video, cuts it into vertical shorts through six agents, and scores
+every choice along the way — hook, cut, captions, tags, music, cover — against
+measured outcomes rather than style-guide folklore. Each finished clip declares
+its own evidence: a typical one is **3 measured, 4 assumed, 1 model
+judgement**, labelled inline rather than presented as uniform confidence.
 
 ---
 
-## 🌌 The Three Norns Architecture
+## 🔍 The same scrutiny, turned inward
 
-In Norse mythology, the three Norns weave the threads of fate at the Well of Urðr. In NornPulse, each Norn governs a critical stage of the autonomous media pipeline:
+A grounding layer that only audited other people's advice would be doing half
+the job. Checked against real small channels, our own benchmarks failed the
+same test:
+
+| Channel | Subs | Videos | Benchmark says | Actually gets |
+|---|---|---|---|---|
+| Norn Labs | 2 | 5 | 2,570 views | **13** |
+| SlopTokDaily | 14 | 37 | 2,570 views | **343** |
+
+The population median for the 0–100 band is roughly SlopTokDaily's *best ever
+video*, not its typical one. Format explains part of the gap — these are 6–9
+second Shorts against an all-format population — but not two orders of
+magnitude.
+
+What explains it is that the public dataset is a **crawl**: it contains videos
+discoverable enough to have been crawled, which is a filtered sample of what
+small channels actually publish. A channel posting into the void is not in it.
+Banding by size does not remove survivorship bias, because the population
+*inside* the band is filtered too.
+
+So forecasts are calibrated against a channel's own history instead of shipped
+raw. On the channel that has real history:
+
+```
+uncalibrated p50   2,455 views
+calibrated   p50     305 views     p10–p90   139 – 1,863
+actual median        343 views     p10–p90   118 – 1,724
+```
+
+Both numbers are kept and both are shown. The gap between them is the finding,
+not an embarrassment to hide.
+
+---
+
+## ⚖️ Three rules it holds itself to
+
+1. **Provenance over confidence.** A figure measured across 58,044 videos and a
+   number typed into a seed table are different claims. Presenting them
+   identically overstates the weaker one, so every output says which it is.
+2. **Falsifiable before persuasive.** Reach is predicted *before* publication,
+   then graded against what happened. It can be publicly wrong.
+3. **Refuse rather than guess.** Below a usable sample size the honest answer is
+   that there isn't one — and that is what gets displayed.
+
+**Live demo:** [nornpulse.nornlabs.ai](https://nornpulse.nornlabs.ai) —
+read-only; every chart runs live against the real warehouse.
+
+---
+
+## 🌌 Six agents, three Norns
+
+In Norse mythology, the three Norns weave the threads of fate at the Well of Urðr. Three of them govern the spine of the pipeline — past, present, future — and three more handle sound, sight and voice. The diagram below shows the spine; Bragi, Heimdall and Mímir are documented under it.
 
 ```text
                                16:9 Source Video
@@ -24,7 +98,7 @@ In Norse mythology, the three Norns weave the threads of fate at the Well of Ur�
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ ᚹ Verðandi (The Present) ─── Gemini 2.0 Flash Orchestrator                  │
+│ ᚹ Verðandi (The Present) ─── Gemini 3.6 Flash Orchestrator                  │
 │ Analyzes transcripts, grounds decisions in Urðr's telemetry, & outputs clips│
 └─────────────────────────────────────┬───────────────────────────────────────┘
                                       │
@@ -43,7 +117,7 @@ In Norse mythology, the three Norns weave the threads of fate at the Well of Ur�
 - Manages `video_hook_retention` and historical engagement telemetry.
 - Calculates retention decay curves across hook types (`shock_stat`, `curiosity_gap`, `contrarian_claim`, `problem_agitation`, etc.).
 - Also manages `music_virality_benchmarks` (Bragi's genre/mood/bpm grounding) and `visual_style_benchmarks` (Skuld's crop/motion/color-grade grounding) — the same hook_type taxonomy correlated with historical virality per creative dimension.
-- Supplies real-time statistical priors to Gemini 2.0 Flash.
+- Supplies real-time statistical priors to Gemini 3.6 Flash.
 
 ### 2. `agent/verdandi_orchestrator.py` (ᚹ Verðandi — The Present)
 - Powered by the **Google GenAI SDK** using **Gemini** (`gemini-3.6-flash`).
@@ -90,7 +164,7 @@ nornpulse/
 │   ├── __init__.py
 │   ├── urdr_analytics.py        # ᚢ Urðr: ClickHouse hook retention intelligence
 │   ├── clickhouse_mcp_client.py # Bridge to the official ClickHouse MCP server (mcp-clickhouse)
-│   ├── verdandi_orchestrator.py # ᚹ Verðandi: Gemini 2.0 Flash transcript reasoning
+│   ├── verdandi_orchestrator.py # ᚹ Verðandi: Gemini 3.6 Flash transcript reasoning
 │   ├── skuld_renderer.py       # ᛋ Skuld: FFmpeg 16:9 -> 9:16 vertical short renderer
 │   ├── bragi_composer.py       # 🎵 Bragi: Lyria 3 original scores, grounded in Urðr's music benchmarks
 │   ├── heimdall_visualizer.py  # 👁️ Heimdall: Gemini-generated 9:16 cover thumbnails, same grounding as Bragi
@@ -156,7 +230,7 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 
 1. **Autonomous 1-Click Generation**: Select or generate a synthetic 16:9 test video, pick a sample transcript, and hit **"⚡ Unleash The Norns"**.
 2. **Urðr Analytics Hub**: Interactive ClickHouse charts showing 3s drop-off benchmarks, duration sweet spots, and an interactive SQL query console.
-3. **Verðandi AI Playground**: Inspect raw Gemini 2.0 Flash responses and structured output schemas.
+3. **Verðandi AI Playground**: Inspect raw Gemini 3.6 Flash responses and structured output schemas.
 4. **Manual Cut Range**: Optionally restrict generation to a portion of the source video via a range slider — Verðandi only sees (and can only render from) that window, enforced both in the prompt and as a hard code-level clamp. Pair with **Cut Energy** to bias clip length toward the calm/long or snappy/short end of the duration range.
 5. **Long-Video Auto-Window**: Sources longer than 10 minutes with no manual Cut Range set get one bounded window auto-selected instead of Verðandi reasoning over the entire runtime in a single call — toggle **Random** (fresh offset each run) or **From Start**.
 6. **Batch Mode**: Point it at a YouTube channel or playlist URL instead of a single video — runs the full pipeline once per video (capped at 3), then ranks every resulting clip by predicted virality score in the Review & Publish column.

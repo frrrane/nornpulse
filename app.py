@@ -724,6 +724,37 @@ def page_home():
             "<strong>Skuld (rendering)</strong> burns subtitles in regardless.</div>",
             unsafe_allow_html=True)
 
+    # The self-criticism, above the fold and immediately after the claim it
+    # qualifies. Stating the caption paradox and then quietly shipping a
+    # forecast built on the same biased population would be exactly the
+    # failure the paradox is about — so the correction sits next to it.
+    gap = _cached_reality_gap(band)
+    if gap and gap["observed_videos"]:
+        st.markdown("<div class='workflow-header'>And the same problem in our own data"
+                    "<span class='eyebrow'>banding by size does not remove survivorship bias</span>"
+                    "</div>", unsafe_allow_html=True)
+        g1, g2, g3 = st.columns(3)
+        with g1:
+            st.metric("Benchmark says", f"{gap['predicted_median_views']:,.0f} views",
+                      help=f"Median for {band}-subscriber channels across "
+                           f"{gap['benchmark_sample_videos']:,} videos in the public dataset.")
+        with g2:
+            st.metric("Real channels get", f"{gap['observed_median_views']:,.0f} views",
+                      help=f"Measured across {gap['observed_videos']} videos from real "
+                           f"channels in this band with full published history.")
+        with g3:
+            st.metric("Overstated by",
+                      f"{1 / gap['ratio']:,.0f}×" if gap["ratio"] else "—",
+                      help="How far the population figure sits above observed reality.")
+        st.markdown(
+            "<div class='thread-note'>The public dataset is a crawl, so it holds videos that "
+            "were discoverable enough to be crawled — a filtered view of what small channels "
+            "publish. A channel posting into the void is not in it. Forecasts here are "
+            "calibrated against a channel's own history rather than shipped raw, and the "
+            "uncalibrated figure is kept alongside so the size of the correction stays "
+            f"visible. Measured on {gap['observed_videos']} videos, which is thin.</div>",
+            unsafe_allow_html=True)
+
     # One worked example of provenance, above the fold. A judge should not
     # have to open a clip card to learn that the system distinguishes what
     # it measured from what it assumed.
