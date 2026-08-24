@@ -159,6 +159,7 @@ def main() -> int:
     # to the wrong channel is silent. That risk is now handled better: the
     # resolved channel is printed before anything uploads, and its token is
     # verified against that channel's own id before each upload.
+    from agent import calibration as cal
     from agent import global_benchmarks as gb
     from agent import review_queue as rq
     from agent import channels
@@ -234,9 +235,8 @@ def main() -> int:
             if not predicted_3s:
                 bench = urdr.query_hook_retention(hook_category=hook_type, limit=1)
                 predicted_3s = float(bench.iloc[0]["avg_3s_retention_pct"]) if not bench.empty else 85.0
-            forecast = gb.forecast_reach(
-                args.subscribers or channel.subscribers,
-                has_subtitles=bool(clip.get("has_subtitles"))) or {}
+            forecast = cal.calibrated_forecast(
+                channel, has_subtitles=bool(clip.get("has_subtitles"))) or {}
             urdr.log_published_outcome(
                 clip_id=clip_id, youtube_video_id=res["video_id"], youtube_url=res["url"],
                 hook_type=hook_type,

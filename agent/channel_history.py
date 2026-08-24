@@ -198,18 +198,26 @@ def ingest(channel, api_key: Optional[str] = None, max_videos: int = 500) -> Dic
 def latest_history(channel_slug: Optional[str] = None,
                    shorts_only: bool = False) -> pd.DataFrame:
     """The most recent snapshot of a channel's videos."""
-    filters = [f"snapshot_at = (SELECT max(snapshot_at) FROM {TABLE})"]
+    # Newest row per video rather than a global max(snapshot_at): channels
+    # are inserted separately, so a global maximum matches only the last
+    # channel written and reports the others as empty.
+    filters = []
     if channel_slug:
         filters.append(f"channel_slug = {ch.sql_literal(channel_slug)}")
     if shorts_only:
         filters.append("is_short")
+    where = f"WHERE {' AND '.join(filters)}" if filters else ""
     try:
         return ch.run_query_df(f"""
-            SELECT channel_slug, video_id, title, published_at, duration_sec,
-                   is_short, view_count, like_count, comment_count, tags,
-                   channel_subscribers, size_band
-            FROM {TABLE}
-            WHERE {' AND '.join(filters)}
+            SELECT * FROM (
+                SELECT channel_slug, video_id, title, published_at, duration_sec,
+                       is_short, view_count, like_count, comment_count, tags,
+                       channel_subscribers, size_band
+                FROM {TABLE}
+                ORDER BY channel_slug, video_id, snapshot_at DESC
+                LIMIT 1 BY channel_slug, video_id
+            )
+            {where}
             ORDER BY published_at DESC
         """)
     except Exception as e:

@@ -80,6 +80,7 @@ def main() -> int:
                     help="channel subscriber count, for the grounded reach forecast")
     args = ap.parse_args()
 
+    from agent import calibration as cal
     from agent import global_benchmarks as gb
     from agent import review_queue as rq
     from agent import channels
@@ -147,12 +148,16 @@ def main() -> int:
             bench = urdr.query_hook_retention(hook_category=hook_type, limit=1)
             predicted_3s = float(bench.iloc[0]["avg_3s_retention_pct"]) if not bench.empty else 85.0
 
-        forecast = gb.forecast_reach(
-            args.subscribers or channel.subscribers,
-            has_subtitles=bool(c.get("has_subtitles"))) or {}
+        forecast = cal.calibrated_forecast(
+            channel, has_subtitles=bool(c.get("has_subtitles"))) or {}
         if forecast:
             print(f"   📊 forecast {forecast['p50']:,.0f} views "
                   f"(p10-p90 {forecast['p10']:,.0f}-{forecast['p90']:,.0f})")
+            if forecast.get("calibrated"):
+                k = forecast["calibration"]
+                print(f"      calibrated {forecast['uncalibrated_p50']:,.0f} → "
+                      f"{forecast['p50']:,.0f} from {k['basis']}"
+                      + ("" if k["confident"] else "  ⚠️ thin history"))
 
         logged = urdr.log_published_outcome(
             clip_id=c["clip_id"],

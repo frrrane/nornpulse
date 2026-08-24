@@ -6,6 +6,7 @@ Built for Norn Labs (nornlabs.ai)
 
 import os
 import hashlib
+import dataclasses
 import json
 import logging
 import random
@@ -26,6 +27,8 @@ from agent.skuld_renderer import (
 from agent.norn_publisher import NornPublisher, PublishError
 from agent import review_queue as rq
 from agent import global_benchmarks as gb
+from agent import calibration as cal
+from agent import channels as chans
 from agent import provenance as pv
 from agent import trending_ingest as ti
 from utils.ingest import download_youtube_video, list_playlist_video_urls, get_youtube_duration
@@ -481,6 +484,35 @@ def _save_last_session(yt_url: str, transcript: str) -> None:
 # module scope (not inside the tab block) so they can be explicitly
 # invalidated with .clear() right after actions that actually change the
 # underlying data, rather than waiting out the TTL.
+def current_channel():
+    """
+    The channel the UI is currently reasoning about.
+
+    Subscriber count comes from the number input rather than the registry,
+    so a visitor can explore what the advice looks like for a channel of a
+    different size without editing config. Everything else — identity,
+    profile, and the history the forecast calibrates against — comes from
+    the registry entry.
+    """
+    channel = chans.get_channel(st.session_state.channel_slug)
+    return dataclasses.replace(channel, subscribers=int(st.session_state.channel_subs))
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_calibrated_forecast(slug: str, subscribers: int, has_subtitles: bool,
+                                upload_day: str | None):
+    channel = dataclasses.replace(
+        chans.get_channel(slug), subscribers=int(subscribers))
+    return cal.calibrated_forecast(
+        channel, has_subtitles=has_subtitles, upload_day=upload_day,
+        facts=_cached_global_facts())
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_reality_gap(size_band: str):
+    return cal.reality_gap(size_band, facts=_cached_global_facts())
+
+
 @st.cache_data(ttl=30, show_spinner=False)
 def _cached_hook_benchmarks(_urdr):
     return _urdr.get_hook_type_benchmarks()
@@ -544,8 +576,10 @@ def _cached_trending_summary():
 # Channel size drives every honest reading of the global data, so it is a
 # setting rather than an assumption. Defaults to the smallest band, which
 # is where a new NornPulse channel actually sits.
+if "channel_slug" not in st.session_state:
+    st.session_state.channel_slug = chans.DEFAULT_SLUG
 if "channel_subs" not in st.session_state:
-    st.session_state.channel_subs = 0
+    st.session_state.channel_subs = chans.get_channel(chans.DEFAULT_SLUG).subscribers
 
 if "verdandi_adk" not in st.session_state:
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "norn-labs-default")
@@ -1199,11 +1233,11 @@ def page_create():
                               help="Verðandi's internal ranking of this clip against the "
                                    "others it generated. Relative, not predictive.")
 
-                forecast = gb.forecast_reach(
-                    st.session_state.channel_subs,
-                    has_subtitles=bool(item.get("has_subtitles")),
-                    upload_day=st.session_state.get("planned_upload_day") or None,
-                    facts=_cached_global_facts(),
+                forecast = _cached_calibrated_forecast(
+                    st.session_state.channel_slug,
+                    int(st.session_state.channel_subs),
+                    bool(item.get("has_subtitles")),
+                    st.session_state.get("planned_upload_day") or None,
                 )
                 with reach_col:
                     if forecast:
@@ -1640,15 +1674,72 @@ def page_intelligence():
             "those choices are right."
         )
 
-        subs = st.number_input(
-            "Your channel's subscriber count", min_value=0, step=10,
-            value=int(st.session_state.channel_subs),
-            help="Channel size is the dominant confounder in the global data — captioned and "
-                 "age-restricted videos skew heavily toward large channels. Every figure below is "
-                 "read within the band this number falls into.",
-        )
-        st.session_state.channel_subs = int(subs)
+        pick_col, subs_col = st.columns([1, 1])
+        with pick_col:
+            all_channels = chans.list_channels()
+            slugs = [c.slug for c in all_channels]
+            titles = {c.slug: f"{c.title} · {c.subscribers:,} subs" for c in all_channels}
+            chosen = st.selectbox(
+                "Channel", slugs,
+                index=slugs.index(st.session_state.channel_slug)
+                if st.session_state.channel_slug in slugs else 0,
+                format_func=lambda sl: titles.get(sl, sl),
+                help="Which channel the figures below are read for. Selects the "
+                     "size band, and the published history the forecast is "
+                     "calibrated against.",
+            )
+            if chosen != st.session_state.channel_slug:
+                # Follow the newly picked channel's real subscriber count
+                # rather than carrying the previous channel's number over.
+                st.session_state.channel_slug = chosen
+                st.session_state.channel_subs = chans.get_channel(chosen).subscribers
+                st.rerun()
+        with subs_col:
+            subs = st.number_input(
+                "Subscriber count", min_value=0, step=10,
+                value=int(st.session_state.channel_subs),
+                help="Channel size is the dominant confounder in the global data — captioned and "
+                     "age-restricted videos skew heavily toward large channels. Every figure below is "
+                     "read within the band this number falls into.",
+            )
+            st.session_state.channel_subs = int(subs)
         band = gb.size_band_for(int(subs))
+
+        # The reality gap. This is the most important number the project
+        # has, and it is a criticism of its own grounding layer: the
+        # population median for a size band substantially overstates what
+        # real channels of that size actually get, because the public
+        # dataset is a crawl and only contains videos discoverable enough
+        # to have been crawled.
+        gap = _cached_reality_gap(band)
+        if gap and gap["observed_videos"]:
+            ratio = gap["ratio"]
+            st.markdown(
+                f"<div class='workflow-header' style='margin-top:1.1rem;'>"
+                f"⚖️ Benchmark vs reality · {band} subs</div>",
+                unsafe_allow_html=True)
+            g1, g2, g3 = st.columns(3)
+            with g1:
+                st.metric("Global benchmark", f"{gap['predicted_median_views']:,.0f} views",
+                          help=f"Median for this band across "
+                               f"{gap['benchmark_sample_videos']:,} videos in the public dataset.")
+            with g2:
+                st.metric("Actually observed", f"{gap['observed_median_views']:,.0f} views",
+                          help=f"Median across {gap['observed_videos']} real videos from "
+                               f"channels in this band that we have full history for.")
+            with g3:
+                st.metric("Overstatement", f"{1 / ratio:,.0f}×" if ratio else "—",
+                          help="How far the population figure sits above observed reality.")
+            st.caption(
+                f"The public dataset is a crawl, so it contains videos that were discoverable "
+                f"enough to be crawled — a filtered view of what small channels publish. A new "
+                f"channel posting into the void is not in it. **This is the product's own thesis "
+                f"applied to its own grounding**: banding by size does not remove survivorship "
+                f"bias, because the population inside the band is filtered too. Forecasts are "
+                f"corrected against observed history rather than presented raw — on "
+                f"{gap['observed_videos']} videos, which is thin, and gets less thin as more "
+                f"history accumulates."
+            )
 
         facts = _cached_global_facts()
         reach = gb.expected_reach(int(subs), facts=facts)
@@ -1657,10 +1748,12 @@ def page_intelligence():
 
         m1, m2, m3 = st.columns(3)
         with m1:
-            st.metric(f"Median reach · {band} subs",
+            st.metric(f"Dataset median · {band} subs",
                       f"{reach['median_views']:,.0f} views" if reach else "—",
-                      help="What a typical video from a channel this size actually got. This is the "
-                           "referent an abstract 0-100 virality score is missing.")
+                      help="What a typical video from a channel this size got, in the public "
+                           "dataset. This is the population figure, not a prediction for your "
+                           "channel — see the benchmark-vs-reality panel above, which measures "
+                           "how far it sits from what real channels of this size get.")
         with m2:
             st.metric("Subtitles → like rate",
                       f"{lift['like_lift_pct']:+.0f}%" if lift and lift["like_lift_pct"] is not None else "—",
