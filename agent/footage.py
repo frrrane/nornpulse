@@ -101,7 +101,7 @@ def generate_with_veo(
     duration_sec: int = DEFAULT_DURATION_SEC,
     aspect_ratio: str = "9:16",
     negative_prompt: Optional[str] = None,
-    generate_audio: bool = True,
+    generate_audio: Optional[bool] = None,
     api_key: Optional[str] = None,
     poll_timeout_sec: int = POLL_TIMEOUT_SEC,
 ) -> Footage:
@@ -132,10 +132,20 @@ def generate_with_veo(
         aspect_ratio=aspect_ratio,
         duration_seconds=duration_sec,
         number_of_videos=1,
-        generate_audio=generate_audio,
     )
     if negative_prompt:
         config.negative_prompt = negative_prompt
+    # generate_audio exists in the SDK but is only accepted on Vertex AI.
+    # On the Gemini Developer API — the API-key path this project uses — the
+    # request is rejected outright with "only supported in Gemini Enterprise
+    # Agent Platform mode". Veo 3.x produces audio by default there anyway,
+    # so the parameter is simply not sent unless a caller insists.
+    if generate_audio is not None:
+        logger.warning(
+            "generate_audio is not accepted by the Gemini Developer API and "
+            "will cause the request to be rejected; sending it because it was "
+            "explicitly set.")
+        config.generate_audio = generate_audio
 
     try:
         operation = client.models.generate_videos(
@@ -182,7 +192,7 @@ def generate_with_veo(
         description=prompt,
         duration_sec=float(duration_sec),
         licence="generated",
-        extra={"aspect_ratio": aspect_ratio, "audio": generate_audio},
+        extra={"aspect_ratio": aspect_ratio},
     )
 
 

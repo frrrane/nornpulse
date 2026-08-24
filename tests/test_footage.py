@@ -97,3 +97,15 @@ def test_no_hardcoded_price_is_quoted():
     assert "VEO_PRICING_URL" in src
     # A dollar amount, not any "$" — regex anchors contain one legitimately.
     assert not re.search(r"\$\s*\d", src)
+
+
+def test_generate_audio_is_not_sent_by_default():
+    """
+    The SDK exposes generate_audio, but the Gemini Developer API — the
+    API-key path this project uses — rejects the whole request when it is
+    present. Veo 3.x produces audio there by default anyway.
+    """
+    import inspect
+    src = inspect.getsource(fg.generate_with_veo)
+    assert "generate_audio: Optional[bool] = None" in src
+    assert "if generate_audio is not None:" in src
