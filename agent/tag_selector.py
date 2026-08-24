@@ -78,6 +78,9 @@ _STOPWORDS = {
     "how", "all", "any", "both", "each", "few", "more", "most", "other",
     "some", "such", "no", "nor", "not", "only", "own", "same", "too",
     "very", "just", "also", "even", "still", "yet", "ever", "never",
+    "another", "one", "two", "three", "every", "many", "much", "several",
+    "again", "already", "away", "back", "down", "else", "enough", "far",
+
     # auxiliaries and generic verbs
     "is", "am", "are", "was", "were", "be", "been", "being", "have",
     "has", "had", "having", "do", "does", "did", "doing", "done", "will",
@@ -160,9 +163,23 @@ def _phrases(text: str) -> List[str]:
 
 
 def _windows(run: List[str]) -> List[str]:
-    """Every phrase of 1..MAX_PHRASE_WORDS words in a content run, longest first."""
+    """
+    Phrases from one run of content words.
+
+    A short run is a phrase: "white hole" is exactly the term someone
+    searches for, so it is emitted whole along with its parts.
+
+    A long run is a sentence with the function words stripped out, and
+    sliding a window along it manufactures fragments that no one would ever
+    search — "another cursed one", "rails another cursed", "pile ai slop".
+    Those are worse than useless as tags: they look automated and they
+    consume slots that real terms need. So beyond MAX_PHRASE_WORDS only the
+    individual words survive, which are at least genuine topic terms.
+    """
+    if len(run) > MAX_PHRASE_WORDS:
+        return list(run)
     out: List[str] = []
-    for size in range(min(len(run), MAX_PHRASE_WORDS), 0, -1):
+    for size in range(len(run), 0, -1):
         for i in range(len(run) - size + 1):
             out.append(" ".join(run[i:i + size]))
     return out

@@ -51,10 +51,16 @@ def ensure_table() -> None:
         hook_type LowCardinality(String),
         tags Array(String),
         measured_tags Array(String),
+        source LowCardinality(String) DEFAULT 'pipeline',
         published_at DateTime DEFAULT now()
     ) ENGINE = MergeTree()
     ORDER BY (channel_slug, youtube_video_id);
     """)
+    # Older rows predate the column; adding it separately keeps an existing
+    # table usable instead of requiring a drop.
+    ch.run_query(
+        f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS "
+        f"source LowCardinality(String) DEFAULT 'pipeline'")
 
 
 def _array(values: Sequence[str]) -> str:
@@ -68,9 +74,16 @@ def record_publication(
     tags: Sequence[str] = (),
     decisions: Optional[Sequence[pv.Decision]] = None,
     hook_type: str = "",
+    source: str = "pipeline",
 ) -> bool:
     """
     Record that a clip was published, and under what conditions.
+
+    source distinguishes clips this pipeline generated from videos merely
+    published through it. Both are worth recording — a forecast made for a
+    channel is testable against any video that channel publishes — but
+    counting externally-made videos toward NornPulse's own track record
+    would credit it with work it did not do.
 
     Never raises. A clip that uploaded successfully must not be reported as
     a failure because its bookkeeping row did not land — the video is
@@ -83,7 +96,7 @@ def record_publication(
         ch.run_query(
             f"INSERT INTO {TABLE} (clip_id, youtube_video_id, channel_slug, "
             f"youtube_channel_id, channel_subscribers, size_band, category_id, "
-            f"hook_type, tags, measured_tags) VALUES ("
+            f"hook_type, tags, measured_tags, source) VALUES ("
             + ", ".join([
                 ch.sql_literal(clip_id),
                 ch.sql_literal(youtube_video_id),
@@ -95,12 +108,13 @@ def record_publication(
                 ch.sql_literal(hook_type or ""),
                 _array(list(tags)),
                 _array(measured),
+                ch.sql_literal(source),
             ])
             + ")"
         )
         logger.info(
             f"Recorded publication {clip_id} -> {youtube_video_id} "
-            f"on {channel.slug} ({len(tags)} tags, {len(measured)} measured)"
+            f"on {channel.slug} [{source}] ({len(tags)} tags, {len(measured)} measured)"
         )
         return True
     except Exception as e:

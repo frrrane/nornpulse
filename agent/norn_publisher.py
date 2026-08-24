@@ -337,6 +337,7 @@ class NornPublisher:
     def upload_to_youtube_shorts(
         self, video_path: str | Path, title: str, description: str, privacy_status: str = "private",
         thumbnail_path: str | Path | None = None, clip: Dict[str, Any] | None = None,
+        source: str = "pipeline",
     ) -> Dict[str, Any]:
         """
         Publishes a vertical video to YouTube as a Short using the YouTube
@@ -362,6 +363,10 @@ class NornPublisher:
         of the fixed four this method used to send on every upload. Without
         it the structural fallback is used, because shipping tags derived
         from nothing is worse than shipping none.
+
+        source marks whether this pipeline generated the clip or merely
+        published it. External video is recorded so its forecast can be
+        graded, but must not count toward NornPulse's own track record.
         """
         if privacy_status not in ("private", "unlisted", "public"):
             raise PublishError(f"Invalid privacy_status '{privacy_status}'; must be private, unlisted, or public.")
@@ -432,6 +437,7 @@ class NornPublisher:
                     tags=tags,
                     decisions=tag_decisions,
                     hook_type=clip.get("hook_type", ""),
+                    source=source,
                 )
 
             return {"video_id": video_id, "url": url, "privacy_status": privacy_status,

@@ -214,3 +214,40 @@ def test_hints_still_respect_the_character_cap():
         profile_hints=[f"declaredhint{i}" for i in range(40)])
     assert sum(len(t) for t in tags) + len(tags) <= ts.MAX_TAG_CHARS
     assert len(tags) <= ts.MAX_TAGS
+
+
+# --- long-run fragments ----------------------------------------------------
+
+def test_long_content_runs_do_not_manufacture_prose_fragments():
+    """
+    A run of content words longer than a phrase is a sentence with its
+    function words stripped. Sliding a window along it invents terms nobody
+    searches for — "another cursed one", "pile ai slop" — which look
+    automated and consume slots real terms need.
+    """
+    clip = {
+        "clip_id": "c7",
+        "hook_title": "AI slop goes completely off the rails",
+        "social_caption": "another cursed one from the daily pile",
+    }
+    tags, _ = ts.select_tags(clip, trending=TRENDING)
+    for fragment in ("rails another cursed", "pile ai slop", "daily pile ai",
+                     "another cursed one", "rails another"):
+        assert fragment not in tags
+    # The individual topic words still survive.
+    assert "slop" in tags and "cursed" in tags
+
+
+def test_short_runs_still_yield_their_phrase():
+    """The long-run guard must not cost us "white hole"."""
+    tags, _ = ts.select_tags(SCIENCE_CLIP, trending=TRENDING)
+    assert "white hole" in tags
+    assert "expanding universe" in tags
+
+
+def test_no_tag_exceeds_the_phrase_word_limit():
+    clip = {"clip_id": "c8",
+            "hook_title": "quantum vacuum decay bubble nucleation cascade event"}
+    tags, _ = ts.select_tags(clip, trending=TRENDING)
+    for tag in tags:
+        assert len(tag.split()) <= ts.MAX_PHRASE_WORDS, tag
