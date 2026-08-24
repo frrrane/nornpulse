@@ -5,14 +5,21 @@ could make about it, generate it, and publish it with the usual grounding.
 
     python trend_publish.py --channel sloptokdaily              # plan only
     python trend_publish.py --channel sloptokdaily --generate   # + make the video
-    python trend_publish.py --channel sloptokdaily --generate --publish
+    python trend_publish.py --channel sloptokdaily --generate --stage
 
 Planning is free and is the default. **--generate bills per second of
 generated video**, so it never happens implicitly: you have to ask. Check
 current Veo pricing before running it in a loop.
 
-Nothing is uploaded without --publish, and --publish requires --generate,
-because there is nothing to upload otherwise.
+Nothing reaches YouTube on its own. --stage emails the finished clip for
+approval, which is how every other path on this project publishes;
+check_approvals.py uploads it once you reply. --publish exists to bypass
+that and says so when used.
+
+Generated footage arrives with no hook text and often no useful audio, so
+it gets a spoken line from Mímir and a burned-in hook before it goes
+anywhere — without those it is the silent, contextless filler the phrase
+"AI slop" was coined for.
 
 Footage is generated from a text prompt, or taken from freely-licensed
 archives with --source public_domain. It is never taken from the trending
@@ -39,8 +46,15 @@ def main() -> int:
     ap.add_argument("--channel", default=None, help="channel slug (see channels.json)")
     ap.add_argument("--generate", action="store_true",
                     help="actually generate the video. Bills per second of output.")
+    ap.add_argument("--stage", action="store_true",
+                    help="email the result for approval instead of uploading. "
+                         "This is the sanctioned path: nothing on this project "
+                         "publishes itself. Requires --generate.")
     ap.add_argument("--publish", action="store_true",
-                    help="upload the result. Requires --generate.")
+                    help="upload directly, bypassing human review. Requires "
+                         "--generate. Prefer --stage.")
+    ap.add_argument("--no-finish", action="store_true",
+                    help="skip the narration and burned-in hook")
     ap.add_argument("--source", default="generated",
                     choices=["generated", "public_domain"])
     ap.add_argument("--model", default=None,
@@ -56,8 +70,8 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
                         format="%(levelname)s %(message)s")
 
-    if args.publish and not args.generate:
-        print("❌ --publish needs --generate; there would be nothing to upload.")
+    if (args.publish or args.stage) and not args.generate:
+        print("❌ --stage/--publish need --generate; there would be nothing to send.")
         return 2
 
     from agent import channels as chans
@@ -135,10 +149,26 @@ def main() -> int:
     if shot.needs_attribution:
         print(f"   ⚠️  licence {shot.licence} requires credit: {shot.attribution}")
 
-    if not args.publish:
-        print(f"\n(not published — inspect it, then run publish_file.py, or re-run "
-              f"with --publish)")
-        print(f"   python publish_file.py {shot.path} --title {brief.title!r} "
+    # 3b. Finish it. Generated footage arrives with no hook text and often no
+    # useful audio, which is the difference between a clip and filler.
+    video_path = shot.path
+    if not args.no_finish:
+        from agent import shortsmith
+        print("🎤 Adding narration and burning the hook...")
+        finished = shortsmith.finish(shot.path, brief, clip_id)
+        video_path = finished["path"]
+        bits = []
+        if finished["narrated"]:
+            bits.append("narration")
+        if finished["hook_burned"]:
+            bits.append(f"hook {finished['hook']!r}")
+        print(f"   {'+ ' + ', '.join(bits) if bits else 'nothing added'}"
+              f"  -> {video_path.name}")
+
+    if not args.publish and not args.stage:
+        print(f"\n(nothing sent — inspect it, then re-run with --stage to email "
+              f"it for approval)")
+        print(f"   python publish_file.py {video_path} --title {brief.title!r} "
               f"--channel {channel.slug}")
         return 0
 
@@ -157,10 +187,44 @@ def main() -> int:
         print(f"📊 forecast p50 {forecast['p50']:,.0f} views "
               f"(p10-p90 {forecast['p10']:,.0f}-{forecast['p90']:,.0f})")
 
-    print(f"\n⬆️  Uploading as {args.privacy}...")
+    if args.stage:
+        # The sanctioned path. Write the sidecar first: check_approvals.py
+        # looks the clip up by id when the reply comes back, and an approval
+        # that cannot find its clip is a dead end.
+        import json
+        clip_record = dict(clip)
+        clip_record.update({
+            "output_video_path": str(video_path),
+            "virality_score": 0.0,
+            "trend_topic": brief.topic,
+            "trend_videos": brief.trend_videos,
+            "angle": brief.angle,
+            "source": "generated",
+            "footage_provider": shot.provider,
+            "tags": tags,
+        })
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        sidecar = OUTPUT_DIR / f"{clip_id}_metadata.json"
+        sidecar.write_text(json.dumps(clip_record, indent=2), encoding="utf-8")
+
+        print(f"\n📧 Emailing {clip_id} for approval...")
+        ok = publisher.send_gmail_staged_approval(
+            clip_id=clip_id, title=brief.title, virality=0.0,
+            video_path=str(video_path), clip=clip_record)
+        if not ok:
+            print("❌ Could not send the staging email — see logs. The clip is "
+                  f"still at {video_path}")
+            return 1
+        print("✅ sent. Reply APPROVE or REJECT, then run:")
+        print(f"   python check_approvals.py --channel {channel.slug} "
+              f"--privacy {args.privacy}")
+        return 0
+
+    print(f"\n⚠️  Uploading directly, without review. --stage is the reviewed path.")
+    print(f"⬆️  Uploading as {args.privacy}...")
     try:
         res = publisher.upload_to_youtube_shorts(
-            video_path=shot.path, title=brief.title, description=brief.caption,
+            video_path=video_path, title=brief.title, description=brief.caption,
             privacy_status=args.privacy, clip=clip, source="generated")
     except PublishError as e:
         print(f"❌ {e}")

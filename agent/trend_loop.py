@@ -176,6 +176,22 @@ identifiable people, logos, or brands. Describe an original scene.
 {{"suitable": false, "why": "..."}} and nothing else. That is a valid answer \
 and is better than forcing a bad fit.
 
+MAKING IT ACTUALLY FUNNY (if this channel is a comedy channel)
+A cute animal doing a human activity is not a joke. It is a stock image with \
+motion, and it is what every AI video looks like. Do better than that:
+- The humour needs a TURN — something that is one thing for three seconds and \
+then reveals itself as another. Escalation, an unexpected consequence, a \
+reaction shot that recontextualises what came before.
+- Be SPECIFIC. "A dog in a suit" is nothing. "A dog in an ill-fitting suit \
+sweating through a performance review it clearly organised itself" is a joke, \
+because the detail implies a whole situation.
+- The funniest thing on screen should be a BEHAVIOUR, not a costume.
+- Commit to one absurd premise completely and play it dead straight. Comedy \
+comes from the seriousness of the treatment, not from signalling that it is \
+meant to be silly.
+- Say what happens across the eight seconds, not just what is in frame. A \
+video prompt that describes a static tableau produces a static tableau.
+
 Return ONLY JSON:
 {{
   "suitable": true,
