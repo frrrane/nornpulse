@@ -161,26 +161,124 @@ In Norse mythology, the three Norns weave the threads of fate at the Well of Ur�
 ```text
 nornpulse/
 ├── agent/
-│   ├── __init__.py
-│   ├── urdr_analytics.py        # ᚢ Urðr: ClickHouse hook retention intelligence
-│   ├── clickhouse_mcp_client.py # Bridge to the official ClickHouse MCP server (mcp-clickhouse)
+│   ├── urdr_analytics.py        # ᚢ Urðr: ClickHouse retention intelligence
 │   ├── verdandi_orchestrator.py # ᚹ Verðandi: Gemini 3.6 Flash transcript reasoning
-│   ├── skuld_renderer.py       # ᛋ Skuld: FFmpeg 16:9 -> 9:16 vertical short renderer
-│   ├── bragi_composer.py       # 🎵 Bragi: Lyria 3 original scores, grounded in Urðr's music benchmarks
-│   ├── heimdall_visualizer.py  # 👁️ Heimdall: Gemini-generated 9:16 cover thumbnails, same grounding as Bragi
-│   └── mimir_narrator.py       # 🗣️ Mímir: Gemini TTS narration — fill-silence or unintelligible-audio fallback
-├── utils/
-│   ├── __init__.py
-│   └── sample_generator.py      # Synthetic 16:9 video and sample transcripts
-├── app.py                       # ⚡ Streamlit frontend dashboard
-├── docker-compose.yml           # ClickHouse container (ports 8123, 9000)
-├── requirements.txt             # Python dependencies
-├── .env.example                 # Environment variables template
-├── LICENSE                      # MIT License
-└── README.md                    # Project documentation
+│   ├── skuld_renderer.py        # ᛋ Skuld: FFmpeg 16:9 -> 9:16 renderer + kinetic captions
+│   ├── bragi_composer.py        # 🎵 Bragi: Lyria 3 original scores
+│   ├── heimdall_visualizer.py   # 👁️ Heimdall: generated 9:16 cover thumbnails
+│   ├── mimir_narrator.py        # 🗣️ Mímir: Gemini TTS narration
+│   │
+│   ├── clickhouse_mcp_client.py # Bridge to the official ClickHouse MCP server
+│   ├── global_benchmarks.py     # The 4.56B-row global facts, banded by channel size
+│   ├── calibration.py           # Corrects the population forecast per channel
+│   ├── scoreboard.py            # Grades forecasts against what actually happened
+│   ├── provenance.py            # MEASURED / PRIOR / MODEL for every decision
+│   │
+│   ├── channels.py              # Channels as objects: identity, size, profile, token
+│   ├── channel_history.py       # Ingests a channel's already-published videos
+│   ├── publications.py          # One row per publish event (channel, tags, source)
+│   ├── tag_selector.py          # Tags from the clip, validated against trending
+│   ├── trending_ingest.py       # Live YouTube trending snapshots
+│   │
+│   ├── trend_loop.py            # Trending topic -> brief for this channel
+│   ├── footage.py               # Copyright-clean footage: Veo, or PD archives
+│   ├── shortsmith.py            # Finishes a generated clip: hook text + narration
+│   ├── norn_publisher.py        # HITL staging email + YouTube upload
+│   └── review_queue.py          # Approve/reject ledger
+│
+├── app.py                       # ⚡ Streamlit dashboard (Home/Create/Review/Intelligence)
+├── channels.json                # Publishing destinations and their profiles
+│
+│   # Generation and publishing
+├── test_hitl.py                 # Generate clips from a source, stage them by email
+├── check_approvals.py           # Read email replies, upload what was approved
+├── publish_staged.py            # Publish already-staged clips
+├── publish_file.py              # Publish an existing video with grounded tags
+├── trend_publish.py             # Trend -> brief -> generate -> stage
+│
+│   # Data
+├── seed_global_benchmarks.py    # Materialise the global facts from the public dataset
+├── ingest_trending.py           # Refresh the trending snapshot
+├── ingest_channel_history.py    # Ingest a channel's own published history
+├── sync_stats.py                # Pull real view counts back onto forecasts
+│
+│   # Demo build
+├── demo_beats.py                # The demo as data: narration + screen actions
+├── demo_capture.py              # Playwright records one video per beat
+├── DEMO_SCRIPT.md               # Human-readable 3:00 beat sheet
+│
+├── BACKLOG.md                   # What is left, and what was deliberately deferred
+├── deploy_cloud_run.sh
+└── tests/                       # 453 tests
 ```
 
 ---
+
+## 📺 Channels
+
+A channel is a first-class object, not a subscriber count typed into a
+sidebar. `channels.json` holds identity, size and a content profile; each
+channel gets **its own OAuth token file**, because a shared one means
+re-authorising channel B silently destroys channel A's credentials and the
+next upload lands on the wrong channel.
+
+```bash
+python reauth_youtube.py --channel sloptokdaily
+python ingest_channel_history.py --calibrate
+```
+
+The profile sets the YouTube category, caption face, music mood and
+channel-level tag hints. It never overrides anything measured — a comedy
+channel gets a comedy category, but its hook ranking still comes from data.
+
+---
+
+## 🏷️ Tags
+
+Tags used to be four hardcoded strings on every upload, which told YouTube
+nothing and made tag performance unmeasurable. The obvious fix is worse than
+the problem: applying the top trending tags to every clip is keyword
+stuffing, which risks the channel rather than the clip.
+
+So the rule is inverted. **Candidates come from the clip; the trending
+snapshot only ranks and validates them.** A term in circulation is MEASURED
+and carries its sample size. A term that describes the clip but is not
+trending is still used, as MODEL. A channel-brand tag is PRIOR, however
+widely it trends, because the snapshot can prove a term is popular but not
+that this video is about it.
+
+---
+
+## 🎯 Trend-driven generation
+
+Every other path starts from a video someone already had. This one starts
+from the current state of the world.
+
+```bash
+python trend_publish.py --channel sloptokdaily            # plan only, free
+python trend_publish.py --channel sloptokdaily --generate # + make it
+python trend_publish.py --channel sloptokdaily --generate --stage
+```
+
+The trending snapshot is a list of what is popular, **not a source of
+footage**. Frames are generated by Veo or taken from freely-licensed
+archives; nothing is ever re-cut from a trending video. Generated clips get
+a spoken line and a burned-in hook before they go anywhere, and `--stage`
+routes them through the same approval email as everything else.
+
+Generation is never implicit: planning is free and default, `--generate` is
+opt-in because Veo bills per second.
+
+---
+
+## 📊 Forecast scoreboard
+
+Reach is predicted before a clip publishes, then graded against what
+happened. The scoreboard counts what it *cannot* grade next to what it can —
+clips too young to judge, clips published before forecasts were recorded,
+videos that no longer exist — so a hit rate is never computed over only the
+convenient rows. With fewer than five graded clips it declines to show a
+percentage at all.
 
 ## 🚀 Quickstart Guide
 
@@ -320,19 +418,21 @@ The Devpost submission needs a URL a judge can open, which means `--allow-unauth
 
 Nothing about the product is hidden: every page, chart and grounded decision runs live against the real warehouse and the 4.56-billion-row dataset, and the clips on display were produced by this pipeline. A static test asserts each costly action carries a gate, so a button added later without one fails the suite.
 
-## 🌍 Global grounding (three data layers)
+## 🌍 Global grounding (four data layers)
 
-NornPulse's decisions are grounded in three layers that all live in ClickHouse:
+NornPulse's decisions are grounded in four layers that all live in ClickHouse:
 
 | Layer | Source | Horizon |
 |---|---|---|
 | `global_youtube_benchmarks` | ClickHouse's public **4.56-billion-row** YouTube dataset, via `remoteSecure` | frozen late-2021 |
 | `trending_snapshots` | YouTube Data API `videos.list(chart=mostPopular)` | current |
 | `published_clip_outcomes` | your own published clips | your ground truth |
+| `channel_video_history` | your channels' already-published videos | what really happens at your size |
 
 ```bash
 python seed_global_benchmarks.py            # materialise the historical facts (~5 min)
 python ingest_trending.py --regions US,GB   # snapshot what's trending now (1 quota unit/region)
+python ingest_channel_history.py --calibrate  # your channels' real outcomes (~3 quota units)
 ```
 
 The historical facts are **materialised, not queried live**: the public playground caps execution at 120s server-side, and a demo shouldn't break because a shared endpoint is busy. Sampling is `cityHash64(id) % N`; sample sizes are shown in the UI.
@@ -370,7 +470,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-338 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, Verðandi's duration/window clamp and metadata reconciliation, the HITL staging email's MIME structure and HTML escaping, the review-decision ledger, the global-grounding accessors' stratification and degradation paths, and the persistent MCP session's reuse, restart and fallback logic. They need no API keys, no ClickHouse, no FFmpeg and no SMTP connection, and run in about ten seconds.
+453 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, Verðandi's duration/window clamp and metadata reconciliation, the HITL staging email's MIME structure and HTML escaping, the review-decision ledger, the global-grounding accessors' stratification and degradation paths, and the persistent MCP session's reuse, restart and fallback logic. They need no API keys, no ClickHouse, no FFmpeg and no SMTP connection, and run in about ten seconds.
 
 Several cases are regression guards for bugs found by live testing: caption overlap, the crop-before-blur ordering in `blurred_background`, the `split=2` rule for named filter pads, `ORDER BY` binding to only the last `SELECT` of a `UNION ALL`, a clamp that could emit an end timestamp *before* its start when the model requested a range outside the user's Cut Range, and metadata reconciliation silently dropping every render field it didn't list by name.
 
@@ -378,7 +478,15 @@ Several cases are regression guards for bugs found by live testing: caption over
 
 ## 📧 Human-in-the-loop staging
 
-Nothing reaches YouTube without a human approving it. `test_hitl.py` runs the full pipeline and emails each rendered short for review:
+Nothing reaches YouTube without a human approving it, on any path into the system:
+
+| Path | Entry point |
+|---|---|
+| Cut from a source video | `test_hitl.py` |
+| An existing finished video | `publish_file.py` |
+| Generated from a trend | `trend_publish.py --stage` |
+
+`test_hitl.py` runs the full pipeline and emails each rendered short for review:
 
 ```bash
 python test_hitl.py [video_path] [transcript_path] [count]
@@ -390,7 +498,7 @@ Each email carries the 9:16 render as an attachment, Heimdall's cover inline, an
 **Approve / Reject with comments.** The email has two buttons. They are `mailto:` links, so a decision is an ordinary reply whose subject carries the verdict (`[NornPulse] APPROVE clip_1`) and whose body is your comment — no public callback URL, so it works the same before and after deployment. Apply pending replies with:
 
 ```bash
-python check_approvals.py --channel UCxxxx --privacy public   # --dry-run to preview
+python check_approvals.py --channel sloptokdaily --privacy public   # --dry-run to preview
 ```
 
 Approved clips upload and are logged to `published_clip_outcomes`; rejected clips are **archived to `output_clips/rejected/`, never deleted** — a render costs real API spend and a rejection comment is the most useful training signal the system produces. Published clips move to `output_clips/published/` for the same reason.
@@ -399,7 +507,15 @@ The **Review Queue & Library** tab is the durable view: every rendered clip acro
 
 The Pipeline tab's Review & Publish column has the same two buttons plus a comment box, for the clips you just generated. Both surfaces write one shared ledger (`output_clips/review_decisions.json`, mirrored best-effort into ClickHouse's `clip_review_decisions`), so a clip already published from either place is skipped rather than uploaded twice. The JSON is the source of truth deliberately: the dashboard must still show your decisions when ClickHouse is unreachable.
 
-`upload_to_youtube_shorts` defaults to `privacy_status="private"` so nothing goes live by accident. OAuth is cached at `.credentials/youtube_token.json` and is **bound to whichever account authorized it** — delete that file when switching channels, or the upload will silently land on the old one.
+`upload_to_youtube_shorts` defaults to `privacy_status="private"` so nothing goes live by accident.
+
+OAuth tokens are **per channel** — `.credentials/youtube_token_<slug>.json` — because a token is bound to whichever account authorised it, and a shared file means re-authorising one channel silently destroys another's credentials, with the next upload landing on the wrong channel. Switching channels needs no deletion; authorise each one once:
+
+```bash
+python reauth_youtube.py --channel sloptokdaily
+```
+
+The script verifies which channel it actually got and restores the previous token if it does not match, so a wrong pick in the account chooser cannot quietly rebind you.
 
 ## 📜 License
 
