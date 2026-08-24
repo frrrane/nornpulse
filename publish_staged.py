@@ -110,6 +110,7 @@ def main() -> int:
                 description=c.get("social_caption", ""),
                 privacy_status=args.privacy,
                 thumbnail_path=c.get("thumbnail_path"),
+                clip=c,
             )
         except PublishError as e:
             print(f"   ❌ {e}")

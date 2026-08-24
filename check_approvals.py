@@ -209,6 +209,7 @@ def main() -> int:
                     description=clip.get("social_caption", ""),
                     privacy_status=args.privacy,
                     thumbnail_path=clip.get("thumbnail_path"),
+                    clip=clip,
                 )
             except PublishError as e:
                 print(f"   ❌ upload failed: {e}")

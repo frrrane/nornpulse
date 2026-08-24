@@ -20,6 +20,8 @@ from email.mime.base import MIMEBase
 from email import encoders
 from dotenv import load_dotenv
 
+from agent import tag_selector as ts
+
 load_dotenv()
 logger = logging.getLogger("nornpulse.publisher")
 
@@ -287,9 +289,36 @@ class NornPublisher:
         TOKEN_PATH.write_text(creds.to_json())
         return creds
 
+    def _tags_for(self, clip: Dict[str, Any] | None, title: str, description: str):
+        """
+        Grounded tags for this upload, with their provenance.
+
+        Every failure mode here degrades to the structural tag rather than
+        raising: the trending snapshot is a nice-to-have, and a clip that
+        rendered successfully should never fail to publish because a
+        benchmark read timed out.
+        """
+        if not clip:
+            return list(ts.STRUCTURAL_TAGS), []
+        try:
+            from agent import trending_ingest as ti
+            trending = ti.top_tags(limit=200)
+        except Exception as e:
+            logger.warning(f"No trending snapshot for tag grounding: {e}")
+            trending = None
+        try:
+            tags, decisions = ts.select_tags(
+                clip, trending=trending, extra_text=f"{title} {description}")
+        except Exception as e:
+            logger.warning(f"Tag selection failed, falling back to structural: {e}")
+            return list(ts.STRUCTURAL_TAGS), []
+        measured = sum(1 for d in decisions if d.level == "measured")
+        logger.info(f"Tags for upload ({len(tags)}, {measured} measured): {tags}")
+        return tags or list(ts.STRUCTURAL_TAGS), decisions
+
     def upload_to_youtube_shorts(
         self, video_path: str | Path, title: str, description: str, privacy_status: str = "private",
-        thumbnail_path: str | Path | None = None,
+        thumbnail_path: str | Path | None = None, clip: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """
         Publishes a vertical video to YouTube as a Short using the YouTube
@@ -309,6 +338,12 @@ class NornPublisher:
         itself already published successfully at that point; losing the
         custom thumbnail shouldn't be treated as the whole publish
         failing.
+
+        clip, if given, is the clip's metadata. It is used to choose tags
+        that actually describe this video (see agent.tag_selector) instead
+        of the fixed four this method used to send on every upload. Without
+        it the structural fallback is used, because shipping tags derived
+        from nothing is worse than shipping none.
         """
         if privacy_status not in ("private", "unlisted", "public"):
             raise PublishError(f"Invalid privacy_status '{privacy_status}'; must be private, unlisted, or public.")
@@ -324,12 +359,13 @@ class NornPublisher:
             credentials = self._get_youtube_credentials()
             youtube = build("youtube", "v3", credentials=credentials)
             formatted_title = f"{title} #Shorts" if "#Shorts" not in title else title
+            tags, tag_decisions = self._tags_for(clip, title, description)
 
             body = {
                 "snippet": {
                     "title": formatted_title,
                     "description": f"{description}\n\nGenerated autonomously by NornPulse (nornlabs.ai)",
-                    "tags": ["AI", "NornPulse", "Shorts", "Tech"],
+                    "tags": tags,
                     "categoryId": "28",
                 },
                 "status": {
@@ -370,7 +406,12 @@ class NornPublisher:
                         f"for custom thumbnails): {e}"
                     )
 
-            return {"video_id": video_id, "url": url, "privacy_status": privacy_status, "thumbnail_set": thumbnail_set}
+            if clip:
+                ts.record_clip_tags(
+                    clip.get("clip_id", ""), video_id, tags, tag_decisions)
+
+            return {"video_id": video_id, "url": url, "privacy_status": privacy_status,
+                    "thumbnail_set": thumbnail_set, "tags": tags}
 
         except PublishError:
             raise

@@ -155,8 +155,18 @@ def top_tags(limit: int = 20, shorts_only: bool = False, region: Optional[str] =
     if region:
         filters.append(f"region = {ch.sql_literal(region)}")
     try:
+        # Grouped case-insensitively on distinct videos. YouTube tags are
+        # matched case-insensitively but stored as typed, so "Minecraft"
+        # and "minecraft" arrive as separate rows — which split one tag's
+        # evidence across two entries, showed both in the UI, and let the
+        # smaller variant win when callers indexed by lowercased name.
+        # uniqExact rather than count() because ARRAY JOIN yields one row
+        # per tag occurrence, and a video carrying both cases would
+        # otherwise be counted twice.
         return ch.run_query_df(f"""
-            SELECT tag, count() AS videos, round(median(view_count)) AS median_views
+            SELECT lower(tag) AS tag,
+                   uniqExact(video_id) AS videos,
+                   round(median(view_count)) AS median_views
             FROM {TABLE} ARRAY JOIN tags AS tag
             WHERE {' AND '.join(filters)}
             GROUP BY tag ORDER BY videos DESC, median_views DESC LIMIT {int(limit)}

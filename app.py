@@ -1327,6 +1327,7 @@ def page_create():
                                 result = st.session_state.publisher.upload_to_youtube_shorts(
                                     c_path, t_val, d_val, privacy_status=privacy_choice,
                                     thumbnail_path=item.get("thumbnail_path"),
+                                    clip=item,
                                 )
 
                                 # Log the prediction-side row now, so Tab 3's
