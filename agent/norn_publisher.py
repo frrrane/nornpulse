@@ -96,6 +96,10 @@ class NornPublisher:
         ("forecast_p50", "Forecast reach (p50)"),
         ("forecast_range", "Forecast range (p10-p90)"),
         ("tags", "Tags"),
+        # A reviewer approving a clip should see what was checked on their
+        # behalf, and just as importantly what was not.
+        ("rights_check", "Rights check"),
+        ("rights_not_checked", "Rights check does NOT cover"),
     ]
 
     # A reply-based decision needs no hosting and no public callback URL,

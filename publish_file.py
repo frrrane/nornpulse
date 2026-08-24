@@ -75,6 +75,8 @@ def main() -> int:
                     choices=["private", "unlisted", "public"])
     ap.add_argument("--thumbnail", default=None, help="optional custom thumbnail")
     ap.add_argument("--hook-type", default="", help="hook taxonomy label, if known")
+    ap.add_argument("--no-guard", action="store_true",
+                    help="skip the rights check on the title and tags")
     ap.add_argument("--dry-run", action="store_true",
                     help="show the tags and forecast, upload nothing")
     ap.add_argument("-v", "--verbose", action="store_true")
@@ -136,6 +138,20 @@ def main() -> int:
     print(f"\n🏷️  tags ({len(tags)}): {', '.join(tags)}")
     if measured:
         print(f"    measured against trending: {', '.join(measured)}")
+
+    # The metadata infringes on its own: a title reproducing a property is a
+    # claim whether or not a single frame does. The footage itself is not
+    # checked here — this path publishes video the pipeline did not make and
+    # cannot inspect, which is exactly the limit the verdict states.
+    if not args.no_guard:
+        from agent import watchdog as wd
+        verdict = wd.check_clip(clip, tags=tags)
+        print()
+        print(wd.describe(verdict))
+        if verdict.blocked and not args.dry_run:
+            print("\n⛔ Not publishing. Change the title, or pass --no-guard if "
+                  "you hold the rights.")
+            return 1
 
     forecast = cal.calibrated_forecast(channel, has_subtitles=False) or {}
     if forecast:

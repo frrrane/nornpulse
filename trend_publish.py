@@ -55,6 +55,9 @@ def main() -> int:
                          "--generate. Prefer --stage.")
     ap.add_argument("--no-finish", action="store_true",
                     help="skip the narration and burned-in hook")
+    ap.add_argument("--no-guard", action="store_true",
+                    help="skip the rights check. Only for material you know "
+                         "you have the rights to.")
     ap.add_argument("--source", default="generated",
                     choices=["generated", "public_domain"])
     ap.add_argument("--model", default=None,
@@ -117,6 +120,27 @@ def main() -> int:
     print(f"\n  video prompt:\n    {brief.video_prompt}")
     if brief.negative_prompt:
         print(f"  avoiding:\n    {brief.negative_prompt}")
+
+    # Rights check, before anything is generated. Placed here for two
+    # reasons: the brief writer is shown this channel's own titles as a voice
+    # reference and those lean heavily on other people's property, and a
+    # refusal from Veo would cost a paid call to discover.
+    if not args.no_guard:
+        from agent import watchdog as wd
+        verdict = wd.check_brief(brief)
+        print()
+        print(wd.describe(verdict))
+        if verdict.blocked:
+            print("\n⛔ Not generating. Re-run to get a different brief, or pass "
+                  "--no-guard if you hold the rights.")
+            return 1
+        if verdict.needs_human and args.generate:
+            print("\n⚠️  Flagged for a human look, so nothing was generated. "
+                  "Re-run with --no-guard to proceed anyway.")
+            return 1
+    else:
+        verdict = None
+        print("\n⚪ rights check skipped (--no-guard)")
 
     if not args.generate:
         model = args.model or fg.DEFAULT_VEO_MODEL
@@ -204,6 +228,12 @@ def main() -> int:
             "video_prompt": brief.video_prompt,
             "tags": tags,
         })
+        if verdict is not None:
+            clip_record["rights_check"] = (
+                f"{verdict.level.upper()} — {verdict.summary()}")
+            clip_record["rights_not_checked"] = ", ".join(verdict.checks_not_run)
+        else:
+            clip_record["rights_check"] = "skipped (--no-guard)"
         if not args.no_finish:
             clip_record["hook_burned"] = finished.get("hook") or ""
             clip_record["has_narration"] = finished.get("narrated", False)

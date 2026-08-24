@@ -88,6 +88,9 @@ submission is **Wed 9 September 2026, 2pm PDT**.
 - [x] Existing channel history ingestion (`channel_video_history`)
 - [x] Per-channel calibrated reach forecast
 - [x] `publish_file.py` for externally-produced video
+- [x] Pre-flight rights check (`agent/watchdog.py`) — blocks named and
+      unmistakably-depicted third-party property before generation and
+      before publish; states what it does not cover
 - [x] Trend-driven generation (`agent/trend_loop.py`, `agent/footage.py`,
       `trend_publish.py`) — planning is free and default; generation is
       behind an explicit flag because Veo bills per second
