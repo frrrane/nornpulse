@@ -20,6 +20,8 @@ from email.mime.base import MIMEBase
 from email import encoders
 from dotenv import load_dotenv
 
+from agent import channels
+from agent import publications
 from agent import tag_selector as ts
 
 load_dotenv()
@@ -41,7 +43,15 @@ class NornPublisher:
     Manages HITL Gmail staging notifications and YouTube Shorts API integration.
     """
 
-    def __init__(self):
+    def __init__(self, channel: "channels.Channel | str | None" = None):
+        # Which channel this publisher publishes to. Resolved once, at
+        # construction, so a single instance can never drift between
+        # channels mid-run — and so the token path, the YouTube category
+        # and the size band all come from the same decision.
+        self.channel = (
+            channels.get_channel(channel) if channel is None or isinstance(channel, str)
+            else channel
+        )
         self.gmail_user = os.getenv("GMAIL_USER")
         self.gmail_password = os.getenv("GMAIL_APP_PASSWORD")
         self.notify_email = os.getenv("NOTIFY_EMAIL") or self.gmail_user
@@ -51,6 +61,11 @@ class NornPublisher:
         # Google expires refresh tokens after 7 days — any unattended sync
         # on the OAuth path dies weekly. An API key does not expire.
         self.youtube_api_key = os.getenv("YOUTUBE_API_KEY")
+
+    @property
+    def token_path(self) -> Path:
+        """This channel's OAuth token. Never shared between channels."""
+        return self.channel.resolve_token_path()
 
     # Fields surfaced in the staging email, in the order a reviewer wants
     # them: what the clip claims, then how the system chose to treat it.
@@ -243,20 +258,22 @@ class NornPublisher:
 
     def _get_youtube_credentials(self):
         """
-        Loads cached OAuth credentials from TOKEN_PATH, refreshing if
+        Loads cached OAuth credentials from this channel's token path,
+        refreshing if
         expired. Only falls back to the interactive browser consent flow
         (`run_local_server`) if no usable cached token exists — so a
         headless/cron/remote run doesn't require a human at a browser on
         every single publish, only once per machine.
         """
+        token_path = self.token_path
         from google.auth.transport.requests import Request
         from google.oauth2.credentials import Credentials
         from google_auth_oauthlib.flow import InstalledAppFlow
 
         creds = None
-        if TOKEN_PATH.exists():
+        if token_path.exists():
             try:
-                creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), SCOPES)
+                creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
             except Exception as e:
                 logger.warning(f"Cached YouTube token unreadable, will re-authenticate: {e}")
                 creds = None
@@ -267,8 +284,8 @@ class NornPublisher:
         if creds and creds.expired and creds.refresh_token:
             try:
                 creds.refresh(Request())
-                TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-                TOKEN_PATH.write_text(creds.to_json())
+                token_path.parent.mkdir(parents=True, exist_ok=True)
+                token_path.write_text(creds.to_json())
                 return creds
             except Exception as e:
                 logger.warning(f"Failed to refresh cached YouTube token, re-authenticating: {e}")
@@ -285,8 +302,8 @@ class NornPublisher:
         # open port 8080, so it will not work unattended on a remote host.
         flow = InstalledAppFlow.from_client_secrets_file(self.client_secrets_file, SCOPES)
         creds = flow.run_local_server(port=8080)
-        TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-        TOKEN_PATH.write_text(creds.to_json())
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text(creds.to_json())
         return creds
 
     def _tags_for(self, clip: Dict[str, Any] | None, title: str, description: str):
@@ -366,7 +383,7 @@ class NornPublisher:
                     "title": formatted_title,
                     "description": f"{description}\n\nGenerated autonomously by NornPulse (nornlabs.ai)",
                     "tags": tags,
-                    "categoryId": "28",
+                    "categoryId": self.channel.profile.category_id,
                 },
                 "status": {
                     "privacyStatus": privacy_status,
@@ -407,8 +424,14 @@ class NornPublisher:
                     )
 
             if clip:
-                ts.record_clip_tags(
-                    clip.get("clip_id", ""), video_id, tags, tag_decisions)
+                publications.record_publication(
+                    clip_id=clip.get("clip_id", ""),
+                    youtube_video_id=video_id,
+                    channel=self.channel,
+                    tags=tags,
+                    decisions=tag_decisions,
+                    hook_type=clip.get("hook_type", ""),
+                )
 
             return {"video_id": video_id, "url": url, "privacy_status": privacy_status,
                     "thumbnail_set": thumbnail_set, "tags": tags}

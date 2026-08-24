@@ -38,12 +38,16 @@ def _verify_channel(publisher, expected: str, allow_interactive: bool = True) ->
     and it collides with a re-auth already in progress.
     """
     from googleapiclient.discovery import build
-    from agent.norn_publisher import TOKEN_PATH
 
-    if not allow_interactive and not TOKEN_PATH.exists():
+    # The publisher's own token path, not the module-level default: with
+    # per-channel credentials those differ, and checking the wrong file
+    # would report a missing token for a channel that is authorised.
+    token_path = publisher.token_path
+    if not allow_interactive and not token_path.exists():
         raise SystemExit(
-            f"❌ No cached token at {TOKEN_PATH}, and --dry-run will not start "
-            f"an interactive sign-in.\n   Authorize first: python reauth_youtube.py {expected}"
+            f"❌ No cached token at {token_path}, and --dry-run will not start "
+            f"an interactive sign-in.\n   Authorize first: "
+            f"python reauth_youtube.py --channel {publisher.channel.slug}"
         )
 
     items = build("youtube", "v3", credentials=publisher._get_youtube_credentials()) \
@@ -64,7 +68,12 @@ def _verify_channel(publisher, expected: str, allow_interactive: bool = True) ->
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("clip_ids", nargs="+", help="clip ids with sidecar metadata in output_clips/")
-    ap.add_argument("--channel", required=True, help="expected YouTube channel id")
+    ap.add_argument("--channel", default=None,
+                    help="channel slug to publish to (see channels.json). "
+                         "Selects the OAuth token, the YouTube category, the "
+                         "subscriber count and the channel id the token is "
+                         "verified against. Default: NORNPULSE_CHANNEL or the "
+                         "primary channel.")
     ap.add_argument("--privacy", default="private", choices=["private", "unlisted", "public"])
     ap.add_argument("--dry-run", action="store_true", help="validate everything, upload nothing")
     ap.add_argument("--subscribers", type=int, default=0,
@@ -73,6 +82,7 @@ def main() -> int:
 
     from agent import global_benchmarks as gb
     from agent import review_queue as rq
+    from agent import channels
     from agent.norn_publisher import NornPublisher, PublishError
     from agent.urdr_analytics import UrdrAnalytics
 
@@ -89,8 +99,15 @@ def main() -> int:
             raise SystemExit(f"❌ {clip_id}: rendered video missing at {video}")
         clips.append(clip)
 
-    publisher = NornPublisher()
-    _verify_channel(publisher, args.channel, allow_interactive=not args.dry_run)
+    try:
+        channel = channels.get_channel(args.channel)
+    except KeyError as e:
+        print(f"❌ {e}")
+        return 1
+    publisher = NornPublisher(channel)
+    print(f"📺 Channel: {channel.slug} ({channel.title}) — {channel.youtube_channel_id}")
+    _verify_channel(publisher, channel.youtube_channel_id,
+                    allow_interactive=not args.dry_run)
 
     print(f"\n{len(clips)} clip(s) to publish as {args.privacy.upper()}:")
     for c in clips:
@@ -131,7 +148,8 @@ def main() -> int:
             predicted_3s = float(bench.iloc[0]["avg_3s_retention_pct"]) if not bench.empty else 85.0
 
         forecast = gb.forecast_reach(
-            args.subscribers, has_subtitles=bool(c.get("has_subtitles"))) or {}
+            args.subscribers or channel.subscribers,
+            has_subtitles=bool(c.get("has_subtitles"))) or {}
         if forecast:
             print(f"   📊 forecast {forecast['p50']:,.0f} views "
                   f"(p10-p90 {forecast['p10']:,.0f}-{forecast['p90']:,.0f})")

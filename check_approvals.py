@@ -145,22 +145,33 @@ def fetch_decisions(marker: str):
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--channel", help="expected YouTube channel id (required unless --dry-run)")
+    ap.add_argument("--channel", default=None,
+                    help="channel slug to publish to (see channels.json). "
+                         "Selects the OAuth token, category, subscriber count "
+                         "and the channel id the token is verified against.")
     ap.add_argument("--privacy", default="public", choices=["private", "unlisted", "public"])
     ap.add_argument("--dry-run", action="store_true", help="show decisions, change nothing")
     ap.add_argument("--subscribers", type=int, default=0,
                     help="channel subscriber count, for the grounded reach forecast")
     args = ap.parse_args()
 
-    if not args.channel and not args.dry_run:
-        raise SystemExit("❌ --channel is required unless --dry-run (uploading to the wrong channel is silent).")
-
+    # The old guard here required an explicit --channel because publishing
+    # to the wrong channel is silent. That risk is now handled better: the
+    # resolved channel is printed before anything uploads, and its token is
+    # verified against that channel's own id before each upload.
     from agent import global_benchmarks as gb
     from agent import review_queue as rq
+    from agent import channels
     from agent.norn_publisher import NornPublisher, PublishError
     from agent.urdr_analytics import UrdrAnalytics
 
-    publisher = NornPublisher()
+    try:
+        channel = channels.get_channel(args.channel)
+    except KeyError as e:
+        print(f"❌ {e}")
+        return 1
+    publisher = NornPublisher(channel)
+    print(f"📺 Channel: {channel.slug} ({channel.title}) — {channel.youtube_channel_id}")
     urdr = None
     seen = 0
 
@@ -198,9 +209,10 @@ def main() -> int:
                 items = build("youtube", "v3", credentials=publisher._get_youtube_credentials()) \
                     .channels().list(part="snippet", mine=True).execute().get("items", [])
                 got = items[0]["id"] if items else None
-                if got != args.channel:
-                    print(f"   ❌ token is bound to {got}, not {args.channel}. "
-                          f"Run: python reauth_youtube.py {args.channel}")
+                if got != channel.youtube_channel_id:
+                    print(f"   ❌ token is bound to {got}, not "
+                          f"{channel.youtube_channel_id}. "
+                          f"Run: python reauth_youtube.py --channel {channel.slug}")
                     return 1
 
                 res = publisher.upload_to_youtube_shorts(
@@ -223,7 +235,8 @@ def main() -> int:
                 bench = urdr.query_hook_retention(hook_category=hook_type, limit=1)
                 predicted_3s = float(bench.iloc[0]["avg_3s_retention_pct"]) if not bench.empty else 85.0
             forecast = gb.forecast_reach(
-                args.subscribers, has_subtitles=bool(clip.get("has_subtitles"))) or {}
+                args.subscribers or channel.subscribers,
+                has_subtitles=bool(clip.get("has_subtitles"))) or {}
             urdr.log_published_outcome(
                 clip_id=clip_id, youtube_video_id=res["video_id"], youtube_url=res["url"],
                 hook_type=hook_type,

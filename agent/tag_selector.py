@@ -25,7 +25,9 @@ emitted, but as MODEL: it describes the clip, and nothing more is claimed.
 
 This keeps tags inside the same provenance discipline as every other
 decision, and makes tag lift measurable later without ever having shipped
-a tag the clip could not justify.
+a tag the clip could not justify. Selection is all that happens here;
+recording what a clip actually shipped with belongs to the publish event
+and lives in agent/publications.py.
 """
 
 from __future__ import annotations
@@ -36,12 +38,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
-from agent import clickhouse_mcp_client as ch
 from agent import provenance as pv
 
 logger = logging.getLogger(__name__)
-
-TABLE = "clip_tags"
 
 # YouTube rejects an upload whose tags exceed 500 characters in total
 # (separators counted). Stop well short: the request fails as a whole, so
@@ -349,90 +348,3 @@ def select_tags(
         ))
 
     return tags, decisions
-
-
-# --------------------------------------------------------------------------
-# Persistence
-#
-# Tags live in their own table rather than as a column on
-# published_clip_outcomes. That table is append-only and re-inserted on
-# every stats sync, so every column on it has to be carried forward by
-# hand — a pattern that has already silently dropped the forecast once and
-# restamped published_at once. Tags are written exactly once, at publish,
-# and never need to survive a sync, so keeping them out of that row avoids
-# the whole class of bug. Lift analysis joins on youtube_video_id.
-# --------------------------------------------------------------------------
-
-def ensure_table() -> None:
-    ch.run_query(f"""
-    CREATE TABLE IF NOT EXISTS {TABLE} (
-        clip_id String,
-        youtube_video_id String,
-        tags Array(String),
-        measured_tags Array(String),
-        published_at DateTime DEFAULT now()
-    ) ENGINE = MergeTree()
-    ORDER BY (youtube_video_id, clip_id);
-    """)
-
-
-def record_clip_tags(clip_id: str, youtube_video_id: str, tags: Sequence[str],
-                     decisions: Optional[Sequence[pv.Decision]] = None) -> bool:
-    """Store what a clip actually shipped with, so tag lift is measurable."""
-    if not tags:
-        return False
-    measured = [
-        d.choice for d in (decisions or []) if d.level == pv.MEASURED
-    ]
-    try:
-        ensure_table()
-        array = lambda vs: "[" + ", ".join(ch.sql_literal(v) for v in vs) + "]"
-        ch.run_query(
-            f"INSERT INTO {TABLE} (clip_id, youtube_video_id, tags, measured_tags) VALUES ("
-            + ", ".join([
-                ch.sql_literal(clip_id),
-                ch.sql_literal(youtube_video_id),
-                array(list(tags)),
-                array(measured),
-            ])
-            + ")"
-        )
-        return True
-    except Exception as e:
-        # A clip that published successfully must not be reported as failed
-        # because its tag bookkeeping did not land.
-        logger.warning(f"Could not record tags for {clip_id}: {ch._unwrap_exception(e)[:160]}")
-        return False
-
-
-def tag_lift(min_clips: int = 3) -> pd.DataFrame:
-    """
-    Median reach of our own published clips by tag.
-
-    Deliberately thin evidence for now — with a few dozen clips this cannot
-    support a conclusion, and min_clips exists so the UI can decline to show
-    a tag that has only been tried once or twice.
-    """
-    try:
-        return ch.run_query_df(f"""
-            SELECT tag,
-                   count() AS clips,
-                   round(median(o.actual_view_count)) AS median_views
-            FROM {TABLE} AS t
-            ARRAY JOIN t.tags AS tag
-            INNER JOIN (
-                SELECT youtube_video_id, actual_view_count FROM (
-                    SELECT youtube_video_id, actual_view_count
-                    FROM published_clip_outcomes
-                    WHERE NOT video_unavailable
-                    ORDER BY youtube_video_id, row_written_at DESC
-                    LIMIT 1 BY youtube_video_id
-                )
-            ) AS o ON o.youtube_video_id = t.youtube_video_id
-            GROUP BY tag
-            HAVING clips >= {int(min_clips)}
-            ORDER BY median_views DESC
-        """)
-    except Exception as e:
-        logger.warning(f"Could not read tag lift: {ch._unwrap_exception(e)[:160]}")
-        return pd.DataFrame()

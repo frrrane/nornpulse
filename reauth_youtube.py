@@ -12,7 +12,11 @@ This script clears the token, runs consent, then *verifies* the channel
 it actually got. If it doesn't match the one you asked for, the previous
 token is restored and nothing is left in a half-changed state.
 
-    python reauth_youtube.py UCxxxxxxxxxxxxxxxxxxxxxx
+    python reauth_youtube.py --channel sloptokdaily
+    python reauth_youtube.py UCxxxxxxxxxxxxxxxxxxxxxx   # by raw id
+
+Each channel has its own token file, so authorising one never disturbs
+another's credentials.
 
 Needs a local browser and a free port 8080 — it will not work over SSH
 or in the container.
@@ -27,17 +31,24 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def reauth(target_channel_id: str) -> int:
+def reauth(target_channel_id: str, slug: str | None = None) -> int:
     from googleapiclient.discovery import build
-    from agent.norn_publisher import NornPublisher, TOKEN_PATH
+    from agent import channels
+    from agent.norn_publisher import NornPublisher
+
+    channel = channels.get_channel(slug)
+    # Write to this channel's own token path, never the shared legacy one:
+    # re-authorising channel B must not overwrite channel A's credentials.
+    token_path = channel.token_path
+    print(f"📺 Channel: {channel.slug} ({channel.title}) → {token_path}")
 
     backup = None
-    if TOKEN_PATH.exists():
-        backup = TOKEN_PATH.with_suffix(f".json.bak-{int(time.time())}")
-        TOKEN_PATH.rename(backup)
+    if token_path.exists():
+        backup = token_path.with_suffix(f".json.bak-{int(time.time())}")
+        token_path.rename(backup)
         print(f"↩️  Existing token moved aside to {backup.name}")
 
-    pub = NornPublisher()
+    pub = NornPublisher(channel)
     try:
         print("🔐 Opening the Google consent flow in your browser...")
         print("   If the new channel is a Brand Account, pick it from the "
@@ -73,14 +84,34 @@ def reauth(target_channel_id: str) -> int:
         print(f"❌ {type(e).__name__}: {e}" if not isinstance(e, KeyboardInterrupt)
               else "❌ Interrupted before consent completed.")
         if backup:
-            TOKEN_PATH.unlink(missing_ok=True)
-            backup.rename(TOKEN_PATH)
+            token_path.unlink(missing_ok=True)
+            backup.rename(token_path)
             print("↩️  Restored the previous token — nothing was changed.")
         return 1
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print(__doc__)
+    import argparse
+
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("channel_id", nargs="?",
+                    help="YouTube channel id to verify against. Defaults to "
+                         "the configured id for --channel.")
+    ap.add_argument("--channel", default=None,
+                    help="channel slug from channels.json (default: primary)")
+    args = ap.parse_args()
+
+    from agent import channels as _chans
+    try:
+        _channel = _chans.get_channel(args.channel)
+    except KeyError as e:
+        print(f"❌ {e}")
         sys.exit(2)
-    sys.exit(reauth(sys.argv[1]))
+
+    target = args.channel_id or _channel.youtube_channel_id
+    if not target:
+        print(f"❌ No youtube_channel_id configured for '{_channel.slug}' and "
+              f"none given on the command line.")
+        sys.exit(2)
+    sys.exit(reauth(target, slug=args.channel))
