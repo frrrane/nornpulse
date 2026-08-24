@@ -519,4 +519,6 @@ The script verifies which channel it actually got and restores the previous toke
 
 ## 📜 License
 
-MIT License. Copyright (c) 2026 **Norn Labs** ([nornlabs.ai](https://nornlabs.ai)).
+MIT License, © 2026 Frane Potrč.
+
+Norn Labs ([nornlabs.ai](https://nornlabs.ai)) is the name of an independent project, not a registered company. Copyright in this code belongs to the individual who wrote it — which is automatic, and is what makes the MIT grant above valid.
