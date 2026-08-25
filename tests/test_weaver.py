@@ -219,3 +219,33 @@ def test_a_real_join_has_both_segments(tmp_path):
     assert f"{weaver.TARGET_W},{weaver.TARGET_H}" in probe
     duration = float(probe.strip().splitlines()[-1])
     assert 7.5 < duration < 8.5, f"expected ~8s (2 + 6), got {duration}"
+
+
+# --- wired into the pipeline ------------------------------------------------
+
+def test_the_opener_is_off_unless_asked_for():
+    """
+    Every opener is a paid Veo call on a clip that otherwise costs only
+    ffmpeg. Defaulting it on would bill six generations a day that nobody
+    requested.
+    """
+    import inspect
+    from agent.verdandi_orchestrator import VerdandiADK
+
+    for fn in (VerdandiADK.orchestrate_generation, VerdandiADK.orchestrate_batch):
+        assert inspect.signature(fn).parameters["opener_sec"].default == 0.0
+
+
+def test_a_failed_weave_keeps_the_rendered_clip():
+    """
+    weave_opener raises so a half-joined file is never written; the
+    pipeline catches that so losing the opener never costs the clip.
+    """
+    import inspect
+    from agent.verdandi_orchestrator import VerdandiADK
+
+    source = inspect.getsource(VerdandiADK._make_tools)
+    assert "keeping the clip as" in source
+    # The recorded path is the variable the weave may reassign, not the
+    # raw render result -- otherwise a successful weave would be discarded.
+    assert '"output_video_path": rendered_path,' in source

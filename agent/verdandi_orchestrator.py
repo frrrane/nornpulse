@@ -342,6 +342,7 @@ class VerdandiADK:
         music_mood: Optional[str] = None,
         avoid_motion: Optional[List[str]] = None,
         avoid_crop: Optional[List[str]] = None,
+        opener_sec: float = 0.0,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Callable]:
         """Builds request-scoped tool functions closing over this call's state."""
@@ -602,6 +603,33 @@ class VerdandiADK:
             # ultimately trust, independent of whatever the model's final
             # text summary says — so a malformed closing JSON response can
             # never orphan a clip that actually rendered successfully.
+            # A generated opening shot, if one was asked for. Off unless a
+            # caller sets opener_sec, because every opener is a paid Veo
+            # call on a clip that otherwise costs only ffmpeg.
+            #
+            # Degrades here even though weave_opener raises: the raise is
+            # what stops a half-joined file being written, and losing the
+            # opener should never cost the clip that already rendered.
+            rendered_path = result["output_video_path"]
+            has_opener = False
+            if opener_sec and opener_sec > 0:
+                _emit("skuld", f"🧵 Weaving a generated opener (clip {clip_counter[0]})...")
+                try:
+                    from agent import weaver
+                    woven = weaver.add_generated_opener(
+                        clip_path=rendered_path,
+                        hook_title=hook_banner_text,
+                        clip_id=clip_id,
+                        topic=topic_focus or "",
+                        opener_sec=opener_sec)
+                    rendered_path = str(woven.path)
+                    has_opener = True
+                    logger.info(f"{clip_id}: {woven.note}")
+                except Exception as e:
+                    logger.warning(
+                        f"{clip_id}: no generated opener, keeping the clip as "
+                        f"rendered: {e}")
+
             # What the viewer actually hears first, and whether it will
             # lose them. Recorded on the clip so a reviewer sees it in the
             # staging email rather than discovering it by watching.
@@ -619,7 +647,8 @@ class VerdandiADK:
                     "end_time": end_time,
                     "opening_line": opening,
                     "opening_problem": opening_problem,
-                    "output_video_path": result["output_video_path"],
+                    "output_video_path": rendered_path,
+                    "has_generated_opener": has_opener,
                     "has_subtitles": result["has_subtitles"],
                     "has_bragi_score": result.get("has_bragi_score", False),
                     "has_narration": result.get("has_narration", False),
@@ -944,6 +973,7 @@ class VerdandiADK:
         caption_font: Optional[str] = None,
         source_ref: Optional[str] = None,
         channel_profile: Optional[Any] = None,
+        opener_sec: float = 0.0,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -1050,6 +1080,7 @@ class VerdandiADK:
             if getattr(channel_profile, "music_mood", None) else None,
             avoid_motion=list(getattr(channel_profile, "avoid_motion", []) or []),
             avoid_crop=list(getattr(channel_profile, "avoid_crop", []) or []),
+            opener_sec=opener_sec,
             progress_callback=progress_callback,
         )
         prompt = self._build_prompt(
@@ -1135,6 +1166,7 @@ class VerdandiADK:
         caption_language: Optional[str] = None,
         channel_subscribers: int = 0,
         channel_profile: Optional[Any] = None,
+        opener_sec: float = 0.0,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -1221,6 +1253,7 @@ class VerdandiADK:
                     channel_subscribers=channel_subscribers,
                     source_ref=url,
                     channel_profile=channel_profile,
+                    opener_sec=opener_sec,
                     progress_callback=_relay,
                 )
                 all_clips.extend(clips)
