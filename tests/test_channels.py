@@ -182,7 +182,7 @@ def test_excluding_every_unfilled_mode_lands_on_the_filled_one():
 def test_the_renderer_defaults_to_a_filled_frame():
     """The fallback the exclusion above relies on."""
     import inspect
-    from agent.verdandi_orchestrator import VerdandiADK
-    source = inspect.getsource(VerdandiADK._make_tools)
+    from agent.verdandi_orchestrator import VerdandiOrchestrator
+    source = inspect.getsource(VerdandiOrchestrator._make_tools)
     assert 'visual_benchmark.get("crop_mode", "center_crop")' in source
     assert 'if visual_benchmark else "center_crop"' in source

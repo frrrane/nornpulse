@@ -232,9 +232,9 @@ def test_the_opener_is_off_unless_asked_for():
     requested.
     """
     import inspect
-    from agent.verdandi_orchestrator import VerdandiADK
+    from agent.verdandi_orchestrator import VerdandiOrchestrator
 
-    for fn in (VerdandiADK.orchestrate_generation, VerdandiADK.orchestrate_batch):
+    for fn in (VerdandiOrchestrator.orchestrate_generation, VerdandiOrchestrator.orchestrate_batch):
         assert inspect.signature(fn).parameters["opener_sec"].default == 0.0
 
 
@@ -244,9 +244,9 @@ def test_a_failed_weave_keeps_the_rendered_clip():
     pipeline catches that so losing the opener never costs the clip.
     """
     import inspect
-    from agent.verdandi_orchestrator import VerdandiADK
+    from agent.verdandi_orchestrator import VerdandiOrchestrator
 
-    source = inspect.getsource(VerdandiADK._make_tools)
+    source = inspect.getsource(VerdandiOrchestrator._make_tools)
     assert "keeping the clip as" in source
     # The recorded path is the variable the weave may reassign, not the
     # raw render result -- otherwise a successful weave would be discarded.

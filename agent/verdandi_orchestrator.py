@@ -275,7 +275,7 @@ def unique_clip_id(clip_id: str, output_dir: str | Path) -> str:
     return candidate
 
 
-class VerdandiADK:
+class VerdandiOrchestrator:
     """
     Orchestrates Gemini-driven clip selection and delegates rendering to
     Skuld / telemetry logging to Urðr.

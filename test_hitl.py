@@ -60,13 +60,13 @@ def _resolve_source(source: str, transcript_path: str | None):
 
 def stage_clips(source: str, transcript_path: str | None, target_count: int,
                 subscribers: int = 0) -> int:
-    from agent.verdandi_orchestrator import VerdandiADK
+    from agent.verdandi_orchestrator import VerdandiOrchestrator
     from agent.norn_publisher import NornPublisher
 
     video, transcript_text = _resolve_source(source, transcript_path)
 
     print(f"🚀 Staging {target_count} clip(s) from {video.name}...")
-    clips = VerdandiADK().orchestrate_generation(
+    clips = VerdandiOrchestrator().orchestrate_generation(
         transcript_text=transcript_text,
         video_path=str(video),
         target_count=target_count,

@@ -14,7 +14,7 @@ import types
 import pytest
 
 from agent.verdandi_orchestrator import (
-    VerdandiADK,
+    VerdandiOrchestrator,
     _clean_transcript_window_text,
     filter_transcript_by_window,
 )
@@ -86,11 +86,11 @@ def _clamp_fn(window=None, min_d=8.0, max_d=15.0, video_len=600.0):
     the _clamp_duration closure, so the genuine production logic is under
     test rather than a reimplementation of it.
     """
-    adk = VerdandiADK.__new__(VerdandiADK)   # bypass __init__ (needs an API key)
+    adk = VerdandiOrchestrator.__new__(VerdandiOrchestrator)   # bypass __init__ (needs an API key)
     adk.urdr = _StubUrdr()
     adk.skuld = types.SimpleNamespace(output_dir="/tmp")
 
-    tools = VerdandiADK._make_tools(
+    tools = VerdandiOrchestrator._make_tools(
         adk,
         transcript_text="",
         rendered_clips=[],
@@ -108,12 +108,12 @@ def _clamp_fn(window=None, min_d=8.0, max_d=15.0, video_len=600.0):
 
 def _get_clamp():
     """Extract _clamp_duration from the render tool's enclosing scope."""
-    adk = VerdandiADK.__new__(VerdandiADK)
+    adk = VerdandiOrchestrator.__new__(VerdandiOrchestrator)
     adk.urdr = _StubUrdr()
     adk.skuld = types.SimpleNamespace(output_dir="/tmp")
 
     def build(window, min_d=8.0, max_d=15.0, video_len=600.0):
-        tools = VerdandiADK._make_tools(
+        tools = VerdandiOrchestrator._make_tools(
             adk, transcript_text="", rendered_clips=[], warmth=0.5, crazy=0.3,
             retention_summary={"hook_taxonomies": []},
             min_duration_sec=min_d, max_duration_sec=max_d,
@@ -214,8 +214,8 @@ def test_clamp_produces_a_valid_range_across_window_positions(clamp_builder, win
 # --------------------------------------------------------------------------
 
 def _reconcile(rendered, parsed, prefix=""):
-    adk = VerdandiADK.__new__(VerdandiADK)
-    return VerdandiADK._reconcile_metadata(adk, parsed, rendered, clip_id_prefix=prefix)
+    adk = VerdandiOrchestrator.__new__(VerdandiOrchestrator)
+    return VerdandiOrchestrator._reconcile_metadata(adk, parsed, rendered, clip_id_prefix=prefix)
 
 
 _RENDERED = [{
@@ -392,8 +392,8 @@ _PARSED_ONE = [{"clip_id": "clip_001", "hook_title": "T",
 
 
 def _reconcile_with_source(source_ref):
-    adk = VerdandiADK.__new__(VerdandiADK)
-    return VerdandiADK._reconcile_metadata(
+    adk = VerdandiOrchestrator.__new__(VerdandiOrchestrator)
+    return VerdandiOrchestrator._reconcile_metadata(
         adk, _PARSED_ONE, _RENDERED, clip_id_prefix="batch0_",
         source_ref=source_ref)
 
@@ -453,10 +453,10 @@ def _self_calls(source_path):
 
 def test_every_internal_call_matches_its_method_signature():
     import inspect
-    module = inspect.getfile(VerdandiADK)
+    module = inspect.getfile(VerdandiOrchestrator)
     problems = []
     for name, kwargs, positional, starred, lineno in _self_calls(module):
-        method = getattr(VerdandiADK, name, None)
+        method = getattr(VerdandiOrchestrator, name, None)
         if method is None or not callable(method) or starred:
             continue
         params = inspect.signature(method).parameters
@@ -473,7 +473,7 @@ def test_every_internal_call_matches_its_method_signature():
 def test_make_tools_accepts_what_orchestrate_generation_sends():
     """The specific pairing that broke, pinned."""
     import inspect
-    params = inspect.signature(VerdandiADK._make_tools).parameters
+    params = inspect.signature(VerdandiOrchestrator._make_tools).parameters
     for forwarded in ("caption_language", "caption_font", "clip_id_prefix",
                       "vision_mode", "window", "topic_focus", "progress_callback"):
         assert forwarded in params, f"_make_tools() cannot accept {forwarded}"
@@ -490,7 +490,7 @@ def test_make_tools_accepts_what_orchestrate_generation_sends():
 # --------------------------------------------------------------------------
 
 def _adk():
-    return VerdandiADK.__new__(VerdandiADK)
+    return VerdandiOrchestrator.__new__(VerdandiOrchestrator)
 
 
 def test_the_digest_is_content_addressed_not_name_addressed(tmp_path):
@@ -634,7 +634,7 @@ def test_only_center_crop_discards_the_sides():
 def test_the_render_tool_accepts_the_observation():
     """A parameter the model cannot pass is a parameter that does nothing."""
     import inspect
-    source = inspect.getsource(VerdandiADK._make_tools)
+    source = inspect.getsource(VerdandiOrchestrator._make_tools)
     assert "segment_has_full_width_graphics: bool = False" in source
 
 
@@ -644,7 +644,7 @@ def test_the_model_is_told_to_look():
     it. The instruction has to name it.
     """
     import inspect
-    source = inspect.getsource(VerdandiADK.orchestrate_generation)
+    source = inspect.getsource(VerdandiOrchestrator.orchestrate_generation)
     assert "segment_has_full_width_graphics" in source
 
 
@@ -656,7 +656,7 @@ def test_full_width_graphics_exclude_the_side_cropping_modes():
     import inspect
     from agent.skuld_renderer import SIDE_CROPPING_MODES
 
-    source = inspect.getsource(VerdandiADK._make_tools)
+    source = inspect.getsource(VerdandiOrchestrator._make_tools)
     assert "crop_exclusions" in source
     assert "SIDE_CROPPING_MODES" in source
     # The channel's own exclusions must survive alongside the segment's.

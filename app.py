@@ -18,7 +18,7 @@ from typing import Optional
 from dotenv import load_dotenv
 
 from agent.verdandi_orchestrator import (
-    VerdandiADK, filter_transcript_by_window, AUTO_WINDOW_MAX_SEC, BATCH_MAX_VIDEOS,
+    VerdandiOrchestrator, filter_transcript_by_window, AUTO_WINDOW_MAX_SEC, BATCH_MAX_VIDEOS,
 )
 from agent.skuld_renderer import (
     get_video_duration_seconds, format_seconds_to_mmss,
@@ -201,7 +201,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Ordered stage keys emitted by VerdandiADK.orchestrate_generation's
+# Ordered stage keys emitted by VerdandiOrchestrator.orchestrate_generation's
 # progress_callback (see agent/verdandi_orchestrator.py) -> short pill
 # labels for the live pipeline stepper. Order here is purely the pill
 # DISPLAY order, not an assumption about when each fires -- a multi-clip
@@ -591,7 +591,7 @@ if "channel_subs" not in st.session_state:
 
 if "verdandi_adk" not in st.session_state:
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "norn-labs-default")
-    st.session_state.verdandi_adk = VerdandiADK(project_id=project_id)
+    st.session_state.verdandi_adk = VerdandiOrchestrator(project_id=project_id)
 if "publisher" not in st.session_state: st.session_state.publisher = NornPublisher()
 if "current_generation" not in st.session_state: st.session_state.current_generation = []
 if "published_count" not in st.session_state: st.session_state.published_count = 0
