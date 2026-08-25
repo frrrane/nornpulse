@@ -37,3 +37,12 @@ tenacity>=9.1.4
 # Scheduling for the autonomous daemon (agent/norn_cron.py, daemon.py).
 apscheduler>=3.11.3
 google-cloud-storage>=2.14.0
+
+# Secret Manager, for the four real secrets in a container with no .env.
+# Only consulted when NORNPULSE_USE_SECRET_MANAGER is set (see agent/secrets.py).
+#
+# Note: installing this pulls protobuf >= 7, which pip reports as conflicting
+# with google-cloud-aiplatform and google-ai-generativelanguage. Neither is
+# imported at runtime -- model calls go through google-genai -- and the live
+# Gemini, Vertex and ClickHouse paths were re-verified after the upgrade.
+google-cloud-secret-manager>=2.20.0

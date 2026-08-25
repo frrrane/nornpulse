@@ -18,6 +18,20 @@ from dotenv import load_dotenv
 # Load variables from a .env file if one is present (no-op if absent)
 load_dotenv()
 
+# Then fill any gaps from Secret Manager, which is how the four real secrets
+# reach a container that has no .env. Off unless NORNPULSE_USE_SECRET_MANAGER
+# is set, and it never replaces a value already present -- so a workstation
+# keeps exactly what it exported. Deliberately after load_dotenv for that
+# reason: .env wins.
+try:
+    from agent.secrets import load_secrets
+    load_secrets()
+except Exception:  # pragma: no cover - config must never fail to import
+    # A secrets loader that can stop the app from starting is worse than one
+    # that quietly does nothing: whatever needs a missing secret already
+    # fails with its own message naming what it wanted.
+    pass
+
 # ---------------------------------------------------------------------------
 # Public-domain demo asset (Carl Sagan Senate Speech, 1985 – Wikimedia Commons)
 # ---------------------------------------------------------------------------
