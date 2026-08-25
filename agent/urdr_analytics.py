@@ -567,7 +567,8 @@ class UrdrAnalytics:
             return 0
 
     def get_top_visual_benchmark(self, hook_type: str, topic_category: Optional[str] = None,
-                                 avoid_motion: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+                                 avoid_motion: Optional[List[str]] = None,
+                                 avoid_crop: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
         """
         Returns the single highest-virality visual_style_benchmarks row for
         hook_type -- the ClickHouse-grounded crop_mode/motion_effect/
@@ -583,6 +584,7 @@ class UrdrAnalytics:
         # rejected for being "too bouncy". Excluded in the query rather than
         # swapped afterwards, so the next-best row is still the best row.
         excluded = [m for m in (avoid_motion or []) if m]
+        excluded_crops = [c for c in (avoid_crop or []) if c]
 
         def _query(where_clauses: List[str]) -> str:
             clauses = list(where_clauses)
@@ -590,6 +592,10 @@ class UrdrAnalytics:
                 clauses.append(
                     "motion_effect NOT IN ("
                     + ", ".join(ch.sql_literal(m) for m in excluded) + ")")
+            if excluded_crops:
+                clauses.append(
+                    "crop_mode NOT IN ("
+                    + ", ".join(ch.sql_literal(c) for c in excluded_crops) + ")")
             where_str = " AND ".join(clauses) if clauses else "1=1"
             return f"""
             SELECT crop_mode, motion_effect, color_grade, avg_virality_score
@@ -618,6 +624,8 @@ class UrdrAnalytics:
         fdf = self._fallback_visual_df
         if excluded:
             fdf = fdf[~fdf["motion_effect"].isin(excluded)]
+        if excluded_crops:
+            fdf = fdf[~fdf["crop_mode"].isin(excluded_crops)]
         scoped = fdf[fdf["hook_type"] == hook_type]
         if scoped.empty:
             scoped = fdf

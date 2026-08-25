@@ -288,6 +288,7 @@ class VerdandiADK:
         caption_font: Optional[str] = None,
         music_mood: Optional[str] = None,
         avoid_motion: Optional[List[str]] = None,
+        avoid_crop: Optional[List[str]] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Callable]:
         """Builds request-scoped tool functions closing over this call's state."""
@@ -448,7 +449,7 @@ class VerdandiADK:
             # looked up from historical hook_type performance.
             visual_benchmark = self.urdr.get_top_visual_benchmark(
                 hook_type=hook_type, topic_category=topic_focus,
-                avoid_motion=avoid_motion)
+                avoid_motion=avoid_motion, avoid_crop=avoid_crop)
             crop_mode = visual_benchmark.get("crop_mode", "center_crop") if visual_benchmark else "center_crop"
             motion_effect = visual_benchmark.get("motion_effect", "none") if visual_benchmark else "none"
             color_grade = visual_benchmark.get("color_grade", "neutral") if visual_benchmark else "neutral"
@@ -959,6 +960,7 @@ class VerdandiADK:
             music_mood=getattr(getattr(channel_profile, "music_mood", None), "strip", lambda: None)()
             if getattr(channel_profile, "music_mood", None) else None,
             avoid_motion=list(getattr(channel_profile, "avoid_motion", []) or []),
+            avoid_crop=list(getattr(channel_profile, "avoid_crop", []) or []),
             progress_callback=progress_callback,
         )
         prompt = self._build_prompt(

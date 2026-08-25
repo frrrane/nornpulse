@@ -28,10 +28,20 @@ from typing import Callable, List, Optional, Tuple
 
 # Candidate fonts, in preference order. drawtext will not resolve family
 # names, so these have to be concrete files.
+#
+# Black weights first, then bold, then regular. A hook banner competes with
+# moving video behind it, and a regular weight loses — the banner shipped
+# without specifying any file at all for a while, fell back to drawtext's
+# default regular face, and a reviewer asked for "a more engaging font".
+# Several paths per face because the same font sits in different places on
+# a workstation and in the container.
 FONT_CANDIDATES = (
+    "/usr/share/fonts/chromeos/roboto/Roboto-Black.ttf",
+    "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Black.ttf",
+    "/usr/share/fonts/truetype/roboto/Roboto-Black.ttf",
+    "/usr/share/fonts/chromeos/monotype/ariblk.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Black.ttf",
 )
 
 

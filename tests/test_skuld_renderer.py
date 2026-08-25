@@ -458,14 +458,50 @@ def test_no_banner_line_overflows_the_box(title):
 
 
 @pytest.mark.parametrize("title", REJECTED_TITLES)
-def test_a_wrapped_title_gets_a_taller_box(title):
-    """A two-line title in a one-line box is the same defect in a hat."""
+def test_the_box_is_sized_to_the_lines_it_holds(title):
+    """
+    A two-line title in a one-line box is the same defect in a hat. Not
+    asserting that these titles *do* wrap: whether they need two lines
+    depends on the face available, and switching to a narrower black weight
+    put all three back on one line. The invariant is that the box matches
+    however many lines there turn out to be.
+    """
     from agent import skuld_renderer as sk
 
-    parts = _parts(_banner(title))
-    lines = parts["text"].count("\n") + 1
-    assert lines >= 2
-    assert parts["box_h"] > sk.BANNER_FONT_PX + 2 * sk.BANNER_PADDING
+    f = _banner(title)
+    parts = _parts(f)
+    lines = f.count("drawtext=")
+    assert lines >= 1
+    expected = lines * int(sk.BANNER_FONT_PX * 1.25) + 2 * sk.BANNER_PADDING
+    assert parts["box_h"] == expected
+
+
+@pytest.mark.parametrize("title", REJECTED_TITLES)
+def test_every_line_is_centred_on_the_box(title):
+    """
+    One drawtext per line, each centred on its own width. A single drawtext
+    with embedded newlines left-aligns them inside the block, which is what
+    a reviewer saw as "the title is misaligned".
+    """
+    from agent import skuld_renderer as sk
+
+    f = _banner(title)
+    centre = sk.BANNER_X + sk.BANNER_WIDTH / 2
+    assert f.count("drawtext=") >= 1
+    assert f"x={centre:.0f}-text_w/2" in f
+    assert "\n" not in _parts(f)["text"]
+
+
+def test_the_banner_names_a_concrete_font_file():
+    """
+    drawtext cannot resolve family names, and with no fontfile it silently
+    falls back to a regular weight that disappears over video. The banner
+    shipped that way.
+    """
+    from agent import text_fit
+    if not text_fit.font_file():
+        pytest.skip("no usable font on this machine")
+    assert "fontfile=" in _banner("Any title at all")
 
 
 def test_a_short_title_stays_on_one_line():

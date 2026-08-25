@@ -81,6 +81,13 @@ class ChannelProfile:
     # is how a NASA explainer came back wobbling and was rejected as "too
     # bouncy". A genuine editorial constraint, not a measurement.
     avoid_motion: List[str] = field(default_factory=list)
+    # Crop modes this channel will not use. blurred_background and
+    # cinematic_letterbox both fit a 16:9 source inside a 9:16 frame, which
+    # leaves the actual footage occupying about a third of the screen with
+    # filler above and below. A reviewer called two such clips "completely
+    # broken" and the center_crop one "better" -- on a Short, filling the
+    # frame is not a stylistic preference.
+    avoid_crop: List[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.category_id not in VALID_CATEGORIES:
@@ -151,6 +158,7 @@ class Channel:
                 "preferred_hooks": list(self.profile.preferred_hooks),
                 "topic_hints": list(self.profile.topic_hints),
                 "avoid_motion": list(self.profile.avoid_motion),
+                "avoid_crop": list(self.profile.avoid_crop),
             },
         }
 
@@ -200,6 +208,7 @@ def _parse(raw: Dict[str, Any], slug: str) -> Channel:
         preferred_hooks=list(profile_raw.get("preferred_hooks", base_profile.preferred_hooks)),
         topic_hints=list(profile_raw.get("topic_hints", base_profile.topic_hints)),
         avoid_motion=list(profile_raw.get("avoid_motion", base_profile.avoid_motion)),
+        avoid_crop=list(profile_raw.get("avoid_crop", base_profile.avoid_crop)),
     )
     return Channel(
         slug=slug,

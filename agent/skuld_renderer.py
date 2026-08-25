@@ -756,15 +756,34 @@ class SkuldRenderer:
 
         line_height = int(font_px * 1.25)
         box_height = len(lines) * line_height + 2 * BANNER_PADDING
-        safe_text = _escape_drawtext("\n".join(lines))
 
-        return (
-            f",drawbox=x={BANNER_X}:y={BANNER_Y}:w={BANNER_WIDTH}:h={box_height}"
-            f":color={box_hex}@0.75:t=fill,"
-            f"drawtext=text='{safe_text}':fontcolor={text_hex}:fontsize={font_px}"
-            f":line_spacing={line_height - font_px}"
-            f":x=(w-text_w)/2:y={BANNER_Y + BANNER_PADDING}"
-        )
+        parts = [f",drawbox=x={BANNER_X}:y={BANNER_Y}:w={BANNER_WIDTH}"
+                 f":h={box_height}:color={box_hex}@0.75:t=fill"]
+
+        # One drawtext per line, each centred on its own width. A single
+        # drawtext with embedded newlines left-aligns every line inside the
+        # block, so a two-line title hangs its second line under the first
+        # and reads as a layout fault -- which is what a reviewer called
+        # "the title is misaligned".
+        #
+        # Centred on the box rather than the frame: the box is inset, so
+        # centring on frame width leaves the text visibly off inside it.
+        box_centre = BANNER_X + BANNER_WIDTH / 2
+        font = text_fit.font_file()
+        # A concrete bold file, not drawtext's default. Left unset, ffmpeg
+        # falls back to a regular weight that disappears over video -- the
+        # banner had never specified one.
+        face = f"fontfile={font}:" if font else ""
+
+        for i, line in enumerate(lines):
+            parts.append(
+                f"drawtext={face}text='{_escape_drawtext(line)}'"
+                f":fontcolor={text_hex}:fontsize={font_px}"
+                f":borderw=3:bordercolor=black@0.6"
+                f":x={box_centre:.0f}-text_w/2"
+                f":y={BANNER_Y + BANNER_PADDING + i * line_height}")
+
+        return ",".join(parts)
 
     def render_vertical_short(
         self,
