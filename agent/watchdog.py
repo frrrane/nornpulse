@@ -185,15 +185,21 @@ def check_text(title: str = "", caption: str = "", angle: str = "",
             raw={"pattern_hits": hits},
         )
 
+    from agent import genai_client as gc
+
+    # Vertex authenticates with application default credentials, so a
+    # missing API key is only a failure when the call is going to AI
+    # Studio. Treating it as one regardless would FLAG every check on
+    # Vertex — turning "no third-party property found" into "could not
+    # run" for reasons that have nothing to do with the material.
     key = api_key or os.getenv("GEMINI_API_KEY")
-    if not key:
+    if not gc.use_vertex() and not key:
         return Verdict(level=FLAG,
                        reasons=["rights check could not run: GEMINI_API_KEY is not set"],
                        checked_by="none")
 
     try:
-        from google import genai
-        client = genai.Client(api_key=key)
+        client, model = gc.client_for(model, api_key=key)
         response = client.models.generate_content(
             model=model,
             contents=_PROMPT.format(

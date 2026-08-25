@@ -157,3 +157,40 @@ def test_clip_metadata_is_checked_not_just_the_prompt(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     v = wd.check_clip({"hook_title": "Sopranos intro but cats", "tags": []})
     assert v.blocked
+
+
+# --- billing surface -------------------------------------------------------
+
+def test_no_api_key_is_not_a_failure_on_vertex(monkeypatch):
+    """
+    Vertex authenticates with the environment's credentials, not a key.
+    Treating a missing key as "could not run" there would FLAG every clip
+    for a reason that has nothing to do with the material -- turning the
+    guard's own fail-safe into a permanent false alarm.
+    """
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("NORNPULSE_USE_VERTEX", "true")
+    monkeypatch.setenv("NORNPULSE_VERTEX_PROJECT", "norn-labs")
+
+    class _Resp:
+        text = '{"verdict": "pass", "reasons": []}'
+
+    class _Models:
+        def generate_content(self, **kw): return _Resp()
+
+    class _Client:
+        def __init__(self, **kw): self.models = _Models()
+
+    import google.genai as genai
+    monkeypatch.setattr(genai, "Client", _Client)
+
+    v = wd.check_text(title="A knight in a swamp")
+    assert v.level == wd.PASS
+
+
+def test_missing_key_still_flags_on_ai_studio(monkeypatch):
+    """The fail-safe must survive the Vertex change on the default path."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("NORNPULSE_USE_VERTEX", raising=False)
+    v = wd.check_text(title="something harmless")
+    assert v.level == wd.FLAG and v.checked_by == "none"

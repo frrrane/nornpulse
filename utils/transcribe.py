@@ -50,13 +50,19 @@ def get_or_create_transcript(video_path: str) -> str:
     if cached:
         return cached
 
+    from agent import genai_client as gc
+
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
+    if not gc.use_vertex() and not api_key:
         raise TranscriptionUnavailable(
             "GEMINI_API_KEY is not set, so this video cannot be transcribed. "
             "Refusing to substitute another video's transcript.")
-        
-    client = genai.Client(api_key=api_key)
+
+    # The video goes inline as bytes rather than through the Files API,
+    # which is what makes this call portable: Vertex has no Files API at
+    # all. The ceiling is the request size, so a long source can still be
+    # refused here where an upload would have coped.
+    client, transcribe_model = gc.client_for("gemini-3.6-flash", api_key=api_key)
     logger.info(f"Reading {video_path} locally for GenAI analysis...")
     
     try:
@@ -65,7 +71,7 @@ def get_or_create_transcript(video_path: str) -> str:
             
         # Using chat/structured approach or explicit system instructions to enforce timestamps
         response = client.models.generate_content(
-            model='gemini-3.6-flash',
+            model=transcribe_model,
             contents=[
                 types.Part.from_bytes(data=video_bytes, mime_type="video/mp4"),
                 (

@@ -367,10 +367,11 @@ def write_brief(channel, topics: List[Dict[str, Any]],
     forcing one produces exactly the off-brand filler this loop exists to
     avoid.
     """
-    from google import genai
+    from agent import genai_client as gc
 
+    # On Vertex the credentials are the environment's, not a key.
     key = api_key or os.getenv("GEMINI_API_KEY")
-    if not key:
+    if not gc.use_vertex() and not key:
         raise RuntimeError("GEMINI_API_KEY is not set.")
     if not topics:
         logger.warning("No trending topics to choose from.")
@@ -408,7 +409,7 @@ def write_brief(channel, topics: List[Dict[str, Any]],
         n=CANDIDATES,
     )
 
-    client = genai.Client(api_key=key)
+    client, model = gc.client_for(model, api_key=key)
     response = client.models.generate_content(model=model, contents=prompt)
     data = _json_from(getattr(response, "text", "") or "")
     if not data:
