@@ -408,3 +408,75 @@ def test_sub_second_timestamps_are_honoured(tmp_path):
     # 0.48s must not have been floored to 0.
     first = next(l for l in body.splitlines() if l.startswith("Dialogue:"))
     assert not first.split(",")[1].startswith("0:00:00.00")
+
+
+# --- the hook banner -------------------------------------------------------
+#
+# A reviewer rejected a batch of three clips because every title ran off
+# both edges of the frame: 1180, 1441 and 1452 pixels of text inside a 1080
+# pixel video. The banner had no wrapping at all and a fixed 42px size, so
+# any title past roughly forty characters was silently cropped -- and titles
+# are written by a model with no notion that a pixel budget exists.
+
+import re as _re
+
+from agent import text_fit as _tf
+
+
+def _banner(text, warmth=0.5):
+    from agent.skuld_renderer import SkuldRenderer
+    return SkuldRenderer.__new__(SkuldRenderer)._build_banner_filter(text, warmth)
+
+
+def _parts(f):
+    return {
+        "font": int(_re.search(r"fontsize=(\d+)", f).group(1)),
+        "box_h": int(_re.search(r":h=(\d+)", f).group(1)),
+        "text": _re.search(r"text='([^']*)'", f).group(1),
+    }
+
+
+REJECTED_TITLES = [
+    "Why NASA Is Landing Telescopes on the Far Side of the Moon",
+    "How NASA Plans to Build a Permanent Moon Base",
+    "The Extreme Temperature Challenge of the Lunar South Pole",
+]
+
+
+@pytest.mark.parametrize("title", REJECTED_TITLES)
+def test_no_banner_line_overflows_the_box(title):
+    """The three titles a human actually rejected, pinned."""
+    from agent import skuld_renderer as sk
+
+    parts = _parts(_banner(title))
+    width_of = _tf.measurer(_tf.font_file(), parts["font"])
+    if width_of is None:
+        pytest.skip("no measurable font on this machine")
+    limit = sk.BANNER_WIDTH - 2 * sk.BANNER_PADDING
+    for line in parts["text"].split("\n"):
+        assert width_of(line) <= limit, f"{line!r} overflows"
+
+
+@pytest.mark.parametrize("title", REJECTED_TITLES)
+def test_a_wrapped_title_gets_a_taller_box(title):
+    """A two-line title in a one-line box is the same defect in a hat."""
+    from agent import skuld_renderer as sk
+
+    parts = _parts(_banner(title))
+    lines = parts["text"].count("\n") + 1
+    assert lines >= 2
+    assert parts["box_h"] > sk.BANNER_FONT_PX + 2 * sk.BANNER_PADDING
+
+
+def test_a_short_title_stays_on_one_line():
+    parts = _parts(_banner("Short title"))
+    assert "\n" not in parts["text"]
+
+
+def test_empty_text_produces_no_banner():
+    assert _banner("") == ""
+
+
+def test_the_banner_still_draws_a_box_and_text():
+    f = _banner("A perfectly ordinary title")
+    assert "drawbox=" in f and "drawtext=" in f

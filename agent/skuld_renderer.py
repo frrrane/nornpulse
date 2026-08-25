@@ -23,6 +23,8 @@ import time
 from pathlib import Path
 from typing import Dict, Any, Optional, Literal, Tuple, List
 
+from agent import text_fit
+
 logger = logging.getLogger("nornpulse.skuld")
 
 # Caption typeface. Must name a real heavy/display weight rather than a
@@ -270,6 +272,19 @@ def _escape_ass_text(text: str) -> str:
     styling directive and corrupt or hide the line.
     """
     return text.replace("{", "\\{").replace("}", "\\}")
+
+
+# The hook banner. Sized in pixels against a 1080-wide frame: the box sits
+# inset from both edges, and the text is inset again inside the box, because
+# text touching a box edge reads as an overflow even when it technically
+# fits.
+BANNER_X = 40
+BANNER_Y = 80
+BANNER_WIDTH = 1000
+BANNER_PADDING = 24
+BANNER_FONT_PX = 42
+BANNER_MIN_FONT_PX = 28
+BANNER_FALLBACK_WRAP = 24
 
 
 def _escape_drawtext(text: str) -> str:
@@ -708,14 +723,47 @@ class SkuldRenderer:
         return ""
 
     def _build_banner_filter(self, hook_banner_text: str, warmth: float = 0.5) -> str:
-        safe_text = _escape_drawtext(hook_banner_text)
+        """
+        The hook banner burned over the first frames.
+
+        Wrapped by measurement rather than assumed to fit on one line. It
+        did not: a reviewer rejected a batch of three clips because every
+        title ran off both edges, at 1180, 1441 and 1452 pixels inside a
+        1080 pixel frame. The banner had no wrapping at all and a fixed
+        42px type size, so any title beyond roughly forty characters was
+        silently cropped — and titles are written by a model that has no
+        idea a pixel budget exists.
+
+        The box grows with the text instead of staying a fixed 100px slab,
+        because a two-line title inside a one-line box is the same defect
+        wearing a different hat.
+        """
         box_rgb = _lerp_rgb((10, 10, 15), (90, 30, 10), warmth)     # near-black -> warm maroon
         text_rgb = _lerp_rgb((255, 255, 255), (255, 214, 140), warmth)  # white -> warm cream
         box_hex = _rgb_to_ffmpeg_hex(box_rgb)
         text_hex = _rgb_to_ffmpeg_hex(text_rgb)
+
+        lines, font_px = text_fit.fit_text(
+            hook_banner_text,
+            max_width_px=BANNER_WIDTH - 2 * BANNER_PADDING,
+            font_px=BANNER_FONT_PX,
+            font_path=text_fit.font_file(),
+            min_font_px=BANNER_MIN_FONT_PX,
+            fallback_wrap=BANNER_FALLBACK_WRAP,
+        )
+        if not lines:
+            return ""
+
+        line_height = int(font_px * 1.25)
+        box_height = len(lines) * line_height + 2 * BANNER_PADDING
+        safe_text = _escape_drawtext("\n".join(lines))
+
         return (
-            f",drawbox=x=40:y=80:w=1000:h=100:color={box_hex}@0.75:t=fill,"
-            f"drawtext=text='{safe_text}':fontcolor={text_hex}:fontsize=42:x=(w-text_w)/2:y=108"
+            f",drawbox=x={BANNER_X}:y={BANNER_Y}:w={BANNER_WIDTH}:h={box_height}"
+            f":color={box_hex}@0.75:t=fill,"
+            f"drawtext=text='{safe_text}':fontcolor={text_hex}:fontsize={font_px}"
+            f":line_spacing={line_height - font_px}"
+            f":x=(w-text_w)/2:y={BANNER_Y + BANNER_PADDING}"
         )
 
     def render_vertical_short(

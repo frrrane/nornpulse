@@ -32,6 +32,8 @@ import textwrap
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from agent import text_fit
+
 logger = logging.getLogger(__name__)
 
 # The hook sits high enough to clear a phone's caption overlay and low
@@ -63,19 +65,12 @@ FOOTAGE_AUDIO_LEVEL = 0.25
 
 def _font_file() -> Optional[str]:
     """A concrete font file, because drawtext will not resolve family names."""
-    for candidate in (
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Black.ttf",
-    ):
-        if Path(candidate).exists():
-            return candidate
-    return None
+    return text_fit.font_file()
 
 
 def _escape(text: str) -> str:
     """Escape for ffmpeg's drawtext, which treats several characters specially."""
-    out = text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "’")
+    out = text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\u2019")
     return out.replace("%", "\\%")
 
 
@@ -91,7 +86,7 @@ def hook_text(brief_title: str) -> str:
     stripped = "".join(c for c in brief_title if ord(c) < 0x2190).strip()
     stripped = " ".join(stripped.split())
     if len(stripped) > HOOK_MAX_CHARS:
-        stripped = stripped[:HOOK_MAX_CHARS].rsplit(" ", 1)[0] + "…"
+        stripped = stripped[:HOOK_MAX_CHARS].rsplit(" ", 1)[0] + "\u2026"
     return stripped
 
 
@@ -111,93 +106,23 @@ def video_size(video_path: str | Path) -> Optional[tuple[int, int]]:
         return None
 
 
-def _measurer(font_path: Optional[str], font_px: int):
-    """A width-in-pixels function for this font, or None if unavailable."""
-    if not font_path:
-        return None
-    try:
-        from PIL import ImageFont
-        font = ImageFont.truetype(font_path, font_px)
-        return font.getlength
-    except Exception:
-        return None
-
-
 def fit_hook(text: str, frame_w: int, frame_h: int,
              font_path: Optional[str] = None) -> tuple[list[str], int]:
     """
     Wrap the hook to the frame and pick a font size that actually fits.
 
-    Wrapping by character count is what produced a 722px line in a 720px
-    frame: a character budget is a proxy for a pixel budget, and the two
-    part company the moment the text is wide-glyphed or upper-case. "Florida
-    Lawn Care" is seventeen characters, well inside a twenty-one character
-    wrap, and still overflowed — the words ran off both edges of the video
-    on the one frame that has to work.
-
-    So the text is measured. If the longest line still will not fit, the
-    font shrinks until it does rather than the line being cropped, because a
-    smaller hook is readable and a clipped one is not.
-
-    Falls back to a conservative character wrap when the font cannot be
-    measured, which is a narrower hook rather than a broken one.
+    The frame-relative half of the calculation; the measuring itself lives
+    in agent.text_fit, because Skuld's banner had the same bug and the two
+    should not drift apart again.
     """
-    limit = frame_w * HOOK_WIDTH_FRACTION
-    font_px = max(HOOK_MIN_FONT_PX, frame_h // HOOK_FONT_DIVISOR)
-
-    while True:
-        width_of = _measurer(font_path, font_px)
-        if width_of is None:
-            return textwrap.wrap(text, HOOK_WRAP_WIDTH) or [text], font_px
-
-        lines: list[str] = []
-        current = ""
-        for word in text.split():
-            candidate = f"{current} {word}".strip()
-            if current and width_of(candidate) > limit:
-                lines.append(current)
-                current = word
-            else:
-                current = candidate
-        if current:
-            lines.append(current)
-        lines = lines or [text]
-
-        if max(width_of(line) for line in lines) <= limit:
-            return lines, font_px
-        if font_px <= HOOK_MIN_FONT_PX:
-            # Out of room to shrink. Break inside the word rather than let it
-            # run off the frame: an awkward break is legible, a cropped word
-            # is not.
-            return _hard_break(lines, width_of, limit), font_px
-        # A single word wider than the frame: no wrap can save it, so shrink.
-        font_px = max(HOOK_MIN_FONT_PX, int(font_px * 0.9))
-
-
-def _hard_break(lines: list[str], width_of, limit: float) -> list[str]:
-    """
-    Split any line still too wide, inside the word.
-
-    Broken into near-equal pieces rather than greedily, because a greedy cut
-    leaves an orphan — "Supercalifragilisticexpialidociou" above a lone "s" —
-    which looks like a rendering fault rather than a long word.
-    """
-    out: list[str] = []
-    for line in lines:
-        if width_of(line) <= limit or len(line) < 2:
-            out.append(line)
-            continue
-        pieces = 2
-        while pieces <= len(line):
-            size = -(-len(line) // pieces)  # ceiling division
-            chunks = [line[i:i + size] for i in range(0, len(line), size)]
-            if all(width_of(c) <= limit for c in chunks):
-                out.extend(chunks)
-                break
-            pieces += 1
-        else:
-            out.append(line)
-    return out
+    return text_fit.fit_text(
+        text,
+        max_width_px=frame_w * HOOK_WIDTH_FRACTION,
+        font_px=max(HOOK_MIN_FONT_PX, frame_h // HOOK_FONT_DIVISOR),
+        font_path=font_path,
+        min_font_px=HOOK_MIN_FONT_PX,
+        fallback_wrap=HOOK_WRAP_WIDTH,
+    )
 
 
 def narration_line(brief) -> str:
