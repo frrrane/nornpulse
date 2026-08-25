@@ -1,7 +1,46 @@
+import json
 import os
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import yt_dlp
+
+
+def _source_sidecar(video_path: str) -> Path:
+    """Where a downloaded file records which URL and range produced it."""
+    return Path(str(video_path) + ".source.json")
+
+
+def _source_fingerprint(url: str, time_range: Optional[Tuple[float, float]]) -> Dict[str, Any]:
+    # Rounded, because a window start computed in floating point will not
+    # compare equal to itself across runs.
+    return {
+        "url": url,
+        "time_range": ([round(float(t), 3) for t in time_range] if time_range else None),
+    }
+
+
+def _already_downloaded(target: str, want: Dict[str, Any]) -> bool:
+    """
+    Whether target is a usable copy of exactly this URL and range.
+
+    The output filename is fixed per slot ("yt_input.mp4",
+    "batch_0_input.mp4"), so an existing file is NOT evidence that it holds
+    the video being asked for -- it is just as likely to be the previous
+    one. Reusing it on the strength of the name alone would cut a different
+    source against the right transcript, and every clip would render
+    cleanly while being about the wrong video. Hence the recorded
+    fingerprint: reuse only on an exact match, and re-download otherwise.
+    """
+    path = Path(target)
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    sidecar = _source_sidecar(target)
+    if not sidecar.exists():
+        return False
+    try:
+        return json.loads(sidecar.read_text(encoding="utf-8")) == want
+    except (json.JSONDecodeError, OSError):
+        return False
 
 
 def get_youtube_duration(url: str) -> float:
@@ -20,7 +59,7 @@ def get_youtube_duration(url: str) -> float:
 
 def download_youtube_video(
     url: str, output_dir: str = "sample_data", output_filename: Optional[str] = None,
-    time_range: Optional[Tuple[float, float]] = None,
+    time_range: Optional[Tuple[float, float]] = None, reuse: bool = True,
 ) -> str:
     """
     Downloads a public YouTube video as an MP4 to use as a test asset for
@@ -41,6 +80,15 @@ def download_youtube_video(
     """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     output_template = os.path.join(output_dir, output_filename or "yt_input.mp4")
+
+    # Re-downloading a ten-minute window costs about ninety seconds of
+    # bandwidth and re-encoding every time the pipeline is retried, which
+    # during a debugging loop is most of the wall clock. Skipped only when
+    # the file on disk is provably this URL and this range.
+    fingerprint = _source_fingerprint(url, time_range)
+    if reuse and _already_downloaded(output_template, fingerprint):
+        print(f"Reusing already-downloaded {output_template}")
+        return output_template
 
     # Cap the pull at 1080p. The output is a 1080x1920 vertical crop taken
     # from the centre of the frame, so anything above 1080p is downscaled
@@ -64,6 +112,10 @@ def download_youtube_video(
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
 
+    # Written only after a successful download, so an interrupted one is
+    # never mistaken for a complete cache entry.
+    _source_sidecar(output_template).write_text(
+        json.dumps(fingerprint), encoding="utf-8")
     print(f"Video successfully saved to {output_template}")
     return output_template
 

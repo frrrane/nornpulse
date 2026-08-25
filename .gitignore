@@ -27,6 +27,7 @@ output_clips/
 output/
 sample_data/yt_input.mp4
 sample_data/batch_*_input.mp4
+sample_data/*.source.json
 venv/
 *.part
 *_9x16.mp4
