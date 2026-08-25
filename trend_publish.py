@@ -91,15 +91,37 @@ def main() -> int:
     print(f"📺 {channel.slug} ({channel.title})")
 
     # 1. What is trending
-    # Shorts, because that is what this pipeline makes. The trending chart
-    # is almost entirely long-form -- a snapshot taken while writing this
-    # held 49 videos, none of them Shorts, median length ten minutes -- so
-    # grounding a Shorts brief in it means choosing topics from
-    # let's-plays and album visualisers. Falls back to the chart rather
-    # than refusing, saying so, because stale long-form evidence is worth
-    # more than none as long as nobody is told it was short-form.
-    trending = ti.top_tags(limit=200, shorts_only=True)
-    grounding = "Shorts"
+    # Three rungs, narrowest first, each labelled so the brief writer's
+    # evidence is never better than it looks.
+    #
+    #   1. Shorts from this channel's own size band. Short-form advice
+    #      measured on channels with an audience does not transfer to one
+    #      without -- this project's whole argument -- so grounding a
+    #      14-subscriber channel in the most-watched Shorts on earth would
+    #      be that same mistake made internally.
+    #   2. Shorts from any size. Usually where it lands: a search ordered by
+    #      view count returns large channels by construction, and the first
+    #      stratified snapshot held 33 of 43 videos from 1M+ channels and
+    #      none at all from the two smallest bands.
+    #   3. The trending chart, which is almost entirely long-form -- 49
+    #      videos, no Shorts, median length ten minutes.
+    #
+    # Falling back is right; doing it silently is not, which is why the
+    # rung reached is printed with the topics.
+    from agent.global_benchmarks import size_band_for
+
+    band = size_band_for(channel.subscribers)
+    trending = ti.top_tags(limit=200, shorts_only=True, size_band=band)
+    grounding = f"Shorts from {band} channels"
+
+    if trending is None or trending.empty:
+        # Expected, and worth stating rather than papering over: a search
+        # ordered by view count returns large channels by construction, so
+        # the small bands are usually empty. The fallback is honest evidence
+        # about a different population, and is labelled as such.
+        trending = ti.top_tags(limit=200, shorts_only=True)
+        grounding = (f"Shorts from ALL channel sizes — nothing from the "
+                     f"{band} band this channel is in")
     if trending is None or trending.empty:
         trending = ti.top_tags(limit=200)
         grounding = "long-form chart (no Shorts snapshot yet)"

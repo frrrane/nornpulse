@@ -89,16 +89,21 @@ def ensure_table() -> None:
         comment_count UInt64,
         tags Array(String),
         topics Array(String),
-        source LowCardinality(String) DEFAULT 'mostPopular'
+        source LowCardinality(String) DEFAULT 'mostPopular',
+        channel_subscribers UInt64 DEFAULT 0,
+        size_band LowCardinality(String) DEFAULT ''
     ) ENGINE = MergeTree()
     ORDER BY (snapshot_at, region, video_id);
     """)
     # Existing tables predate the column. One statement per call: the MCP
     # bridge executes a single statement, so a batch would silently apply
     # only the first and leave the rest undone.
-    ch.run_query(
-        f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS "
-        f"source LowCardinality(String) DEFAULT 'mostPopular'")
+    for column, spec in (
+        ("source", "LowCardinality(String) DEFAULT 'mostPopular'"),
+        ("channel_subscribers", "UInt64 DEFAULT 0"),
+        ("size_band", "LowCardinality(String) DEFAULT ''"),
+    ):
+        ch.run_query(f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS {column} {spec}")
 
 
 SOURCE_CHART = "mostPopular"
@@ -120,7 +125,10 @@ def fetch_trending(youtube, region: str = "US", max_results: int = 50,
         maxResults=min(max_results, 50),
         **({"videoCategoryId": category_id} if category_id else {}),
     )
-    return _rows_from_items(request.execute().get("items", []), region, SOURCE_CHART)
+    items = request.execute().get("items", [])
+    sizes = fetch_channel_sizes(
+        youtube, [i.get("snippet", {}).get("channelId", "") for i in items])
+    return _rows_from_items(items, region, SOURCE_CHART, sizes)
 
 
 def fetch_trending_shorts(youtube, region: str = "US", max_results: int = 50,
@@ -161,11 +169,13 @@ def fetch_trending_shorts(youtube, region: str = "US", max_results: int = 50,
         logger.warning(f"No short videos found for region {region!r}.")
         return []
 
-    hydrated = youtube.videos().list(
+    items = youtube.videos().list(
         part="snippet,statistics,contentDetails,topicDetails",
         id=",".join(ids),
-    ).execute()
-    rows = _rows_from_items(hydrated.get("items", []), region, SOURCE_SHORTS_SEARCH)
+    ).execute().get("items", [])
+    sizes = fetch_channel_sizes(
+        youtube, [i.get("snippet", {}).get("channelId", "") for i in items])
+    rows = _rows_from_items(items, region, SOURCE_SHORTS_SEARCH, sizes)
     kept = [r for r in rows if r["is_short"]]
     if len(kept) < len(rows):
         logger.info(
@@ -174,17 +184,62 @@ def fetch_trending_shorts(youtube, region: str = "US", max_results: int = 50,
     return kept
 
 
+def fetch_channel_sizes(youtube, channel_ids: List[str]) -> Dict[str, int]:
+    """
+    Subscriber count per channel, batched fifty at a time.
+
+    Without this the live layer cannot be stratified, and stratification is
+    the whole point of it. A snapshot of the most-watched Shorts has a
+    median around nine million views; the channel this project publishes to
+    has a median of a few hundred. Comparing one against the other is the
+    advice asymmetry this system exists to correct, reproduced inside its
+    own grounding — so the size has to travel with the row.
+
+    Costs 1 quota unit per batch. Failure is not fatal: a missing size
+    becomes band "", which downstream reads as "unknown" rather than as
+    "small".
+    """
+    sizes: Dict[str, int] = {}
+    unique = [c for c in dict.fromkeys(channel_ids) if c]
+    for i in range(0, len(unique), 50):
+        batch = unique[i:i + 50]
+        try:
+            response = youtube.channels().list(
+                part="statistics", id=",".join(batch)).execute()
+        except Exception as e:
+            logger.warning(f"Could not read channel sizes for {len(batch)}: {e}")
+            continue
+        for item in response.get("items", []):
+            stats = item.get("statistics", {})
+            if stats.get("hiddenSubscriberCount"):
+                continue
+            sizes[item.get("id", "")] = int(stats.get("subscriberCount", 0) or 0)
+    return sizes
+
+
 def _rows_from_items(items: List[Dict[str, Any]], region: str,
-                     source: str) -> List[Dict[str, Any]]:
+                     source: str,
+                     channel_sizes: Optional[Dict[str, int]] = None) -> List[Dict[str, Any]]:
     """Normalise videos.list items into flat rows, tagged with their source."""
+    from agent.global_benchmarks import size_band_for
+
+    channel_sizes = channel_sizes or {}
     rows = []
     for item in items:
         snippet = item.get("snippet", {})
         stats = item.get("statistics", {})
         duration = parse_iso_duration(item.get("contentDetails", {}).get("duration", ""))
+        channel_id = snippet.get("channelId", "")
+        subscribers = channel_sizes.get(channel_id)
         rows.append({
             "source": source,
             "region": region,
+            "channel_subscribers": int(subscribers or 0),
+            # Empty rather than "0-100" when unknown: a channel whose size
+            # we failed to read is not the same claim as a small channel,
+            # and banding it as one would quietly pollute the band that
+            # matters most here.
+            "size_band": size_band_for(subscribers) if subscribers is not None else "",
             "video_id": item.get("id", ""),
             "title": snippet.get("title", ""),
             "channel_title": snippet.get("channelTitle", ""),
@@ -226,16 +281,20 @@ def store_snapshot(rows: List[Dict[str, Any]]) -> int:
             ch.sql_literal(int(r["like_count"])), ch.sql_literal(int(r["comment_count"])),
             _array_literal(r["tags"]), _array_literal(r["topics"]),
             ch.sql_literal(r.get("source", SOURCE_CHART)),
+            ch.sql_literal(int(r.get("channel_subscribers", 0))),
+            ch.sql_literal(r.get("size_band", "")),
         ]) + ")")
     ch.run_query(
         f"INSERT INTO {TABLE} (region, video_id, title, channel_title, channel_id, "
         f"category_id, published_at, duration_sec, is_short, view_count, like_count, "
-        f"comment_count, tags, topics, source) VALUES " + ", ".join(values)
+        f"comment_count, tags, topics, source, channel_subscribers, size_band) "
+        f"VALUES " + ", ".join(values)
     )
     return len(rows)
 
 
-def top_tags(limit: int = 20, shorts_only: bool = False, region: Optional[str] = None) -> pd.DataFrame:
+def top_tags(limit: int = 20, shorts_only: bool = False, region: Optional[str] = None,
+             size_band: Optional[str] = None) -> pd.DataFrame:
     """
     Most frequent tags across the most recent snapshot, with the median
     reach of the videos carrying them. This is what feeds a social_caption
@@ -253,6 +312,10 @@ def top_tags(limit: int = 20, shorts_only: bool = False, region: Optional[str] =
         filters = [f"snapshot_at = (SELECT max(snapshot_at) FROM {TABLE})"]
     if region:
         filters.append(f"region = {ch.sql_literal(region)}")
+    if size_band:
+        # Only rows whose channel size we actually read. "" means unknown,
+        # and an unknown size must never be borrowed as a match.
+        filters.append(f"size_band = {ch.sql_literal(size_band)}")
     try:
         # Grouped case-insensitively on distinct videos. YouTube tags are
         # matched case-insensitively but stored as typed, so "Minecraft"
