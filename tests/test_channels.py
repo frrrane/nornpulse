@@ -157,3 +157,21 @@ def test_the_science_channel_bans_shake_and_asks_for_epic():
 
 def test_the_comedy_channel_is_still_allowed_to_wobble():
     assert chans.get_channel("sloptokdaily").profile.avoid_motion == []
+
+
+def test_a_centred_fallback_survives_the_crop_exclusions():
+    """
+    When a segment carries full-width graphics center_crop is off the
+    table, so something must remain that fills the frame from the middle.
+    Banning every centred mode left only top_anchored_crop, which puts all
+    the dead space at the bottom -- a reviewer called it "too much unused
+    space in the bottom of the clip".
+    """
+    from agent.skuld_renderer import SIDE_CROPPING_MODES
+
+    profile = chans.get_channel("nornpulse").profile
+    all_modes = {"center_crop", "blurred_background",
+                 "top_anchored_crop", "cinematic_letterbox"}
+    remaining = all_modes - set(profile.avoid_crop) - set(SIDE_CROPPING_MODES)
+    assert remaining, "nothing left to render a full-width segment with"
+    assert "top_anchored_crop" not in remaining
