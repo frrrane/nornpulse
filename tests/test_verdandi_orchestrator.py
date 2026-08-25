@@ -602,3 +602,62 @@ def test_ai_studio_still_uses_the_files_api(monkeypatch, tmp_path):
 
     assert used["uploaded"] == str(video)
     assert result.name == "files/abc"
+
+
+# --------------------------------------------------------------------------
+# Crop chosen for the footage, not just the hook type
+#
+# Filling a 9:16 screen means cutting the sides off a 16:9 source. That is
+# right for centred action and destroys full-width text: a NASA explainer
+# rendered that way turned "LUNAR LANDINGS" into "NAR LANDIN". No benchmark
+# can know which it is, because it is a property of the video rather than of
+# the hook type -- so the model reports what it sees and the ranking still
+# decides, within what the footage allows.
+# --------------------------------------------------------------------------
+
+def test_only_center_crop_discards_the_sides():
+    """
+    The others scale to fit and pad. If a mode is ever added that crops
+    horizontally, it belongs in this tuple or full-width text will be cut
+    without anything noticing.
+    """
+    from agent.skuld_renderer import SIDE_CROPPING_MODES, SkuldRenderer
+
+    renderer = SkuldRenderer.__new__(SkuldRenderer)
+    for mode in ("center_crop", "blurred_background",
+                 "top_anchored_crop", "cinematic_letterbox"):
+        built = renderer._build_crop_filter(mode, "[0:v]")
+        crops_width = "crop=ih*9/16:ih" in built
+        assert crops_width == (mode in SIDE_CROPPING_MODES), mode
+
+
+def test_the_render_tool_accepts_the_observation():
+    """A parameter the model cannot pass is a parameter that does nothing."""
+    import inspect
+    source = inspect.getsource(VerdandiADK._make_tools)
+    assert "segment_has_full_width_graphics: bool = False" in source
+
+
+def test_the_model_is_told_to_look():
+    """
+    The tool having the parameter is not enough — nothing would ever set
+    it. The instruction has to name it.
+    """
+    import inspect
+    source = inspect.getsource(VerdandiADK.orchestrate_generation)
+    assert "segment_has_full_width_graphics" in source
+
+
+def test_full_width_graphics_exclude_the_side_cropping_modes():
+    """
+    Checked on the built exclusion list rather than by running the tool,
+    which would need a live model and a render.
+    """
+    import inspect
+    from agent.skuld_renderer import SIDE_CROPPING_MODES
+
+    source = inspect.getsource(VerdandiADK._make_tools)
+    assert "crop_exclusions" in source
+    assert "SIDE_CROPPING_MODES" in source
+    # The channel's own exclusions must survive alongside the segment's.
+    assert "list(avoid_crop or [])" in source

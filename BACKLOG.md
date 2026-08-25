@@ -53,6 +53,33 @@ of work, judged against what the clips actually looked like.
   Every insert is a paid Veo call on a clip that currently costs nothing
   beyond rendering, so at six uploads a day this is a real line item.
 
+- [ ] **A critic agent, and an audience agent.** Two paired-review ideas,
+  and they are not the same one. The pipeline already has three
+  check-before-spending gates — the rights `watchdog`, `brief_warnings` and
+  the provenance layer — so this is that shape applied to quality.
+
+  A **critic** sits between the brief and generation, arguing with the brief
+  in text while that is still nearly free. Every rejection so far has cost a
+  full paid generation. What would make it work rather than rubber-stamp:
+  show it the actual rejection history (six clips, with reasons — "not
+  funny", "title cropped", "too bouncy", "completely broken"), make it name
+  the specific thing that will make a viewer scroll rather than emit a score
+  out of ten, and give it a verdict it can lose — PASS / REVISE / BLOCK,
+  defaulting to REVISE, with one revision loop.
+
+  An **audience** agent is the complement and probably the more interesting
+  of the two: not "is this well made" but "would I keep watching". It should
+  see the finished artefact rather than the brief — frames and captions, in
+  order — and answer where it would have scrolled and why. That is a
+  different question from the critic's, and it is the question the channel
+  actually lives or dies on.
+
+  The honest ceiling on both: a model critiquing a model shares its blind
+  spots. A critic would have caught the held-pose ending and the mismatched
+  title, because both are visible in the text. Neither would have caught
+  "not funny at all", because the same taste wrote the joke. Craft defects,
+  not taste — which is still most of what has been rejected.
+
 - [ ] **Punchier titles.** "NASA's Plan For A Permanent Moon Base" is
   descriptive, not curious. The channel's own best-performing hook types are
   curiosity_gap and shock_stat; the title is written as if neither applied.

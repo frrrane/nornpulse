@@ -68,6 +68,15 @@ def resolve_caption_font(choice: Optional[str] = None) -> str:
     return CAPTION_FONTS.get(choice, CAPTION_FONT)
 
 CropMode = Literal["center_crop", "blurred_background", "top_anchored_crop", "cinematic_letterbox"]
+
+# Crop modes that discard the sides of the frame. center_crop fills a 9:16
+# screen by cutting a 16:9 source down to `crop=ih*9/16:ih`, which is the
+# right trade for centred action and the wrong one for a source carrying
+# full-width burned-in graphics -- a NASA explainer rendered this way turned
+# "LUNAR LANDINGS" into "NAR LANDIN". The other three scale to fit and pad,
+# so they keep every pixel of width at the cost of filling less of the
+# screen. Neither is correct in general; it depends on the footage.
+SIDE_CROPPING_MODES = ("center_crop",)
 MotionEffect = Literal["none", "ken_burns_zoom", "punch_in_zoom", "shake"]
 ColorGrade = Literal["neutral", "cool_desaturated", "warm_glow", "vibrant_punch"]
 RGB = Tuple[int, int, int]

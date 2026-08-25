@@ -21,6 +21,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from agent.skuld_renderer import (
     SkuldRenderer, parse_time_to_seconds, format_seconds_to_mmss, get_video_duration_seconds,
     measure_audio_mean_volume, NARRATION_FALLBACK_VOLUME_THRESHOLD_DB,
+    SIDE_CROPPING_MODES,
 )
 from agent.urdr_analytics import UrdrAnalytics
 from agent.bragi_composer import BragiComposer
@@ -376,6 +377,7 @@ class VerdandiADK:
             hook_banner_text: str,
             hook_type: str,
             transcript_text_override: str = "",
+            segment_has_full_width_graphics: bool = False,
         ) -> str:
             """
             Renders a 9:16 vertical short with FFmpeg, burning in kinetic
@@ -386,9 +388,22 @@ class VerdandiADK:
             pass to tool_log_urdr_telemetry for this clip_id — it's used
             here up front to ground Bragi's Lyria-composed background
             score AND the clip's crop framing/camera motion/color grade in
-            Urðr's historical benchmarks for that hook type. There is no
-            crop_mode parameter to set: the visual treatment is looked up
+            Urðr's historical benchmarks for that hook type. There is still
+            no crop_mode parameter to set: the visual treatment is looked up
             from real ClickHouse data for this hook_type, not chosen ad hoc.
+
+            segment_has_full_width_graphics is an observation about THIS
+            footage, not a styling choice. Set it true when the segment
+            carries titles, captions, labelled diagrams or any text that
+            runs close to the left and right edges of the source frame.
+            Filling a 9:16 screen means cutting the sides off a 16:9 source,
+            which is right for centred action and destroys full-width text
+            -- a NASA explainer rendered that way turned "LUNAR LANDINGS"
+            into "NAR LANDIN". No benchmark can know this, because it is a
+            property of the video rather than of the hook type, and you are
+            the only part of this pipeline that can see it. When it is true
+            the ranking simply chooses among the crop modes that keep the
+            full width.
             """
             # Namespaced so batch mode (independent orchestrate_generation
             # calls, one per source video) can't collide: Gemini often
@@ -447,9 +462,19 @@ class VerdandiADK:
             # principle as Bragi's music choice above: rather than a crop
             # style chosen ad hoc per render, the visual treatment is
             # looked up from historical hook_type performance.
+            # The channel's standing exclusions, plus anything this
+            # particular segment rules out. The benchmark still ranks; it
+            # just ranks within what the footage allows.
+            crop_exclusions = list(avoid_crop or [])
+            if segment_has_full_width_graphics:
+                crop_exclusions += [m for m in SIDE_CROPPING_MODES
+                                    if m not in crop_exclusions]
+                logger.info(
+                    f"{clip_id}: segment reported as carrying full-width "
+                    f"graphics, so side-cropping modes are excluded.")
             visual_benchmark = self.urdr.get_top_visual_benchmark(
                 hook_type=hook_type, topic_category=topic_focus,
-                avoid_motion=avoid_motion, avoid_crop=avoid_crop)
+                avoid_motion=avoid_motion, avoid_crop=crop_exclusions)
             crop_mode = visual_benchmark.get("crop_mode", "center_crop") if visual_benchmark else "center_crop"
             motion_effect = visual_benchmark.get("motion_effect", "none") if visual_benchmark else "none"
             color_grade = visual_benchmark.get("color_grade", "neutral") if visual_benchmark else "neutral"
@@ -985,7 +1010,13 @@ class VerdandiADK:
                         "defaulting to the same hook type regardless of content. You have the actual "
                         "video attached, not just transcript text where one exists — weigh the real "
                         "vocal delivery and energy you observe, not just word content, when a hook_type "
-                        "implies a particular tone. Always call "
+                        "implies a particular tone. Since you can see the frames, you are "
+                        "also the only part of this pipeline that knows whether a segment "
+                        "carries burned-in titles, captions or labelled diagrams running "
+                        "close to the left and right edges — look, and set "
+                        "segment_has_full_width_graphics accordingly. Filling a vertical "
+                        "frame means cutting the sides off a widescreen source, which is "
+                        "right for centred action and destroys full-width text. Always call "
                         "tool_execute_skuld_render and tool_log_urdr_telemetry with matching "
                         "hook_type values before reporting a clip as generated."
                     ),
