@@ -1,0 +1,169 @@
+[00:00.000] This is drawing on the playbook of success from the 1960s. We're bringing it back.
+[00:03.900] This is how you do the near-impossible.
+[00:06.100] We're learning and building up to doing something extremely hard.
+[00:10.800] A permanent human presence on the Moon may sound like science fiction,
+[00:15.100] but it's already taking shape.
+[00:17.300] The ideas are becoming hardware, the plans are becoming missions,
+[00:21.800] the future is happening now.
+[00:24.500] Being able to see Moon base elements get into the finish line, it's just awesome.
+[00:30.000] We're taking you behind the scenes to show you how.
+[00:34.900] People are looking up again,
+[00:36.500] believing in big things again.
+[00:38.900] America is returning to the Moon
+[00:40.800] to build a Moon base.
+[00:42.800] We're going to need to achieve the near-impossible.
+[00:53.600] NASA is building a Moon base, a place where astronauts will live, work,
+[00:58.100] and conduct science on and around the Moon.
+[01:01.000] Now, building a Moon base won't happen all at once.
+[01:04.200] It will take more than 20 lunar landings during the first phase,
+[01:07.800] with each mission delivering the equipment, technology, and science needed
+[01:12.700] to build, learn, and improve.
+[01:15.500] We're traveling across the country to meet the companies building lunar landers for upcoming flights
+[01:21.200] and see how they're preparing for their next missions to the Moon.
+[01:27.200] Just north of Austin, Texas, Firefly Aerospace is preparing
+[01:31.000] for its second mission to the Moon.
+[01:33.100] NASA's Carlos García-Galán is taking us inside its headquarters,
+[01:36.800] where engineers are preparing the lunar lander for its upcoming mission.
+[01:41.200] Love to see the hardware ready for Moon Base Mission, Blue Ghost 2.
+[01:45.300] So tell us a little bit about what we're looking at.
+[01:47.300] Yeah, so what we're looking at right here is our,
+[01:49.800] like you mentioned, our Blue Ghost Mission 2 lunar lander.
+[01:52.300] The lander's now stacked, it's starting to really look like a lander,
+[01:54.800] and we're getting ready to install our electronics and all our payloads.
+[01:58.600] Blue Ghost Mission 2, the lander is going to the far side of the Moon,
+[02:01.400] and that is really driven by one of the payloads that will sit on the top deck of the lander.
+[02:05.100] It's called LuSEE-Night.
+[02:06.100] So that's a radio astronomy telescope.
+[02:08.000] So they want to sit on the far side of the Moon,
+[02:09.800] away from all the noise from Earth,
+[02:11.300] so the Moon's kind of blocking all of that,
+[02:13.200] and they're looking back at the cosmic Dark Ages.
+[02:15.500] So that's a very...
+[02:16.800] Amazing.
+[02:17.400] ...amazing payload, yeah.
+[02:19.700] We will also have another payload that we will put into orbit.
+[02:23.700] So it'll be in orbit around the Moon, so that's Lunar Pathfinder.
+[02:26.900] We have a rover on board.
+[02:28.000] Super exciting.
+[02:28.800] Yeah, so that'll be our first mobility payload that we have.
+[02:32.400] So all of those are coming along with us.
+[02:34.200] They're each going to gather science technology data,
+[02:36.600] and it can all be used on future missions.
+[02:39.900] A lot of the people that worked on Mission 1 are still here working on Mission 2,
+[02:42.800] so we have all that knowledge still in house,
+[02:45.300] and then you're implementing all the lessons learned
+[02:47.000] because we have all that great data from Blue Ghost Mission 1.
+[02:49.700] So it does feel easier, so it feels like the wheel is starting to really turn a lot faster,
+[02:53.300] and then we've got these other Moon Base awards,
+[02:55.200] so it's really about: can you make it repeatable, can you produce it?
+[02:58.200] Yeah, can you be successful several times?
+[03:00.000] Is the excitement building up? I mean, you're getting pretty close.
+[03:03.400] Yeah, I think anytime that you have something in the cleanroom
+[03:05.700] where it's like you look at it and you know like, "That's my lander, that's going to the Moon."
+[03:09.100] It's also humbling. It's like, "Hey, we did it one time,
+[03:11.300] but now we need to do it two, three, four.
+[03:13.200] We need to keep doing it and keep upping the bar and getting better each time."
+[03:22.300] Over on the West Coast, NASA's Ryan Stephan
+[03:25.100] is at NASA's Jet Propulsion Laboratory in California,
+[03:28.700] where Voyager Lunar Systems' Griffin-1 lander has arrived for environmental testing.
+[03:33.800] This larger lander is an infrastructure-class lander.
+[03:37.300] It's not just meant for scientific payloads and instrumentation,
+[03:41.200] but also, it's made to basically take equipment and infrastructure-level capability
+[03:46.700] and deliver that to the lunar surface.
+[03:48.900] It's also landing in the South Pole, where the terrain is a little bit harsher.
+[03:53.100] It's a little bit more dangerous to land.
+[03:55.100] It requires precision navigation, guidance, and control to land in safe locations.
+[04:00.900] This lander will be taking a total of 10 payloads,
+[04:03.600] the largest of which, the Astrobotic VIPER rover,
+[04:07.400] is the largest commercial payload to ever be delivered to the lunar South Pole.
+[04:12.300] So, we're thousands of miles away from where you guys assembled the spacecraft.
+[04:15.500] Why did you decide to bring this out to Southern California?
+[04:18.300] Jet Propulsion Laboratory has some of the best,
+[04:20.500] most capable environmental testing facilities in the world.
+[04:23.700] And for a lunar lander this size, really what we want to do
+[04:27.300] is test the spacecraft, put it through its paces.
+[04:31.500] Right now, Griffin is pictured on top of the mass properties fixture,
+[04:34.500] which is the black thing you see in front of it.
+[04:36.200] Basically, we're testing to measure the mass of the vehicle, the total mass,
+[04:42.000] the center of gravity, the moment of inertia,
+[04:44.200] so that we know the exact configuration of the flight vehicle.
+[04:48.600] When we get back, we will finish reviewing a lot of the test data that we've done here,
+[04:52.400] correlating to our models and our pre-test predictions,
+[04:55.000] modifying those based on the feedback that we've got from hop standard testing,
+[04:58.700] and potentially addressing any findings on the ground here
+[05:01.300] while we have the chance before we launch later this year.
+[05:03.600] Really exciting.
+[05:07.700] On the East Coast, NASA's Courtney Abegglen
+[05:10.200] is at Blue Origin's testing facility in Cape Canaveral, Florida,
+[05:14.000] to see the latest on the Blue Moon Mark 1 lander.
+[05:17.400] Mark 1 serial number 1 is designed to prove out
+[05:21.000] the core technologies for Blue Origin that we will eventually apply to the human landing missions of Artemis.
+[05:27.500] So, it's our liquid oxygen, liquid hydrogen systems,
+[05:29.800] it's our precision landing capabilities,
+[05:31.900] it's also our ability to offload large amounts of cargo.
+[05:35.600] I see a lot of people working on this lander.
+[05:37.300] Can you tell us what is left for this lander in order to make it fly?
+[05:41.800] We just completed our thermal vacuum testing at Johnson Space Center in January and February of this year.
+[05:48.600] We then brought the vehicle back. We did a number of tests.
+[05:50.800] We first tested our RF compatibility with the TDRSS satellite system,
+[05:54.400] as well as the Deep Space Network.
+[05:57.000] We also have tested how our vehicle reacts during stage separation from the New Glenn vehicle.
+[06:02.800] We've tested the acoustic environment,
+[06:04.900] and soon we'll be testing our cryogenic propellant system.
+[06:08.500] We've just completed our fit checks of our BE-7 main engine,
+[06:11.800] the actual engine that will fly to the Moon. That went perfectly.
+[06:16.200] And so, we're now closing up these tests, and we'll be ready for New Glenn.
+[06:19.800] As you know, we had the mishap at the pad with New Glenn.
+[06:23.200] The team there is making phenomenal progress.
+[06:25.700] We are working to have serial number 1 ready
+[06:29.100] and stored in a quiescent state for when New Glenn is ready.
+[06:33.100] We expect that launch to occur in Q1 of 2027,
+[06:36.700] and once that's complete, we'll now continue on to serial numbers 2, 3, and 4.
+[06:40.400] We're also carrying NASA payloads, the SCALPS payload,
+[06:43.000] which will allow us to visualize what the exhaust from our BE-7 engine is doing to the surface of the Moon
+[06:49.700] so that that will feed forward to heavier landers in the future.
+[06:51.300] We also carry a retroreflector from NASA on this mission.
+[06:56.200] NASA's been a phenomenal partner to us. They've been working hand in hand with us,
+[06:59.800] and that's what's going to allow these four serial numbers to come off the assembly line as quickly as they are.
+[07:08.800] In Houston, NASA's Adam Schlesinger
+[07:11.200] is at Intuitive Machines' headquarters getting an up-close look at how the Nova-C lander
+[07:16.000] is being prepared for its third mission to the Moon.
+[07:19.400] So, this spacecraft is our Nova-C, this is our IM-3 vehicle.
+[07:22.900] As you can see, up on the top is the methane tank, the oxygen tank is below,
+[07:27.400] the engine actually sits right here underneath, this is the engine deck.
+[07:30.900] You can see that we've just put the top deck onto this spacecraft,
+[07:34.200] so we're excited.
+[07:35.000] Within the next month, we're going to be putting the engine in
+[07:37.200] and we'll be taking it outside for a hot fire test to confirm that the engine is ready to go for launch.
+[07:42.200] Right. And after that test, what's the path look like to get to launch?
+[07:46.000] We bring it back inside here. The payloads sit on panels that go on the outside of this spacecraft,
+[07:50.500] so we'll bring those panels in, we do integrated testing,
+[07:53.600] and then we do some vibration testing, we send it down to the Cape,
+[07:57.600] and we get ready for launch.
+[08:00.000] This vehicle will have five NASA payloads, looking at the magnetic anomaly that's at Reiner Gamma on the near side of the Moon.
+[08:06.600] So, it's a super exciting science mission.
+[08:08.600] We're also doing other science. So, we have six commercial payloads.
+[08:13.600] We have a payload from the Italian Space Agency, and we have the five NASA payloads doing lots of different types of science.
+[08:21.000] And this is the third IM CLPS delivery.
+[08:23.200] Can you talk about some of the lessons learned from the previous two and how that's being applied to this one?
+[08:27.200] Yeah, absolutely. So, on IM-1, which was in 2024, and IM-2, which was in 2025,
+[08:31.400] we learned lessons. We learned things about this spacecraft, we learned how it landed,
+[08:35.800] and how we could make it better.
+[08:37.300] And so, we're integrating all of those lessons learned into this spacecraft and our future spacecraft:
+[08:41.500] IM-3, 4, 5, and 6,
+[08:44.300] which are all on schedule to extend the Moon base capability.
+[08:52.600] These lunar landers will soon deliver the science and technology
+[08:55.700] that will turn the Moon base into a reality.
+[08:58.700] But there's even more ahead.
+[09:01.800] The lunar South Pole is one of the harshest environments,
+[09:05.100] with extreme temperatures ranging from -334°F to over 130°.
+[09:13.200] This huge swing means the power, communications, and landing systems we build
+[09:18.100] must withstand both intense cold and strong heat.
+[09:22.500] This is no small task, so NASA is teaming up with Northrop Grumman
+[09:26.500] on three new technology demonstrations that will be delivered to the lunar surface beginning in Phase 1.
+[09:33.000] The goal is to reuse key power, avionics, and communication systems
+[09:37.600] originally developed for the Gateway Program's HALO module.
+[09:42.200] These test missions will give new purpose to existing hardware
+[09:45.300] to help build the infrastructure that Artemis crews and robotic explorers will depend on at the Moon base.
+[09:54.100] This is only the beginning.
+[09:55.300] Continue to follow along as we bring you up close and share details about...

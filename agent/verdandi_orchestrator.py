@@ -251,6 +251,7 @@ class VerdandiADK:
         vision_mode: bool = False,
         clip_id_prefix: str = "",
         caption_language: Optional[str] = None,
+        caption_font: Optional[str] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Callable]:
         """Builds request-scoped tool functions closing over this call's state."""
@@ -1012,7 +1013,19 @@ class VerdandiADK:
                 )
                 all_clips.extend(clips)
             except Exception as e:
-                logger.error(f"Batch item {i + 1}/{len(urls)} ({url}) failed, skipping: {e}")
+                # Unwrap tenacity: a RetryError's str() is
+                # "RetryError[<Future at 0x... state=finished raised
+                # TypeError>]", which names neither the message nor a line.
+                # A skipped video is meant to cost that video, not the
+                # ability to find out why it was skipped.
+                cause = e
+                last = getattr(e, "last_attempt", None)
+                if last is not None and last.failed:
+                    cause = last.exception()
+                logger.error(
+                    f"Batch item {i + 1}/{len(urls)} ({url}) failed, skipping: "
+                    f"{type(cause).__name__}: {cause}",
+                    exc_info=cause)
                 continue
 
         all_clips.sort(key=lambda c: c.get("virality_score", 0.0), reverse=True)

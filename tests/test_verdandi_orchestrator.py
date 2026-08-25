@@ -8,6 +8,7 @@ client, a ClickHouse connection, or FFmpeg: _make_tools is built against
 a stub Urðr/Skuld so the closure under test can be exercised directly.
 """
 
+from pathlib import Path
 import types
 
 import pytest
@@ -418,3 +419,61 @@ def test_no_source_leaves_the_field_absent_rather_than_blank():
     clips = _reconcile_with_source(None)
     assert clips
     assert all("source_url" not in c for c in clips)
+
+
+# --------------------------------------------------------------------------
+# Internal call-signature agreement
+#
+# orchestrate_generation passed caption_font= to _make_tools, which had no
+# such parameter, for twenty-six commits. Every call raised TypeError, the
+# retry decorator tried three times, and orchestrate_batch's except-and-skip
+# turned the crash into "0 clips from 1 video" with no traceback. The whole
+# cut-clip pipeline -- the product's core path -- was dead for two days and
+# the suite stayed green, because these helpers are only ever reached
+# through a real Gemini run that unit tests do not make.
+#
+# Checking the calls statically costs nothing and needs no API.
+# --------------------------------------------------------------------------
+
+def _self_calls(source_path):
+    """Every self._method(...) call in a module, with its keyword names."""
+    import ast
+    tree = ast.parse(Path(source_path).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        if (isinstance(fn, ast.Attribute)
+                and isinstance(fn.value, ast.Name)
+                and fn.value.id == "self"):
+            names = [kw.arg for kw in node.keywords if kw.arg is not None]
+            starred = any(kw.arg is None for kw in node.keywords)
+            yield fn.attr, names, len(node.args), starred, node.lineno
+
+
+def test_every_internal_call_matches_its_method_signature():
+    import inspect
+    module = inspect.getfile(VerdandiADK)
+    problems = []
+    for name, kwargs, positional, starred, lineno in _self_calls(module):
+        method = getattr(VerdandiADK, name, None)
+        if method is None or not callable(method) or starred:
+            continue
+        params = inspect.signature(method).parameters
+        if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+            continue
+        for kw in kwargs:
+            if kw not in params:
+                problems.append(
+                    f"{Path(module).name}:{lineno} calls self.{name}({kw}=...) "
+                    f"but {name}() has no such parameter")
+    assert not problems, "\n".join(problems)
+
+
+def test_make_tools_accepts_what_orchestrate_generation_sends():
+    """The specific pairing that broke, pinned."""
+    import inspect
+    params = inspect.signature(VerdandiADK._make_tools).parameters
+    for forwarded in ("caption_language", "caption_font", "clip_id_prefix",
+                      "vision_mode", "window", "topic_focus", "progress_callback"):
+        assert forwarded in params, f"_make_tools() cannot accept {forwarded}"
