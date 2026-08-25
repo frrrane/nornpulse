@@ -81,12 +81,20 @@ class ChannelProfile:
     # is how a NASA explainer came back wobbling and was rejected as "too
     # bouncy". A genuine editorial constraint, not a measurement.
     avoid_motion: List[str] = field(default_factory=list)
-    # Crop modes this channel will not use. blurred_background and
-    # cinematic_letterbox both fit a 16:9 source inside a 9:16 frame, which
-    # leaves the actual footage occupying about a third of the screen with
-    # filler above and below. A reviewer called two such clips "completely
-    # broken" and the center_crop one "better" -- on a Short, filling the
-    # frame is not a stylistic preference.
+    # Crop modes this channel will not use.
+    #
+    # A 16:9 source cannot both fill a 9:16 frame and keep its full width;
+    # that is geometry, not a tunable. Every mode other than center_crop
+    # takes the second option, leaving the footage in a band with filler
+    # around it. A reviewer called those "completely broken", then "too much
+    # unused space in the bottom", and called the center_crop one "better" --
+    # so on this channel filling the frame wins and losing the edges is the
+    # accepted cost.
+    #
+    # Excluding all of them is deliberate and safe: with nothing left the
+    # benchmark returns nothing and the renderer falls back to center_crop,
+    # so the last resort is the filled frame rather than an unfilled one.
+    # There is a test pinning that, because it reads like an accident.
     avoid_crop: List[str] = field(default_factory=list)
     # Typeface for the burned-in hook banner, by name from
     # text_fit.DISPLAY_FACES. Distinct from caption_font, which names a

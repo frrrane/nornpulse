@@ -29,6 +29,7 @@
           "shake"
         ],
         "avoid_crop": [
+          "blurred_background",
           "top_anchored_crop",
           "cinematic_letterbox"
         ]

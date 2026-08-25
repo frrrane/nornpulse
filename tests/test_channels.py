@@ -159,19 +159,30 @@ def test_the_comedy_channel_is_still_allowed_to_wobble():
     assert chans.get_channel("sloptokdaily").profile.avoid_motion == []
 
 
-def test_a_centred_fallback_survives_the_crop_exclusions():
+def test_excluding_every_unfilled_mode_lands_on_the_filled_one():
     """
-    When a segment carries full-width graphics center_crop is off the
-    table, so something must remain that fills the frame from the middle.
-    Banning every centred mode left only top_anchored_crop, which puts all
-    the dead space at the bottom -- a reviewer called it "too much unused
-    space in the bottom of the clip".
-    """
-    from agent.skuld_renderer import SIDE_CROPPING_MODES
+    A 16:9 source cannot both fill a 9:16 frame and keep its full width.
+    This channel's reviewer chose filling, three times over -- "completely
+    broken" for blurred_background, "too much unused space in the bottom"
+    for top_anchored_crop, "better" for center_crop.
 
+    So every unfilled mode is excluded, and when a segment also excludes the
+    cropping ones there is nothing left at all. That is safe rather than
+    broken: the benchmark returns nothing and the renderer falls back to
+    center_crop. Pinned because it reads like an accident, and because a
+    future default of anything else would silently reintroduce the letterbox
+    on exactly the clips that were rejected for it.
+    """
     profile = chans.get_channel("nornpulse").profile
-    all_modes = {"center_crop", "blurred_background",
-                 "top_anchored_crop", "cinematic_letterbox"}
-    remaining = all_modes - set(profile.avoid_crop) - set(SIDE_CROPPING_MODES)
-    assert remaining, "nothing left to render a full-width segment with"
-    assert "top_anchored_crop" not in remaining
+    for unfilled in ("blurred_background", "top_anchored_crop", "cinematic_letterbox"):
+        assert unfilled in profile.avoid_crop
+    assert "center_crop" not in profile.avoid_crop
+
+
+def test_the_renderer_defaults_to_a_filled_frame():
+    """The fallback the exclusion above relies on."""
+    import inspect
+    from agent.verdandi_orchestrator import VerdandiADK
+    source = inspect.getsource(VerdandiADK._make_tools)
+    assert 'visual_benchmark.get("crop_mode", "center_crop")' in source
+    assert 'if visual_benchmark else "center_crop"' in source
