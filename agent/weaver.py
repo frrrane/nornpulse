@@ -67,6 +67,16 @@ TARGET_W, TARGET_H = 1080, 1920
 TARGET_FPS = 30
 TARGET_SAMPLE_RATE = 44100
 
+# How long the two shots overlap. A hard cut from generated footage to
+# borrowed footage announces the seam -- a reviewer described it as cutting
+# "unexpectedly at the second second" -- because nothing in the opener
+# prepares the eye for it. A short dissolve reads as one piece of editing
+# instead of two clips glued together.
+#
+# Kept brief: long enough to soften the join, short enough that it does not
+# eat the opener, which is only a couple of seconds to begin with.
+CROSSFADE_SEC = 0.5
+
 
 class WeaveError(RuntimeError):
     """Raised when the pieces exist but could not be joined."""
@@ -164,13 +174,24 @@ def weave_opener(clip_path: str | Path, opener_path: str | Path,
     opener_sec = max(0.5, min(float(opener_sec), MAX_OPENER_SEC))
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # The dissolve cannot be longer than the shot it is dissolving out of,
+    # and needs some opener left over on either side of it.
+    fade = min(CROSSFADE_SEC, max(0.0, opener_sec - 0.5))
+
     opener_video, opener_audio = _normalise("0", _has_audio(opener_path), opener_sec)
     clip_video, clip_audio = _normalise("1", _has_audio(clip_path))
 
-    graph = ";".join([
-        opener_video, opener_audio, clip_video, clip_audio,
-        "[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]",
-    ])
+    if fade > 0:
+        # xfade starts the transition at `offset` into the first input, so
+        # the two overlap rather than abut. Total length is therefore
+        # opener + clip - fade, not opener + clip.
+        join = (f"[v0][v1]xfade=transition=fade:duration={fade:.2f}"
+                f":offset={opener_sec - fade:.2f}[v];"
+                f"[a0][a1]acrossfade=d={fade:.2f}[a]")
+    else:
+        join = "[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]"
+
+    graph = ";".join([opener_video, opener_audio, clip_video, clip_audio, join])
 
     cmd = [
         "ffmpeg", "-v", "error",

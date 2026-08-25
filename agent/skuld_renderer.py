@@ -291,8 +291,11 @@ BANNER_X = 40
 BANNER_Y = 80
 BANNER_WIDTH = 1000
 BANNER_PADDING = 24
-BANNER_FONT_PX = 42
-BANNER_MIN_FONT_PX = 28
+# Sized for a phone held at arm's length, not for a desktop preview. 42px
+# was legible and unassertive, and a reviewer asked for bigger -- a hook
+# banner competes with moving video and is read in about a second.
+BANNER_FONT_PX = 64
+BANNER_MIN_FONT_PX = 36
 BANNER_FALLBACK_WRAP = 24
 
 

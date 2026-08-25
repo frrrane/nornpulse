@@ -132,7 +132,9 @@ def test_an_opener_without_audio_gets_a_silent_track(tmp_path, monkeypatch):
     weaver.weave_opener(_file(tmp_path, "clip.mp4"), _file(tmp_path, "op.mp4"),
                         tmp_path / "out.mp4")
     assert "anullsrc" in seen["graph"]
-    assert "concat=n=2:v=1:a=1" in seen["graph"]
+    # Crossfaded rather than butted together, so the silent track has to
+    # survive acrossfade too, not just concat.
+    assert "acrossfade" in seen["graph"]
 
 
 def test_both_inputs_are_scaled_to_the_same_frame(tmp_path, monkeypatch):
@@ -249,3 +251,78 @@ def test_a_failed_weave_keeps_the_rendered_clip():
     # The recorded path is the variable the weave may reassign, not the
     # raw render result -- otherwise a successful weave would be discarded.
     assert '"output_video_path": rendered_path,' in source
+
+
+# --- the join itself --------------------------------------------------------
+#
+# A hard cut from generated footage to borrowed footage announces the seam.
+# A reviewer described it as cutting "unexpectedly at the second second":
+# nothing in the opener prepares the eye for the change.
+
+def _graph_for(tmp_path, monkeypatch, opener_sec):
+    seen = {}
+
+    def _run(cmd, **kw):
+        seen["graph"] = cmd[cmd.index("-filter_complex") + 1]
+        Path(cmd[-1]).write_bytes(b"joined")
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+    monkeypatch.setattr(weaver.subprocess, "run", _run)
+    monkeypatch.setattr(weaver, "_has_audio", lambda p: True)
+    weaver.weave_opener(_file(tmp_path, "clip.mp4"), _file(tmp_path, "op.mp4"),
+                        tmp_path / "out.mp4", opener_sec=opener_sec)
+    return seen["graph"]
+
+
+def test_the_two_shots_are_dissolved_not_butted(tmp_path, monkeypatch):
+    graph = _graph_for(tmp_path, monkeypatch, 2.0)
+    assert "xfade=transition=fade" in graph
+    assert "concat=" not in graph
+
+
+def test_the_dissolve_starts_before_the_opener_ends(tmp_path, monkeypatch):
+    """
+    xfade's offset is where the transition begins in the first input. Set
+    to the full opener length the fade would start as the opener ended and
+    overrun into nothing.
+    """
+    graph = _graph_for(tmp_path, monkeypatch, 2.0)
+    expected_offset = 2.0 - weaver.CROSSFADE_SEC
+    assert f"offset={expected_offset:.2f}" in graph
+
+
+def test_a_very_short_opener_falls_back_to_a_hard_cut(tmp_path, monkeypatch):
+    """
+    The dissolve cannot be longer than the shot it dissolves out of. At the
+    minimum opener length there is nothing left to fade with, and a hard
+    cut is better than a malformed filter graph.
+    """
+    graph = _graph_for(tmp_path, monkeypatch, 0.5)
+    assert "concat=n=2:v=1:a=1" in graph
+    assert "xfade" not in graph
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_the_dissolve_shortens_the_result_by_its_own_length(tmp_path):
+    """
+    Overlapping is the point: opener + clip - fade, not opener + clip. If
+    this came out as a plain sum the shots were not actually overlapping.
+    """
+    opener, clip = tmp_path / "op.mp4", tmp_path / "clip.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi",
+                    "-i", "testsrc=size=720x1280:rate=30:d=4",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an",
+                    "-y", str(opener)], check=True, capture_output=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi",
+                    "-i", "testsrc2=size=1080x1920:rate=30:d=6",
+                    "-f", "lavfi", "-i", "sine=frequency=300:duration=6",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                    "-shortest", "-y", str(clip)], check=True, capture_output=True)
+
+    out = tmp_path / "woven.mp4"
+    weaver.weave_opener(clip, opener, out, opener_sec=2.0)
+    duration = float(subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", str(out)], capture_output=True, text=True).stdout.strip())
+    expected = 2.0 + 6.0 - weaver.CROSSFADE_SEC
+    assert abs(duration - expected) < 0.6, f"expected ~{expected}s, got {duration}"
