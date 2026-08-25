@@ -24,11 +24,49 @@ feeding browse traffic) does not exist yet.
 **NornPulse reads every creative decision inside the size band of the channel
 actually publishing it — and says so when it does not know.**
 
+Every one of those reads is a ClickHouse query.
+
 It takes a video, cuts it into vertical shorts through six agents, and scores
 every choice along the way — hook, cut, captions, tags, music, cover — against
 measured outcomes rather than style-guide folklore. Each finished clip declares
 its own evidence: a typical one is **3 measured, 4 assumed, 1 model
 judgement**, labelled inline rather than presented as uniform confidence.
+
+---
+
+## 🤝 Partner track: ClickHouse
+
+**Submitted to the ClickHouse track.** ClickHouse is not the storage under this
+project, it is the argument. Every claim above — the +34%, the −4%, the size
+bands they are measured within — is a query, and without a warehouse that can
+scan billions of rows per read the honest version of this product does not
+exist. The alternative is what everyone else ships: advice with no denominator.
+
+**Reached exclusively through the official `mcp-clickhouse` MCP server.** No
+direct database client sits in the runtime path. `agent/clickhouse_mcp_client.py`
+holds the server open as a persistent stdio session, because spawning it cost
+~3s per call and the dashboard grounds every panel it draws.
+
+**Eight tables, four layers, one honesty rule.** A frozen 4.56-billion-row
+public dataset for structural questions; a live trending layer for what is
+travelling today; this project's own published outcomes; and its own forecasts,
+graded later against what actually happened. Where a layer cannot answer, the
+answer is *"not measured"* rather than a number — which is why the scoreboard
+reports **0 of 13 gradeable** rather than a comforting average.
+
+```
+global_youtube_benchmarks    4.56B rows, frozen 2021 — structural evidence
+trending_snapshots           live, Shorts only        — what travels today
+channel_video_history        this project's channels  — what we actually get
+published_clip_outcomes      forecast vs outcome      — whether we were right
+video_hook_retention         per-clip telemetry
+visual_style_benchmarks      seeded priors, labelled as such
+music_virality_benchmarks    seeded priors, labelled as such
+clip_review_decisions        the human approvals, mirrored out of the ledger
+```
+
+The gap between layer one and layer three is the second act below, and it is
+**10×**.
 
 ---
 
@@ -470,7 +508,25 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-453 offline unit tests covering the pure logic — time parsing, caption chunking/timing and ASS generation, FFmpeg filter-graph construction for every crop mode / motion effect / colour grade, SQL literal escaping, ClickHouse connection diagnostics, the virality-score heuristic, Verðandi's duration/window clamp and metadata reconciliation, the HITL staging email's MIME structure and HTML escaping, the review-decision ledger, the global-grounding accessors' stratification and degradation paths, and the persistent MCP session's reuse, restart and fallback logic. They need no API keys, no ClickHouse, no FFmpeg and no SMTP connection, and run in about ten seconds.
+700 offline unit tests covering the pure logic — time parsing, caption
+chunking/timing and ASS generation, FFmpeg filter-graph construction for every
+crop mode / motion effect / colour grade, the burned-in text fitter that
+measures a title against the frame rather than counting characters, SQL literal
+escaping, ClickHouse connection diagnostics, the virality-score heuristic,
+Verðandi's duration/window clamp and metadata reconciliation, the cue parser and
+sentence snapping, the rights check's fail-to-FLAG behaviour, the trend loop's
+brief warnings and premise selection, engagement rates and their minimum-views
+floor, the Vertex/AI-Studio client routing, the generated-footage weave, the
+HITL staging email's MIME structure and HTML escaping, the review-decision
+ledger, the global-grounding accessors' stratification and degradation paths,
+and the persistent MCP session's reuse, restart and fallback logic.
+
+They need no API keys, no ClickHouse, no FFmpeg for most of it and no SMTP
+connection. A handful deliberately do shell out to FFmpeg — the ones asserting
+that two clips actually join, or that a rendered banner's ink sits where the
+arithmetic says it does — because those are the properties that were wrong in
+production while the pure-logic tests were green. The suite runs in about a
+minute.
 
 Several cases are regression guards for bugs found by live testing: caption overlap, the crop-before-blur ordering in `blurred_background`, the `split=2` rule for named filter pads, `ORDER BY` binding to only the last `SELECT` of a `UNION ALL`, a clamp that could emit an end timestamp *before* its start when the model requested a range outside the user's Cut Range, and metadata reconciliation silently dropping every render field it didn't list by name.
 
