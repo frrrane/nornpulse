@@ -28,6 +28,15 @@ def main() -> int:
     ap.add_argument("--regions", default="US", help="comma-separated region codes")
     ap.add_argument("--max", type=int, default=50, help="videos per region (max 50)")
     ap.add_argument("--category", help="restrict to one videoCategoryId (e.g. 28 = Science & Tech)")
+    ap.add_argument("--shorts", action="store_true",
+                    help="collect Shorts instead of the trending chart. There is no "
+                         "Shorts chart in the API, so this searches recent short "
+                         "videos ordered by view count -- a different claim, stored "
+                         "under its own source. Costs 100 quota units per region "
+                         "against 10,000/day, versus 1 for the chart.")
+    ap.add_argument("--query", help="with --shorts, restrict the search (e.g. '#aislop')")
+    ap.add_argument("--days", type=int, default=7,
+                    help="with --shorts, how recent the videos must be")
     ap.add_argument("--dry-run", action="store_true", help="fetch and summarise, store nothing")
     args = ap.parse_args()
 
@@ -41,15 +50,22 @@ def main() -> int:
     all_rows, stored = [], 0
     for region in regions:
         try:
-            rows = ti.fetch_trending(youtube, region=region, max_results=args.max,
-                                     category_id=args.category)
+            if args.shorts:
+                rows = ti.fetch_trending_shorts(
+                    youtube, region=region, max_results=args.max,
+                    query=args.query, days=args.days)
+            else:
+                rows = ti.fetch_trending(youtube, region=region, max_results=args.max,
+                                         category_id=args.category)
         except Exception as e:
             print(f"❌ {region}: {e}")
             continue
 
         shorts = sum(r["is_short"] for r in rows)
         tagged = sum(bool(r["tags"]) for r in rows)
-        print(f"📈 {region}: {len(rows)} videos, {shorts} shorts, {tagged} with tags exposed")
+        label = "shorts search" if args.shorts else "trending chart"
+        print(f"📈 {region} ({label}): {len(rows)} videos, {shorts} shorts, "
+              f"{tagged} with tags exposed")
         all_rows += rows
 
     if not all_rows:

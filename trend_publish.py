@@ -91,15 +91,26 @@ def main() -> int:
     print(f"📺 {channel.slug} ({channel.title})")
 
     # 1. What is trending
-    trending = ti.top_tags(limit=200)
+    # Shorts, because that is what this pipeline makes. The trending chart
+    # is almost entirely long-form -- a snapshot taken while writing this
+    # held 49 videos, none of them Shorts, median length ten minutes -- so
+    # grounding a Shorts brief in it means choosing topics from
+    # let's-plays and album visualisers. Falls back to the chart rather
+    # than refusing, saying so, because stale long-form evidence is worth
+    # more than none as long as nobody is told it was short-form.
+    trending = ti.top_tags(limit=200, shorts_only=True)
+    grounding = "Shorts"
+    if trending is None or trending.empty:
+        trending = ti.top_tags(limit=200)
+        grounding = "long-form chart (no Shorts snapshot yet)"
     topics = tl.candidate_topics(trending)
     if not topics:
-        print("❌ No usable trending topics. Run `python ingest_trending.py --regions US` "
-              "to refresh the snapshot.")
+        print("❌ No usable trending topics. Run "
+              "`python ingest_trending.py --regions US --shorts` to collect one.")
         return 1
     summary = ti.snapshot_summary()
     when = summary["snapshot_at"] if summary else "unknown"
-    print(f"📈 {len(topics)} candidate topics from the snapshot taken {when}")
+    print(f"📈 {len(topics)} candidate topics from {grounding}, snapshot {when}")
 
     # 2. What to make of it
     print("🧠 Choosing a topic and writing a brief...")

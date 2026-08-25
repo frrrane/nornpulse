@@ -12,10 +12,26 @@ December 2021, so it is good evidence for structural questions and no
 evidence at all about what is travelling today. It also has no duration
 column, so Shorts cannot be separated from long-form. The API returns
 contentDetails.duration, which fixes both — this layer knows what is
-viral right now, and can restrict to actual Shorts.
+viral right now, and can separate Shorts from long-form.
 
-Quota: videos.list costs 1 unit per call against a 10,000/unit daily
-default, so a snapshot of several regions is negligible.
+Two sources, and the difference matters
+---------------------------------------
+`mostPopular` is YouTube's own trending chart. It is authoritative and it
+is almost entirely long-form: a snapshot taken while writing this held 49
+videos, none of them Shorts, with a median length of ten and a half
+minutes. Grounding a Shorts pipeline in it means choosing topics from
+Minecraft let's-plays and album visualisers.
+
+There is no Shorts chart in the API. The nearest honest substitute is a
+search for recent short videos ordered by view count, which is what
+fetch_trending_shorts does. That is *not* the same claim as "trending" —
+it is "the most-viewed short videos published recently in this region" —
+and it is recorded under its own `source` value so nothing downstream can
+mistake one for the other.
+
+Quota: videos.list costs 1 unit per call, search.list costs 100, against a
+10,000/day default. A few Shorts snapshots a day is comfortable; polling
+every minute is not.
 """
 
 import logging
@@ -72,10 +88,27 @@ def ensure_table() -> None:
         like_count UInt64,
         comment_count UInt64,
         tags Array(String),
-        topics Array(String)
+        topics Array(String),
+        source LowCardinality(String) DEFAULT 'mostPopular'
     ) ENGINE = MergeTree()
     ORDER BY (snapshot_at, region, video_id);
     """)
+    # Existing tables predate the column. One statement per call: the MCP
+    # bridge executes a single statement, so a batch would silently apply
+    # only the first and leave the rest undone.
+    ch.run_query(
+        f"ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS "
+        f"source LowCardinality(String) DEFAULT 'mostPopular'")
+
+
+SOURCE_CHART = "mostPopular"
+SOURCE_SHORTS_SEARCH = "search_shorts"
+
+# search.list returns nothing at all without a query term — the duration,
+# ordering and region filters do not constitute a search on their own, and
+# the API says so by returning an empty list rather than an error. This is
+# the neutral anchor: broad enough not to bias the sample toward a genre.
+DEFAULT_SHORTS_QUERY = "#shorts"
 
 
 def fetch_trending(youtube, region: str = "US", max_results: int = 50,
@@ -87,12 +120,70 @@ def fetch_trending(youtube, region: str = "US", max_results: int = 50,
         maxResults=min(max_results, 50),
         **({"videoCategoryId": category_id} if category_id else {}),
     )
+    return _rows_from_items(request.execute().get("items", []), region, SOURCE_CHART)
+
+
+def fetch_trending_shorts(youtube, region: str = "US", max_results: int = 50,
+                          query: Optional[str] = None,
+                          days: int = 7) -> List[Dict[str, Any]]:
+    """
+    The most-viewed short videos published recently in this region.
+
+    Not the trending chart, because there is no Shorts equivalent of it —
+    and saying so matters. This is a search ordered by view count over a
+    recent window, which answers "what short-form is getting watched" and
+    does not answer "what YouTube is promoting". Rows are stored under
+    SOURCE_SHORTS_SEARCH so the two can never be pooled by accident.
+
+    Two calls: search.list returns ids only, so statistics, tags and the
+    real duration need a videos.list hydration afterwards. Anything longer
+    than SHORT_MAX_SEC is dropped — the API's own "short" filter means
+    under four minutes, which is not what a Short is.
+
+    A query term is mandatory even though every other filter is set:
+    search.list with duration, ordering and region but no `q` returns an
+    empty list, not an error. DEFAULT_SHORTS_QUERY supplies a neutral one.
+    """
+    from datetime import timedelta
+
+    published_after = (datetime.utcnow() - timedelta(days=days)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+    found = youtube.search().list(
+        part="id", type="video", videoDuration="short", order="viewCount",
+        regionCode=region, publishedAfter=published_after,
+        maxResults=min(max_results, 50),
+        q=query or DEFAULT_SHORTS_QUERY,
+    ).execute()
+
+    ids = [i["id"]["videoId"] for i in found.get("items", [])
+           if i.get("id", {}).get("videoId")]
+    if not ids:
+        logger.warning(f"No short videos found for region {region!r}.")
+        return []
+
+    hydrated = youtube.videos().list(
+        part="snippet,statistics,contentDetails,topicDetails",
+        id=",".join(ids),
+    ).execute()
+    rows = _rows_from_items(hydrated.get("items", []), region, SOURCE_SHORTS_SEARCH)
+    kept = [r for r in rows if r["is_short"]]
+    if len(kept) < len(rows):
+        logger.info(
+            f"Dropped {len(rows) - len(kept)} result(s) over {SHORT_MAX_SEC}s: "
+            f"the API's 'short' filter means under four minutes, not a Short.")
+    return kept
+
+
+def _rows_from_items(items: List[Dict[str, Any]], region: str,
+                     source: str) -> List[Dict[str, Any]]:
+    """Normalise videos.list items into flat rows, tagged with their source."""
     rows = []
-    for item in request.execute().get("items", []):
+    for item in items:
         snippet = item.get("snippet", {})
         stats = item.get("statistics", {})
         duration = parse_iso_duration(item.get("contentDetails", {}).get("duration", ""))
         rows.append({
+            "source": source,
             "region": region,
             "video_id": item.get("id", ""),
             "title": snippet.get("title", ""),
@@ -134,11 +225,12 @@ def store_snapshot(rows: List[Dict[str, Any]]) -> int:
             ch.sql_literal(bool(r["is_short"])), ch.sql_literal(int(r["view_count"])),
             ch.sql_literal(int(r["like_count"])), ch.sql_literal(int(r["comment_count"])),
             _array_literal(r["tags"]), _array_literal(r["topics"]),
+            ch.sql_literal(r.get("source", SOURCE_CHART)),
         ]) + ")")
     ch.run_query(
         f"INSERT INTO {TABLE} (region, video_id, title, channel_title, channel_id, "
         f"category_id, published_at, duration_sec, is_short, view_count, like_count, "
-        f"comment_count, tags, topics) VALUES " + ", ".join(values)
+        f"comment_count, tags, topics, source) VALUES " + ", ".join(values)
     )
     return len(rows)
 
@@ -149,9 +241,16 @@ def top_tags(limit: int = 20, shorts_only: bool = False, region: Optional[str] =
     reach of the videos carrying them. This is what feeds a social_caption
     with hashtags that are actually travelling rather than invented.
     """
-    filters = ["snapshot_at = (SELECT max(snapshot_at) FROM " + TABLE + ")"]
+    # Anchored on the newest snapshot that actually contains what is being
+    # asked for. A global max(snapshot_at) picks the newest snapshot of ANY
+    # kind, so a long-form chart ingested after a Shorts run would silently
+    # empty a shorts_only query — the same class of bug that once dropped a
+    # whole channel from the calibration.
     if shorts_only:
-        filters.append("is_short")
+        filters = [f"snapshot_at = (SELECT max(snapshot_at) FROM {TABLE} WHERE is_short)",
+                   "is_short"]
+    else:
+        filters = [f"snapshot_at = (SELECT max(snapshot_at) FROM {TABLE})"]
     if region:
         filters.append(f"region = {ch.sql_literal(region)}")
     try:
