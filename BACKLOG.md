@@ -93,6 +93,38 @@ of work, judged against what the clips actually looked like.
   this reason. Most Google Fonts are OFL licensed and may be redistributed,
   so bundling a curated set is viable.
 
+- [ ] **Tags are weak, and in four distinct ways.** The clip published as
+  `ncSGySusHUg` went out with:
+
+  ```
+  "moon's harshest environment", nasa, thermal swing, lunar,
+  south, pole, experiences, extreme, temperatures, builds, landing, Shorts
+  ```
+
+  1. *Phrases split inconsistently.* `thermal swing` survived as a pair
+     while `south` and `pole` were emitted separately — the one term a
+     searcher would actually type is the one that got broken up.
+  2. *Generic verbs and adjectives ranked as tags.* `experiences`,
+     `builds`, `landing`, `extreme`. They describe nothing and match
+     nothing; `_is_usable` filters length and stopwords but not
+     part-of-speech.
+  3. *Nothing validated.* Every tag came back `model` provenance, "not
+     present in the current trending" — the Shorts snapshot is comedy and
+     entertainment, so a space clip can never find a match in it. The
+     validation step is real and simply cannot fire for this channel's
+     subject matter, which is worth saying out loud rather than leaving as
+     an unexplained absence of MEASURED tags.
+  4. *The older uploads are worse.* The three nornpulse videos published
+     before `tag_selector.py` existed all carry the identical set
+     `AI, NornPulse, Shorts, Tech`, none of which describes a white hole, a
+     dark-energy star or a mediocre star. Fixable in Studio.
+
+  The interesting half is (3): tag validation needs a corpus that covers
+  the channel's subject, which the current trending ingest cannot supply.
+  Either ingest per-topic Shorts alongside the general chart, or accept
+  that tags on a niche channel are model judgement and label them plainly
+  as such.
+
 - [ ] **Punchier titles.** "NASA's Plan For A Permanent Moon Base" is
   descriptive, not curious. The channel's own best-performing hook types are
   curiosity_gap and shock_stat; the title is written as if neither applied.
