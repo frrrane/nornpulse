@@ -734,7 +734,8 @@ class SkuldRenderer:
             )
         return ""
 
-    def _build_banner_filter(self, hook_banner_text: str, warmth: float = 0.5) -> str:
+    def _build_banner_filter(self, hook_banner_text: str, warmth: float = 0.5,
+                             banner_font: Optional[str] = None) -> str:
         """
         The hook banner burned over the first frames.
 
@@ -759,7 +760,7 @@ class SkuldRenderer:
             hook_banner_text,
             max_width_px=BANNER_WIDTH - 2 * BANNER_PADDING,
             font_px=BANNER_FONT_PX,
-            font_path=text_fit.font_file(),
+            font_path=text_fit.font_file(banner_font),
             min_font_px=BANNER_MIN_FONT_PX,
             fallback_wrap=BANNER_FALLBACK_WRAP,
         )
@@ -781,7 +782,7 @@ class SkuldRenderer:
         # Centred on the box rather than the frame: the box is inset, so
         # centring on frame width leaves the text visibly off inside it.
         box_centre = BANNER_X + BANNER_WIDTH / 2
-        font = text_fit.font_file()
+        font = text_fit.font_file(banner_font)
         # A concrete bold file, not drawtext's default. Left unset, ffmpeg
         # falls back to a regular weight that disappears over video -- the
         # banner had never specified one.

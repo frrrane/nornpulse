@@ -80,6 +80,19 @@ of work, judged against what the clips actually looked like.
   "not funny at all", because the same taste wrote the joke. Craft defects,
   not taste — which is still most of what has been rejected.
 
+- [ ] **A wider choice of typeface, from Google Fonts.** The banner and the
+  captions are limited to whatever happens to be installed, which is a
+  handful of system faces plus whatever the Dockerfile adds. Roboto Black
+  is the heaviest option currently guaranteed in both environments.
+
+  The constraint that shapes this: drawtext cannot resolve family names and
+  needs a concrete file path, and libass substitutes silently when a name
+  does not resolve — so a face has to exist as a file in *both* the
+  workstation and the container, or a render looks one way locally and
+  another way deployed. Arial Black was rejected as the default for exactly
+  this reason. Most Google Fonts are OFL licensed and may be redistributed,
+  so bundling a curated set is viable.
+
 - [ ] **Punchier titles.** "NASA's Plan For A Permanent Moon Base" is
   descriptive, not curious. The channel's own best-performing hook types are
   curiosity_gap and shock_stat; the title is written as if neither applied.
@@ -120,8 +133,17 @@ of work, judged against what the clips actually looked like.
   about $12/month and removes it. Fine to leave until the demo is recorded,
   but do not let a judge meet a 62-second blank page.
 
-- [ ] **Emoji in captions.** libass cannot render CBDT colour emoji; would need
-  an ffmpeg PNG overlay pass.
+- [ ] **Emoji in the banner and captions.** Neither libass nor ffmpeg's
+  drawtext can render colour emoji — libass cannot read CBDT tables, and
+  drawtext draws a hollow box. `shortsmith.hook_text` strips them for that
+  reason, and a reviewer has since asked for them in the hook banner too.
+
+  Doing it properly is a compositing job rather than a parameter: detect
+  the emoji in a title, resolve each to a glyph image, measure where the
+  drawn text leaves a gap for it, and overlay the images at the right
+  position and scale — then keep that alignment correct when the banner
+  wraps or the type shrinks to fit. Worth doing, but it is a real piece of
+  work and should not be attempted as a quick win.
 
 - [ ] **Scheduled `sync_stats.py`.** Currently manual. Forecasts cannot be
   graded without it running regularly.

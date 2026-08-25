@@ -88,6 +88,11 @@ class ChannelProfile:
     # broken" and the center_crop one "better" -- on a Short, filling the
     # frame is not a stylistic preference.
     avoid_crop: List[str] = field(default_factory=list)
+    # Typeface for the burned-in hook banner, by name from
+    # text_fit.DISPLAY_FACES. Distinct from caption_font, which names a
+    # family for libass; this one resolves to a file, because drawtext
+    # cannot resolve family names at all.
+    banner_font: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.category_id not in VALID_CATEGORIES:
@@ -159,6 +164,7 @@ class Channel:
                 "topic_hints": list(self.profile.topic_hints),
                 "avoid_motion": list(self.profile.avoid_motion),
                 "avoid_crop": list(self.profile.avoid_crop),
+                "banner_font": self.profile.banner_font,
             },
         }
 
@@ -209,6 +215,7 @@ def _parse(raw: Dict[str, Any], slug: str) -> Channel:
         topic_hints=list(profile_raw.get("topic_hints", base_profile.topic_hints)),
         avoid_motion=list(profile_raw.get("avoid_motion", base_profile.avoid_motion)),
         avoid_crop=list(profile_raw.get("avoid_crop", base_profile.avoid_crop)),
+        banner_font=profile_raw.get("banner_font", base_profile.banner_font),
     )
     return Channel(
         slug=slug,

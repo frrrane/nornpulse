@@ -423,9 +423,10 @@ import re as _re
 from agent import text_fit as _tf
 
 
-def _banner(text, warmth=0.5):
+def _banner(text, warmth=0.5, banner_font=None):
     from agent.skuld_renderer import SkuldRenderer
-    return SkuldRenderer.__new__(SkuldRenderer)._build_banner_filter(text, warmth)
+    return SkuldRenderer.__new__(SkuldRenderer)._build_banner_filter(
+        text, warmth, banner_font)
 
 
 def _parts(f):
@@ -516,3 +517,43 @@ def test_empty_text_produces_no_banner():
 def test_the_banner_still_draws_a_box_and_text():
     f = _banner("A perfectly ordinary title")
     assert "drawbox=" in f and "drawtext=" in f
+
+
+# --- choosing a face --------------------------------------------------------
+#
+# drawtext cannot resolve family names and needs a path; libass can resolve
+# them and substitutes silently when it fails, which is worse. So a face has
+# to exist as a file in both the workstation and the container, or a render
+# looks one way locally and another way deployed. Arial Black was rejected
+# as the default for exactly that reason.
+
+def test_a_named_face_reaches_the_filter():
+    from agent import text_fit
+    if "Bebas Neue" not in text_fit.available_faces():
+        pytest.skip("bundled fonts not fetched")
+    assert "BebasNeue" in _banner("A title", 0.5, "Bebas Neue")
+
+
+def test_an_unknown_face_falls_back_rather_than_failing():
+    """A typo in a channel profile should cost the choice, not the render."""
+    f = _banner("A title", 0.5, "Definitely Not A Font")
+    assert "drawtext=" in f and "fontfile=" in f
+
+
+def test_the_bundled_faces_are_preferred_over_system_ones():
+    from agent import text_fit
+    if not text_fit.available_faces():
+        pytest.skip("bundled fonts not fetched")
+    assert "assets/fonts" in (text_fit.font_file() or "")
+
+
+def test_every_advertised_face_is_actually_present():
+    """
+    A face offered but not on disk renders as something else, silently.
+    scripts/fetch_fonts.py is what keeps these in step.
+    """
+    from agent import text_fit
+    missing = set(text_fit.DISPLAY_FACES) - set(text_fit.available_faces())
+    if missing == set(text_fit.DISPLAY_FACES):
+        pytest.skip("bundled fonts not fetched")
+    assert not missing, f"advertised but absent: {sorted(missing)}"

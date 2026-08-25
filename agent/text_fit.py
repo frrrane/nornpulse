@@ -22,20 +22,40 @@ broken, because an awkward break is legible and a cropped one is not.
 
 from __future__ import annotations
 
+import logging
 import textwrap
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
-# Candidate fonts, in preference order. drawtext will not resolve family
-# names, so these have to be concrete files.
-#
-# Black weights first, then bold, then regular. A hook banner competes with
-# moving video behind it, and a regular weight loses — the banner shipped
-# without specifying any file at all for a while, fell back to drawtext's
-# default regular face, and a reviewer asked for "a more engaging font".
-# Several paths per face because the same font sits in different places on
-# a workstation and in the container.
-FONT_CANDIDATES = (
+logger = logging.getLogger(__name__)
+
+# Faces bundled with the project, fetched by scripts/fetch_fonts.py. These
+# come first because they are the only ones guaranteed to exist in both the
+# workstation and the container: a system font that is present in one and
+# absent in the other renders one way locally and another way deployed, and
+# libass substitutes silently rather than complaining.
+BUNDLED_FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+
+# Selectable by name, heaviest first. All OFL, all display faces — a text
+# face at 64px is still a text face, and a hook banner competes with moving
+# video behind it.
+DISPLAY_FACES = {
+    "Anton": "Anton-Regular.ttf",
+    "Archivo Black": "ArchivoBlack-Regular.ttf",
+    "Bebas Neue": "BebasNeue-Regular.ttf",
+    "Oswald Bold": "Oswald-Bold.ttf",
+}
+
+# Fallbacks, in preference order. drawtext will not resolve family names, so
+# these have to be concrete files. Bundled faces first, then black system
+# weights, then bold, then regular: the banner shipped without specifying
+# any file at all for a while, fell back to drawtext's default regular face,
+# and a reviewer asked for "a more engaging font". Several paths per system
+# face because the same font sits in different places on a workstation and
+# in the container.
+FONT_CANDIDATES = tuple(
+    str(BUNDLED_FONT_DIR / name) for name in DISPLAY_FACES.values()
+) + (
     "/usr/share/fonts/chromeos/roboto/Roboto-Black.ttf",
     "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Black.ttf",
     "/usr/share/fonts/truetype/roboto/Roboto-Black.ttf",
@@ -45,12 +65,41 @@ FONT_CANDIDATES = (
 )
 
 
-def font_file() -> Optional[str]:
-    """A concrete font file that exists on this machine, or None."""
+def font_file(preferred: Optional[str] = None) -> Optional[str]:
+    """
+    A concrete font file that exists on this machine, or None.
+
+    `preferred` names a face from DISPLAY_FACES. An unknown or missing name
+    falls through to the candidate order rather than raising: a typo in a
+    channel profile should cost the choice, not the render — but it is
+    logged, because silently rendering in a different face is exactly the
+    failure this whole arrangement exists to avoid.
+    """
+    if preferred:
+        filename = DISPLAY_FACES.get(preferred)
+        if filename:
+            path = BUNDLED_FONT_DIR / filename
+            if path.exists():
+                return str(path)
+            logger.warning(
+                f"Font {preferred!r} is not on disk. Run "
+                f"scripts/fetch_fonts.py to download it; falling back.")
+        else:
+            logger.warning(
+                f"Unknown font {preferred!r}. Known: "
+                f"{', '.join(sorted(DISPLAY_FACES))}. Falling back.")
+
     for candidate in FONT_CANDIDATES:
         if Path(candidate).exists():
             return candidate
     return None
+
+
+def available_faces() -> Dict[str, str]:
+    """The display faces actually present, by name."""
+    return {name: str(BUNDLED_FONT_DIR / filename)
+            for name, filename in DISPLAY_FACES.items()
+            if (BUNDLED_FONT_DIR / filename).exists()}
 
 
 def measurer(font_path: Optional[str], font_px: int) -> Optional[Callable[[str], float]]:
