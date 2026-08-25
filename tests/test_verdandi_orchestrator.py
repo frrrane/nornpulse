@@ -374,3 +374,47 @@ def test_reconcile_does_not_match_an_unrelated_longer_id():
     out, = _reconcile(rendered, [{"clip_id": "clip_1", "hook_title": "Wrong One",
                                   "social_caption": "c", "virality_score": 10.0}])
     assert out["hook_title"] != "Wrong One"
+
+
+# --------------------------------------------------------------------------
+# Source provenance
+#
+# A published clip whose metadata cannot answer "cut from what?" leaves the
+# one question that matters about a derived video -- whose material is this?
+# -- permanently unanswerable. The first clip this project published has no
+# source field, and there is now no way to establish its provenance short of
+# watching it and recognising the footage.
+# --------------------------------------------------------------------------
+
+_PARSED_ONE = [{"clip_id": "clip_001", "hook_title": "T",
+                "social_caption": "C", "virality_score": 91.0}]
+
+
+def _reconcile_with_source(source_ref):
+    adk = VerdandiADK.__new__(VerdandiADK)
+    return VerdandiADK._reconcile_metadata(
+        adk, _PARSED_ONE, _RENDERED, clip_id_prefix="batch0_",
+        source_ref=source_ref)
+
+
+def test_every_clip_records_what_it_was_cut_from():
+    url = "https://www.youtube.com/watch?v=Sempwv5MPMQ"
+    clips = _reconcile_with_source(url)
+    assert clips
+    assert all(c["source_url"] == url for c in clips)
+
+
+def test_a_local_file_is_a_valid_source():
+    """NornPulse works on the video, not on where it came from."""
+    clips = _reconcile_with_source("keynote_recording.mp4")
+    assert all(c["source_url"] == "keynote_recording.mp4" for c in clips)
+
+
+def test_no_source_leaves_the_field_absent_rather_than_blank():
+    """
+    An empty string would read as "we checked and there is no source",
+    which is a different claim from "this predates the field".
+    """
+    clips = _reconcile_with_source(None)
+    assert clips
+    assert all("source_url" not in c for c in clips)

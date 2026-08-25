@@ -755,9 +755,14 @@ class VerdandiADK:
         caption_language: Optional[str] = None,
         channel_subscribers: int = 0,
         caption_font: Optional[str] = None,
+        source_ref: Optional[str] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
+        source_ref records what this clip was cut from -- a URL or a file
+        name -- and is stamped onto every returned clip so a published
+        video can always answer whose material it derives from.
+
         progress_callback, if given, is called as (stage_key, message) at
         each stage transition (urdr, upload, verdandi, bragi, heimdall,
         mimir, skuld, urdr_log) — e.g. to drive a live pipeline-stage UI.
@@ -900,7 +905,9 @@ class VerdandiADK:
             raise e
 
         _emit("done", "✨ Generation complete.")
-        return self._reconcile_metadata(parsed_metadata, rendered_clips, clip_id_prefix=clip_id_prefix)
+        return self._reconcile_metadata(
+            parsed_metadata, rendered_clips,
+            clip_id_prefix=clip_id_prefix, source_ref=source_ref)
 
     def orchestrate_batch(
         self,
@@ -1000,10 +1007,9 @@ class VerdandiADK:
                     content_hint=content_hint,
                     caption_language=caption_language,
                     channel_subscribers=channel_subscribers,
+                    source_ref=url,
                     progress_callback=_relay,
                 )
-                for clip in clips:
-                    clip["source_url"] = url
                 all_clips.extend(clips)
             except Exception as e:
                 logger.error(f"Batch item {i + 1}/{len(urls)} ({url}) failed, skipping: {e}")
@@ -1035,7 +1041,7 @@ class VerdandiADK:
 
     def _reconcile_metadata(
         self, parsed_metadata: List[Dict[str, Any]], rendered_clips: List[Dict[str, Any]],
-        clip_id_prefix: str = "",
+        clip_id_prefix: str = "", source_ref: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Merges the model's descriptive metadata (hook_title, social_caption,
@@ -1093,6 +1099,14 @@ class VerdandiADK:
                 "hook_type": clip.get("hook_type", meta.get("hook_type", "unknown")),
                 "is_top_tier_hook": clip.get("is_top_tier_hook", False),
             })
+            # Where the footage came from. A published clip whose metadata
+            # cannot answer "cut from what?" leaves the one question that
+            # matters about a derived video — whose material is this? —
+            # permanently unanswerable. The first clip this project
+            # published has no source field, and there is now no way to
+            # establish its provenance short of watching it.
+            if source_ref:
+                merged["source_url"] = source_ref
             final.append(merged)
 
         return final

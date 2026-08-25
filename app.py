@@ -1197,6 +1197,12 @@ def page_create():
                     content_hint=content_hint,
                     caption_language=caption_language,
                     channel_subscribers=int(st.session_state.channel_subs),
+                    # What this clip was cut from. A link where there is
+                    # one, the file name where there isn't — NornPulse
+                    # works on the video, not on where it came from, so
+                    # both cases have to record something.
+                    source_ref=yt_url or (
+                        Path(active_video_path).name if active_video_path else None),
                     progress_callback=_update_progress,
                 )
 
