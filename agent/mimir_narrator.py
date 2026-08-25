@@ -43,7 +43,12 @@ class MimirNarrator:
 
     def __init__(self):
         api_key = os.getenv("GEMINI_API_KEY")
-        self.client = genai.Client(api_key=api_key)
+        # Through the factory so this bills wherever the rest of the
+        # pipeline does. Left on AI Studio it would 429 on every clip while
+        # the surrounding run succeeded, degrading silently to a video with
+        # no narration.
+        from agent import genai_client as gc
+        self.client, self.model = gc.client_for(TTS_MODEL, api_key=api_key)
 
     def _pick_voice(self, energy_level: float) -> str:
         """
@@ -66,7 +71,7 @@ class MimirNarrator:
         failures still fall through to graceful degradation.
         """
         return self.client.models.generate_content(
-            model=TTS_MODEL,
+            model=self.model,
             contents=script_text,
             config=types.GenerateContentConfig(
                 response_modalities=["AUDIO"],

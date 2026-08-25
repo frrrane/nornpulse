@@ -41,7 +41,12 @@ class HeimdallVisualizer:
 
     def __init__(self):
         api_key = os.getenv("GEMINI_API_KEY")
-        self.client = genai.Client(api_key=api_key)
+        # Through the factory so this bills wherever the rest of the
+        # pipeline does. Left on AI Studio it would 429 on every clip while
+        # the surrounding run succeeded, degrading silently to a video with
+        # no cover.
+        from agent import genai_client as gc
+        self.client, self.model = gc.client_for(IMAGE_MODEL, api_key=api_key)
 
     def _build_prompt(self, hook_title: str, genre: str, mood: str, energy_level: float) -> str:
         energy_word = (
@@ -67,7 +72,7 @@ class HeimdallVisualizer:
         except-branch still handles permanent failure gracefully.
         """
         return self.client.models.generate_content(
-            model=IMAGE_MODEL,
+            model=self.model,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_modalities=["IMAGE"],

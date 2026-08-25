@@ -209,9 +209,17 @@ class VerdandiADK:
     architecture diagram describes, actually wired into the request.
     """
 
+    # Every call this class makes is to the same model, so one client built
+    # for it is enough — but it must be built through the factory, or the
+    # reasoning call goes to AI Studio while the video sits in the Cloud
+    # Storage bucket that only Vertex can read.
+    MODEL = "gemini-3.6-flash"
+
     def __init__(self, project_id: str = None):
+        from agent import genai_client as gc
+
         api_key = os.getenv("GEMINI_API_KEY")
-        self.client = genai.Client(api_key=api_key)
+        self.client, self.model = gc.client_for(self.MODEL, api_key=api_key)
         self.project_id = project_id
         self.skuld = SkuldRenderer(output_dir="output_clips")
         self.urdr = UrdrAnalytics()
@@ -250,7 +258,7 @@ class VerdandiADK:
             f"{transcript_text}"
         )
         try:
-            response = self.client.models.generate_content(model="gemini-3.6-flash", contents=prompt)
+            response = self.client.models.generate_content(model=self.model, contents=prompt)
             translated = (response.text or "").strip()
             if not translated:
                 logger.warning("Transcript translation returned empty text; falling back to original.")
@@ -950,7 +958,7 @@ class VerdandiADK:
 
         try:
             chat = self.client.chats.create(
-                model="gemini-3.6-flash",
+                model=self.model,
                 config=types.GenerateContentConfig(
                     tools=tools,
                     system_instruction=(

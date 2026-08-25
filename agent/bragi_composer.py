@@ -44,7 +44,12 @@ class BragiComposer:
 
     def __init__(self, cache_dir: str | Path = "output_clips/.bragi_cache"):
         api_key = os.getenv("GEMINI_API_KEY")
-        self.client = genai.Client(api_key=api_key)
+        # Through the factory so this bills wherever the rest of the
+        # pipeline does. Left on AI Studio it would 429 on every clip while
+        # the surrounding run succeeded, degrading silently to a video with
+        # no score.
+        from agent import genai_client as gc
+        self.client, self.model = gc.client_for(LYRIA_MODEL, api_key=api_key)
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -73,7 +78,7 @@ class BragiComposer:
         the clip its score. Permanent failures still fall through to the
         caller's except-branch, which renders the clip without music.
         """
-        return self.client.interactions.create(model=LYRIA_MODEL, input=prompt)
+        return self.client.interactions.create(model=self.model, input=prompt)
 
     def compose_track(
         self, hook_type: str, music_benchmark: Dict[str, Any], force_regenerate: bool = False,
