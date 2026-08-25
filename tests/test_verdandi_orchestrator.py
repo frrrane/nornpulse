@@ -748,3 +748,71 @@ def test_the_weak_cut_and_the_strong_cut_are_told_apart():
     from agent.verdandi_orchestrator import clip_opening_line, weak_opening
     assert weak_opening(clip_opening_line(HOOK_TRANSCRIPT, 10)) is not None
     assert weak_opening(clip_opening_line(HOOK_TRANSCRIPT, 14)) is None
+
+
+# --------------------------------------------------------------------------
+# The cue format that silently disabled two features
+#
+# The transcriber is instructed to emit "[MM:SS.mmm]" because whole seconds
+# round every caption to the nearest second, visibly out of sync with the
+# speech. _CUE_RE required "[MM:SS]" exactly, so it matched nothing at all
+# on a real transcript -- 169 cues read as 0.
+#
+# Nothing failed. Every caller treats "no cues" as "nothing to do", so
+# snap_to_sentences -- which exists because reviewers rejected clips for
+# starting mid-thought and stopping mid-sentence -- became a no-op and clips
+# went back to being cut on the clock.
+# --------------------------------------------------------------------------
+
+REAL_FORMAT = "\n".join([
+    "[00:00.000] This is drawing on the playbook of success from the 1960s.",
+    "[00:03.900] This is how you do the near-impossible.",
+    "[00:06.100] We're learning and building up to something extremely hard.",
+])
+
+
+def test_the_millisecond_format_is_parsed():
+    """The format the transcriber is actually told to produce."""
+    from agent.verdandi_orchestrator import parse_cues
+    cues = parse_cues(REAL_FORMAT)
+    assert len(cues) == 3
+    assert cues[1][0] == pytest.approx(3.9)
+    assert cues[1][1].startswith("This is how you do")
+
+
+def test_sub_second_precision_is_kept_not_floored():
+    """
+    Flooring here would put back exactly the rounding the millisecond
+    format exists to remove.
+    """
+    from agent.verdandi_orchestrator import parse_cues
+    assert parse_cues("[00:03.900] x")[0][0] == pytest.approx(3.9)
+    assert parse_cues("[00:03.050] x")[0][0] == pytest.approx(3.05)
+
+
+@pytest.mark.parametrize("line,expected", [
+    ("[00:03] plain seconds", 3.0),
+    ("[00:03.900] milliseconds", 3.9),
+    ("[00:03,900] comma decimal", 3.9),
+    ("[01:02:03.500] with hours", 3723.5),
+    ("[1:02.250] single-digit minute", 62.25),
+])
+def test_every_timestamp_shape_in_use_is_accepted(line, expected):
+    from agent.verdandi_orchestrator import parse_cues
+    assert parse_cues(line)[0][0] == pytest.approx(expected)
+
+
+def test_snapping_actually_moves_a_cut_on_a_real_transcript():
+    """
+    The regression itself: with the pattern broken this returned its input
+    unchanged, and looked exactly like a cut that needed no adjustment.
+    """
+    from agent.verdandi_orchestrator import snap_to_sentences
+    start, end = snap_to_sentences(1.0, 5.0, REAL_FORMAT)
+    assert (start, end) != (1.0, 5.0), "snapping silently did nothing"
+
+
+def test_an_unparseable_line_is_skipped_not_fatal():
+    from agent.verdandi_orchestrator import parse_cues
+    mixed = "not a cue at all\n" + REAL_FORMAT + "\n[broken] also not"
+    assert len(parse_cues(mixed)) == 3

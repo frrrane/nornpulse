@@ -112,19 +112,44 @@ def _clean_transcript_window_text(transcript_slice: str) -> str:
     return " ".join(lines)
 
 
-# A cue line: "[01:23] some words". Sentence ends are detected on the cue
-# text, since a sentence routinely spans several cues.
-_CUE_RE = re.compile(r"^\s*\[(\d{1,2}):(\d{2})\]\s*(.*)$")
+# A cue line. Sentence ends are detected on the cue text, since a sentence
+# routinely spans several cues.
+#
+# The fractional part is not optional decoration. The transcriber is
+# instructed to emit "[MM:SS.mmm]" -- whole seconds round every caption to
+# the nearest second, visibly out of sync with the speech -- and this
+# pattern used to require "[MM:SS]" exactly. It therefore matched nothing at
+# all, and had matched nothing since the millisecond format landed.
+#
+# parse_cues returning an empty list is not visible as a failure: every
+# caller treats "no cues" as "nothing to do". snap_to_sentences, which
+# exists because reviewers rejected clips for starting mid-thought and
+# stopping mid-sentence, silently became a no-op and clips went back to
+# being cut on the clock. The hour component is accepted too, for a source
+# long enough to need one.
+_CUE_RE = re.compile(
+    r"^\s*\[(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:[.,](\d{1,3}))?\]\s*(.*)$")
 _SENTENCE_END = re.compile(r"[.!?][\"\')\]]*\s*$")
 
 
 def parse_cues(transcript_text: str) -> List[Tuple[float, str]]:
-    """Timestamped cues as (seconds, text), in order."""
+    """
+    Timestamped cues as (seconds, text), in order.
+
+    Sub-second precision is kept rather than floored: the whole reason the
+    transcriber emits milliseconds is that rounding to the nearest second
+    is visibly out of sync with the speech, and throwing them away here
+    would put the rounding back one layer down.
+    """
     cues = []
     for line in (transcript_text or "").splitlines():
         m = _CUE_RE.match(line)
-        if m:
-            cues.append((int(m.group(1)) * 60 + int(m.group(2)), m.group(3).strip()))
+        if not m:
+            continue
+        hours, minutes, seconds, millis, text = m.groups()
+        at = (int(hours or 0) * 3600 + int(minutes) * 60 + int(seconds)
+              + int((millis or "0").ljust(3, "0")) / 1000.0)
+        cues.append((at, text.strip()))
     return cues
 
 
