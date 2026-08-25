@@ -155,8 +155,12 @@ def test_unverified_routes_are_marked_as_such():
     catalogue lists models in regions that 404 on use, so an unverified
     route is a guess and has to look like one.
     """
+    # Confirmed by real calls that returned output.
     assert gc.VERTEX_ROUTES["gemini-3.6-flash"].verified
-    assert not gc.VERTEX_ROUTES["veo-3.1-fast-generate-preview"].verified
+    assert gc.VERTEX_ROUTES["veo-3.1-fast-generate-preview"].verified
+    # Never called for real; the catalogue alone is not evidence.
+    assert not gc.VERTEX_ROUTES["lyria-3-clip-preview"].verified
+    assert not gc.VERTEX_ROUTES["gemini-3-pro-image"].verified
 
 
 def test_describe_names_the_billing_target(monkeypatch):
