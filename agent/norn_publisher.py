@@ -30,6 +30,14 @@ logger = logging.getLogger("nornpulse.publisher")
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube.readonly",  # needed for get_video_statistics
+    # The owner-only view: impressions, average view duration, and the
+    # audience retention curve. The Data API exposes none of these for
+    # anyone's video, including your own, so without this scope the project
+    # can only ever see how a clip did and never why.
+    #
+    # Adding it invalidates existing tokens: scopes are fixed at grant time,
+    # so every channel has to go through the OAuth flow again once.
+    "https://www.googleapis.com/auth/yt-analytics.readonly",
 ]
 TOKEN_PATH = Path(".credentials/youtube_token.json")
 
