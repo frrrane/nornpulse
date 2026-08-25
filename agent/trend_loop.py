@@ -98,6 +98,49 @@ _POLISH_WORDS = frozenset("""
 """.split())
 
 
+# Words that, as the last thing a prompt says happens, mean the clip ends on
+# a held pose. Veo fills unwritten time by holding the frame, so a brief that
+# stops describing action at five seconds produces three seconds of a subject
+# sitting still -- which on an eight-second video is most of it. Checked
+# rather than merely asked for, because asking did not work.
+_HELD_POSE = re.compile(
+    r"\b(sits?|sitting|stares?|staring|holds?|holding|remains?|remaining"
+    r"|poses?|posing|stands?|standing|waits?|waiting|looks? (?:at|into)"
+    r"|gazes?|gazing|freezes?|frozen|motionless|still)\b", re.I)
+
+# Outcome promises a still image cannot keep. A title claiming something
+# "backfires" over footage where nothing backfires reads as a broken upload.
+_UNSUPPORTED_OUTCOME = re.compile(
+    r"\b(backfires?|goes wrong|gone wrong|ends? in|fails?|failure"
+    r"|you won'?t believe|wait for it|watch what happens|disaster)\b", re.I)
+
+
+def brief_warnings(brief) -> List[str]:
+    """
+    Problems worth seeing before paying to generate this.
+
+    Both of these were rejected by a human reviewer after the video existed,
+    which is the expensive way to find them. They are visible in the text.
+    """
+    warnings: List[str] = []
+
+    prompt = (brief.video_prompt or "").strip()
+    # The last sentence is what the generator is left doing.
+    tail = [p for p in re.split(r"(?<=[.!?])\s+", prompt) if p.strip()]
+    if tail and _HELD_POSE.search(tail[-1]):
+        warnings.append(
+            "the prompt ends on a held pose, so the last seconds will very "
+            "likely be a static frame")
+
+    hit = _UNSUPPORTED_OUTCOME.search(brief.title or "")
+    if hit:
+        warnings.append(
+            f"the title promises an outcome ({hit.group(0)!r}) that eight "
+            f"seconds of footage probably will not show")
+
+    return warnings
+
+
 def is_comedy(channel) -> bool:
     """Whether this channel's humour depends on things looking wrong."""
     from agent.channels import CATEGORY_COMEDY
@@ -277,12 +320,40 @@ should be smaller than promised, not bigger.
 applied to something beneath contempt.
 
 Craft rules that still hold:
-- The humour needs a TURN: one thing for three seconds, then revealed as \
-another.
 - Be SPECIFIC. Detail implies a whole situation; vagueness implies nothing.
 - The funniest thing on screen is a BEHAVIOUR, not a costume.
-- Say what HAPPENS across the eight seconds. A prompt describing a static \
-tableau produces a static tableau.
+
+USE ALL EIGHT SECONDS — THREE BEATS, NOT TWO
+The last clip failed here. It set something up, revealed the joke at four \
+seconds, and then the subject sat still and stared for the remaining three \
+and a half. The generator did exactly as told: nothing was written for the \
+back half, so nothing happened in it. Dead air at the end of an eight-second \
+video is most of the video.
+
+Write the prompt as three timed beats that together fill the full eight \
+seconds:
+  0-3s  SETUP — establish the situation, already in motion.
+  3-5s  TURN — the reveal. What it actually is.
+  5-8s  ESCALATION — and this is the one you will forget. Something must \
+CONTINUE to happen. The situation gets worse, or more committed, or a \
+second smaller thing goes wrong. Someone reacts.
+
+The final beat may NOT be a held pose. If your third beat contains "sits", \
+"stares", "holds", "remains", "poses", "looks at the camera" as the last \
+thing that happens, it is not a beat and you must write a different one. \
+End on an action, mid-motion.
+
+THE TITLE MUST DESCRIBE THIS VIDEO
+The last title was "Florida Lawn Care Accordion Spell Backfires" over \
+footage of an alligator sitting in a lawn chair. No lawn care, no spell, \
+nothing backfiring. A viewer reads the title and sees something unrelated, \
+which reads as a broken upload rather than a joke.
+
+Name what is LITERALLY VISIBLE, and lead with the thing from your third \
+beat. Do not use "backfires", "goes wrong", "gone wrong", "fails", "ends \
+in", "you won't believe" or any construction that promises an outcome the \
+footage does not show. If someone watched muted with the title covered, \
+they should be able to guess the title.
 
 The IP constraint is real and not negotiable: no copyrighted characters, no \
 real identifiable people, no brands. Note that this channel's own back \
@@ -308,10 +379,14 @@ Return ONLY JSON:
       "topic": "<the exact tag, copied from the list above>",
       "angle": "<the comedic or editorial take, one sentence>",
       "video_prompt": "<a vivid, self-contained prompt for a text-to-video \
-model: subject, action, setting, camera, lighting, mood. No named characters \
-or brands.>",
+model, written as the three timed beats above so the full eight seconds are \
+filled: setting and look, then 0-3s, 3-5s and 5-8s each saying what HAPPENS. \
+The 5-8s beat must be an action, not a held pose. No named characters or \
+brands.>",
       "negative_prompt": "<what the generator should avoid, comma separated>",
-      "title": "<YouTube title, under 80 characters>",
+      "title": "<YouTube title under 80 characters, naming what is literally \
+visible and leading with the thing from the 5-8s beat. No outcome words the \
+footage does not show.>",
       "caption": "<one-line description>",
       "hook_type": "<one of: shock_stat, curiosity_gap, contrarian_claim, \
 problem_agitation, direct_question, visual_disruption, metaphor_analogy, \

@@ -126,17 +126,22 @@ def generate_with_veo(
     minute or more of waiting is normal. The timeout exists so an unattended
     loop cannot block forever on a job that will never finish.
     """
-    from google import genai
     from google.genai import types
 
+    from agent import genai_client as gc
+
+    # On Vertex the credentials come from the environment, not a key.
     key = api_key or os.getenv("GEMINI_API_KEY")
-    if not key:
+    if not gc.use_vertex() and not key:
         raise FootageError("GEMINI_API_KEY is not set; cannot generate footage.")
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    client = genai.Client(api_key=key)
+    # Veo's name differs between the two surfaces, and unlike the text
+    # models it is not served from `global`, so the factory returns the
+    # name to use alongside a client already bound to the right region.
+    client, model = gc.client_for(model, api_key=key)
     logger.info(f"Veo ({model}) generating {duration_sec}s {aspect_ratio}: {prompt[:80]}")
 
     config = types.GenerateVideosConfig(
@@ -205,11 +210,21 @@ def generate_with_veo(
             "the prompt was refused. Try rewording it.")
 
     video = videos[0].video
+    # How the finished bytes arrive differs by surface, and getting it
+    # wrong costs a whole generation: the video is made and billed, and
+    # then thrown away at the last step. Vertex returns the bytes on the
+    # object itself; AI Studio returns a handle that has to be downloaded
+    # through the Files API, which Vertex does not have at all.
     try:
-        client.files.download(file=video)
-        video.save(str(out_path))
+        data = getattr(video, "video_bytes", None)
+        if data:
+            out_path.write_bytes(data)
+        else:
+            client.files.download(file=video)
+            video.save(str(out_path))
     except Exception as e:
-        raise FootageError(f"Could not download the generated video: {e}") from e
+        raise FootageError(
+            f"The video was generated but could not be saved: {e}") from e
 
     if not out_path.exists() or out_path.stat().st_size == 0:
         raise FootageError(f"Veo reported success but {out_path} is empty.")

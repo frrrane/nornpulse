@@ -136,3 +136,92 @@ def test_the_real_backend_message_reads_as_transient():
 ])
 def test_genuine_refusals_are_not_treated_as_transient(message):
     assert not fg._looks_transient(message)
+
+
+# --- saving the result -----------------------------------------------------
+#
+# The surfaces return finished video differently, and getting this wrong is
+# the most expensive possible bug in this module: the clip is generated and
+# billed, then discarded at the final step. It happened -- a Vertex run
+# produced a video and then failed with "This method is only supported in
+# the Gemini Developer client", because the save path went through the
+# Files API, which Vertex does not have.
+
+class _Video:
+    def __init__(self, video_bytes=None):
+        self.video_bytes = video_bytes
+        self.saved_to = None
+
+    def save(self, path):
+        self.saved_to = path
+        import pathlib
+        pathlib.Path(path).write_bytes(b"downloaded-bytes")
+
+
+def _fake_operation(video):
+    class _Resp:
+        generated_videos = [type("G", (), {"video": video})()]
+
+    return type("Op", (), {"done": True, "response": _Resp(), "error": None})()
+
+
+def _client_for(video, files_download_raises=None):
+    calls = {"download": 0}
+
+    class _Files:
+        def download(self, file):
+            calls["download"] += 1
+            if files_download_raises:
+                raise files_download_raises
+
+    class _Models:
+        def generate_videos(self, **kw):
+            return _fake_operation(video)
+
+    class _Client:
+        def __init__(self):
+            self.files = _Files()
+            self.models = _Models()
+            self.operations = type("O", (), {"get": staticmethod(lambda op: op)})()
+
+    return _Client(), calls
+
+
+def _run(monkeypatch, tmp_path, video, **kw):
+    client, calls = _client_for(video, **kw)
+    monkeypatch.setattr(
+        "agent.genai_client.client_for",
+        lambda model, api_key=None: (client, "veo-3.1-fast-generate-001"))
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
+    out = tmp_path / "clip.mp4"
+    result = fg.generate_with_veo("a prompt", out, duration_sec=8)
+    return result, out, calls
+
+
+def test_inline_bytes_are_written_without_touching_the_files_api(monkeypatch, tmp_path):
+    """The Vertex path. Files API here would raise, as it did in production."""
+    video = _Video(video_bytes=b"vertex-inline-bytes")
+    result, out, calls = _run(monkeypatch, tmp_path, video)
+    assert out.read_bytes() == b"vertex-inline-bytes"
+    assert calls["download"] == 0
+    assert result.path == out
+
+
+def test_a_handle_still_goes_through_the_files_api(monkeypatch, tmp_path):
+    """The AI Studio path must keep working."""
+    video = _Video(video_bytes=None)
+    _, out, calls = _run(monkeypatch, tmp_path, video)
+    assert calls["download"] == 1
+    assert out.read_bytes() == b"downloaded-bytes"
+
+
+def test_a_failed_save_says_the_video_was_generated(monkeypatch, tmp_path):
+    """
+    The distinction is worth money: a generation that was made and lost is
+    a different problem from one that never happened, and the message has
+    to say which, or the reader retries the wrong thing.
+    """
+    video = _Video(video_bytes=None)
+    with pytest.raises(fg.FootageError, match="generated but could not be saved"):
+        _run(monkeypatch, tmp_path, video,
+             files_download_raises=ValueError("only supported in the Gemini Developer client"))

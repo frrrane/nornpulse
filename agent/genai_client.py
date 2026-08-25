@@ -77,11 +77,15 @@ VERTEX_ROUTES: Dict[str, Route] = {
     "gemini-3.5-flash": Route("gemini-3.5-flash", GLOBAL, verified=True),
     "gemini-2.5-flash": Route("gemini-2.5-flash", GLOBAL, verified=True),
 
-    # Catalogue only. Both are absent from global and present in
-    # us-central1 per models.get, and Veo was reached at us-central1, but
-    # neither has been confirmed by a successful generation.
+    # Verified on 2026-08-25: a real generation completed at us-central1.
+    # The clip was then lost saving it — the save path went through the
+    # Files API, which Vertex does not have — but the model name and region
+    # are confirmed, which is what this table records.
     "veo-3.1-fast-generate-preview": Route(
-        "veo-3.1-fast-generate-001", US_CENTRAL),
+        "veo-3.1-fast-generate-001", US_CENTRAL, verified=True),
+
+    # Catalogue only: absent from global, present at us-central1 per
+    # models.get, never confirmed by a real call.
     "veo-3.1-lite-generate-preview": Route(
         "veo-3.1-lite-generate-001", US_CENTRAL),
     "veo-3.1-generate-preview": Route("veo-3.1-generate-001", US_CENTRAL),

@@ -388,3 +388,74 @@ def test_a_single_object_response_still_works(monkeypatch):
     brief = tl.write_brief(_Channel, tl.candidate_topics(TRENDING), voice=[])
     assert brief is not None
     assert brief.extra["alternatives"] == []
+
+
+# --- catching a bad brief before it is paid for ----------------------------
+#
+# Both of these were found by a human watching the finished video, which is
+# the expensive way: the clip was generated and billed first. Both are
+# plainly visible in the text of the brief.
+
+def _b(prompt="", title=""):
+    return tl.Brief(topic="florida", angle="", video_prompt=prompt,
+                    title=title, caption="")
+
+
+@pytest.mark.parametrize("ending", [
+    "the alligator sits upright in it and stares blankly past the lens.",
+    "he holds the pose.",
+    "the knight remains motionless.",
+    "she looks at the camera.",
+    "the gator stands still.",
+])
+def test_a_prompt_ending_on_a_held_pose_is_flagged(ending):
+    """
+    Veo fills unwritten time by holding the frame, so a brief that stops
+    describing action at five seconds spends three of eight seconds static.
+    """
+    w = tl.brief_warnings(_b(prompt="Things happen. " + ending))
+    assert any("held pose" in x for x in w)
+
+
+def test_a_prompt_ending_in_motion_is_not_flagged():
+    w = tl.brief_warnings(_b(
+        prompt="A setup. Then a turn. Finally the chair collapses and he "
+               "scrambles backwards through the mud."))
+    assert not any("held pose" in x for x in w)
+
+
+def test_only_the_final_sentence_decides():
+    """Sitting down mid-clip is fine; ending there is not."""
+    w = tl.brief_warnings(_b(
+        prompt="The gator sits in a chair. Then it hurls the chair into a pond."))
+    assert not any("held pose" in x for x in w)
+
+
+@pytest.mark.parametrize("title", [
+    "Florida Lawn Care Accordion Spell Backfires!",
+    "Gator Lawn Care Ends in Slushie Crisis",
+    "You Won't Believe What This Gator Did",
+    "Swamp Wedding Goes Wrong",
+])
+def test_a_title_promising_an_unshown_outcome_is_flagged(title):
+    w = tl.brief_warnings(_b(title=title))
+    assert any("promises an outcome" in x for x in w)
+
+
+def test_a_descriptive_title_is_not_flagged():
+    w = tl.brief_warnings(_b(title="Alligator In A Lawn Chair Drinks A Slushie"))
+    assert not any("promises an outcome" in x for x in w)
+
+
+def test_the_exact_rejected_brief_is_caught_on_both_counts():
+    """The clip a human rejected, pinned so the check cannot regress."""
+    w = tl.brief_warnings(_b(
+        title="Florida Lawn Care Accordion Spell Backfires!",
+        prompt=("A sweaty man plays a red accordion at a giant alligator. "
+                "At second 4 the alligator unfolds a white plastic lawn "
+                "chair, sits upright in it, and stares blankly past the lens.")))
+    assert len(w) == 2
+
+
+def test_an_empty_brief_produces_no_warnings():
+    assert tl.brief_warnings(_b()) == []

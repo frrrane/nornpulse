@@ -133,6 +133,12 @@ def main() -> int:
     if brief.negative_prompt:
         print(f"  avoiding:\n    {brief.negative_prompt}")
 
+    # Shown before the generate step, because both of these were previously
+    # found by a human watching the finished video — which is the expensive
+    # way to learn that the last three seconds are a held pose.
+    for warning in tl.brief_warnings(brief):
+        print(f"  ⚠️  {warning}")
+
     # Rights check, before anything is generated. Placed here for two
     # reasons: the brief writer is shown this channel's own titles as a voice
     # reference and those lean heavily on other people's property, and a
