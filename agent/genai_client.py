@@ -22,19 +22,22 @@ and about geography:
   ``veo-3.1-fast-generate-001`` on Vertex. Most other models keep their
   name.
 * Vertex serves each model from particular locations, and they differ per
-  model. ``gemini-3.6-flash`` answers only at ``global``; Veo and Lyria
-  answer at ``us-central1`` and not at ``global``. There is no single
-  region that serves everything, so the location has to travel with the
-  model rather than sitting in one setting.
+  model. ``gemini-3.6-flash`` answers only at ``global``; Veo answers at
+  ``us-central1`` and not at ``global``; Lyria is the other way round.
+  There is no single region that serves everything, so the location has to
+  travel with the model rather than sitting in one setting.
 
 A warning about probing availability
 ------------------------------------
 ``client.models.get()`` is free and reports the model *catalogue*, not what
-a region will actually serve. It reports ``gemini-3.6-flash`` as present in
-``us-central1``, where a real ``generate_content`` returns 404. Only an
-actual call settles it, and for the generative models an actual call costs
-money. The table below records what was verified by real calls; anything
-inferred from the catalogue alone is marked, because it is a guess.
+a region will actually serve, and it has been wrong in both directions. It
+reports ``gemini-3.6-flash`` as present in ``us-central1``, where a real
+``generate_content`` returns 404. It reported Lyria as present in
+``us-central1`` and absent from ``global``, and the real call said the
+precise opposite. Only an actual call settles it, and for the generative
+models an actual call costs money. The table below records what was
+verified that way; anything inferred from the catalogue alone is marked,
+because it is a guess, and the guesses have already been wrong.
 
 Off by default. Nothing changes until NORNPULSE_USE_VERTEX is set, so this
 can be committed and merged without touching how the pipeline behaves.
@@ -85,18 +88,25 @@ VERTEX_ROUTES: Dict[str, Route] = {
         "veo-3.1-fast-generate-001", US_CENTRAL, verified=True),
 
     # Catalogue only: absent from global, present at us-central1 per
-    # models.get, never confirmed by a real call.
+    # models.get, never confirmed by a real call. Kept at us-central1
+    # because their verified sibling above answers there.
     "veo-3.1-lite-generate-preview": Route(
         "veo-3.1-lite-generate-001", US_CENTRAL),
     "veo-3.1-generate-preview": Route("veo-3.1-generate-001", US_CENTRAL),
-    "lyria-3-clip-preview": Route("lyria-3-clip-preview", US_CENTRAL),
-    "lyria-3-pro-preview": Route("lyria-3-pro-preview", US_CENTRAL),
 
     # Verified on 2026-08-25: Heimdall composed a real thumbnail at global.
     "gemini-3-pro-image": Route("gemini-3-pro-image", GLOBAL, verified=True),
 
-    # Catalogue only. Bragi's cache keeps satisfying the requests, so Lyria
-    # has still never actually been called on Vertex.
+    # Corrected on 2026-08-25 by being wrong in production, which is the
+    # cautionary tale this whole table exists for. The catalogue said Lyria
+    # was in us-central1 and NOT in global. The real call answered
+    # "Unsupported location: us-central1. Supported locations are global,
+    # us, and eu" — exactly backwards. Still unverified: this is the region
+    # the error message named, not one a successful call has confirmed.
+    "lyria-3-clip-preview": Route("lyria-3-clip-preview", GLOBAL),
+    "lyria-3-pro-preview": Route("lyria-3-pro-preview", GLOBAL),
+
+    # Catalogue only.
     "gemini-3.1-flash-tts-preview": Route(
         "gemini-3.1-flash-tts-preview", GLOBAL),
 }
