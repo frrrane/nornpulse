@@ -158,9 +158,11 @@ def test_unverified_routes_are_marked_as_such():
     # Confirmed by real calls that returned output.
     assert gc.VERTEX_ROUTES["gemini-3.6-flash"].verified
     assert gc.VERTEX_ROUTES["veo-3.1-fast-generate-preview"].verified
-    # Never called for real; the catalogue alone is not evidence.
+    assert gc.VERTEX_ROUTES["gemini-3-pro-image"].verified
+    # Never called for real; the catalogue alone is not evidence. Bragi's
+    # cache keeps satisfying its requests, so Lyria has still never been
+    # reached on Vertex.
     assert not gc.VERTEX_ROUTES["lyria-3-clip-preview"].verified
-    assert not gc.VERTEX_ROUTES["gemini-3-pro-image"].verified
 
 
 def test_describe_names_the_billing_target(monkeypatch):

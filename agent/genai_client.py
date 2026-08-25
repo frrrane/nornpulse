@@ -92,8 +92,11 @@ VERTEX_ROUTES: Dict[str, Route] = {
     "lyria-3-clip-preview": Route("lyria-3-clip-preview", US_CENTRAL),
     "lyria-3-pro-preview": Route("lyria-3-pro-preview", US_CENTRAL),
 
-    # Catalogue only, present at global and us-central1.
-    "gemini-3-pro-image": Route("gemini-3-pro-image", GLOBAL),
+    # Verified on 2026-08-25: Heimdall composed a real thumbnail at global.
+    "gemini-3-pro-image": Route("gemini-3-pro-image", GLOBAL, verified=True),
+
+    # Catalogue only. Bragi's cache keeps satisfying the requests, so Lyria
+    # has still never actually been called on Vertex.
     "gemini-3.1-flash-tts-preview": Route(
         "gemini-3.1-flash-tts-preview", GLOBAL),
 }
