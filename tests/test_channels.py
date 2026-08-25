@@ -114,3 +114,46 @@ def test_configured_channels_have_real_youtube_ids():
     """A blank id silently makes history ingestion a no-op."""
     for channel in chans.list_channels():
         assert channel.youtube_channel_id.startswith("UC"), channel.slug
+
+
+# --- editorial constraints reaching the renderer ---------------------------
+#
+# A reviewer rejected a batch for the music being wrong and one clip for
+# being "too bouncy". Both choices came from seeded benchmark priors ranked
+# on a generic taxonomy: synthwave/mysterious scores highest overall, so a
+# space channel got synthwave, and shake tops the motion table, so shake was
+# chosen for every clip. The channel profile carried a music_mood the whole
+# time and nothing read it.
+
+def test_a_profile_can_rule_out_a_motion_effect():
+    p = chans.ChannelProfile(avoid_motion=["shake"])
+    assert p.avoid_motion == ["shake"]
+
+
+def test_avoiding_nothing_is_the_default():
+    assert chans.ChannelProfile().avoid_motion == []
+
+
+def test_the_constraint_survives_a_round_trip(tmp_path):
+    """A profile that loses its constraint on reload has not got one."""
+    import json
+    path = tmp_path / "channels.json"
+    path.write_text(json.dumps({"channels": {"x": {
+        "youtube_channel_id": "UC123", "title": "X", "subscribers": 5,
+        "profile": {"category_id": "28", "music_mood": "epic",
+                    "avoid_motion": ["shake", "punch_in_zoom"]}}}}))
+    loaded = chans.load_channels(path)["x"]
+    assert loaded.profile.avoid_motion == ["shake", "punch_in_zoom"]
+    assert loaded.profile.music_mood == "epic"
+    assert loaded.to_dict()["profile"]["avoid_motion"] == ["shake", "punch_in_zoom"]
+
+
+def test_the_science_channel_bans_shake_and_asks_for_epic():
+    """The two settings that answer the actual review comments."""
+    c = chans.get_channel("nornpulse")
+    assert "shake" in c.profile.avoid_motion
+    assert c.profile.music_mood == "epic"
+
+
+def test_the_comedy_channel_is_still_allowed_to_wobble():
+    assert chans.get_channel("sloptokdaily").profile.avoid_motion == []

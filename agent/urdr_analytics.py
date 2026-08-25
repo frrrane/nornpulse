@@ -566,7 +566,8 @@ class UrdrAnalytics:
             logger.error(f"Failed to seed visual benchmarks into ClickHouse: {e}")
             return 0
 
-    def get_top_visual_benchmark(self, hook_type: str, topic_category: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def get_top_visual_benchmark(self, hook_type: str, topic_category: Optional[str] = None,
+                                 avoid_motion: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
         """
         Returns the single highest-virality visual_style_benchmarks row for
         hook_type -- the ClickHouse-grounded crop_mode/motion_effect/
@@ -576,8 +577,20 @@ class UrdrAnalytics:
         treatment even for a hook_type or topic_category outside the
         seeded taxonomy.
         """
+        # A channel can rule an effect out entirely. shake scores highest
+        # of the four seeded priors, so without this it wins every clip --
+        # which is how a NASA explainer came back visibly wobbling and was
+        # rejected for being "too bouncy". Excluded in the query rather than
+        # swapped afterwards, so the next-best row is still the best row.
+        excluded = [m for m in (avoid_motion or []) if m]
+
         def _query(where_clauses: List[str]) -> str:
-            where_str = " AND ".join(where_clauses) if where_clauses else "1=1"
+            clauses = list(where_clauses)
+            if excluded:
+                clauses.append(
+                    "motion_effect NOT IN ("
+                    + ", ".join(ch.sql_literal(m) for m in excluded) + ")")
+            where_str = " AND ".join(clauses) if clauses else "1=1"
             return f"""
             SELECT crop_mode, motion_effect, color_grade, avg_virality_score
             FROM visual_style_benchmarks
@@ -603,6 +616,8 @@ class UrdrAnalytics:
 
         # In-memory fallback
         fdf = self._fallback_visual_df
+        if excluded:
+            fdf = fdf[~fdf["motion_effect"].isin(excluded)]
         scoped = fdf[fdf["hook_type"] == hook_type]
         if scoped.empty:
             scoped = fdf
@@ -610,7 +625,8 @@ class UrdrAnalytics:
             return None
         return scoped.sort_values("avg_virality_score", ascending=False).iloc[0].to_dict()
 
-    def get_top_music_benchmark(self, hook_type: str, topic_category: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def get_top_music_benchmark(self, hook_type: str, topic_category: Optional[str] = None,
+                                mood: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Returns the single highest-virality music_virality_benchmarks row
         for hook_type — the ClickHouse-grounded genre/mood/bpm/energy_level
@@ -635,6 +651,21 @@ class UrdrAnalytics:
                 clauses = [f"hook_type = {ch.sql_literal(hook_type)}"]
                 if topic_category and topic_category != "all":
                     clauses.append(f"topic_category = {ch.sql_literal(topic_category)}")
+                # A channel's declared mood scopes the query one rung above
+                # topic. This overrides nothing measured: these rows are
+                # seeded priors, one per genre/mood pair, so "highest score"
+                # means "the prior we wrote down as best" -- and a space
+                # channel getting synthwave because synthwave scores 93.8 is
+                # that prior applied to a channel it was never about. With no
+                # matching row the ladder continues unchanged.
+                if mood:
+                    for scope in (clauses + [f"mood = {ch.sql_literal(mood)}"],
+                                  [f"mood = {ch.sql_literal(mood)}"]):
+                        hit = ch.run_query_df(_query(scope))
+                        if not hit.empty:
+                            return hit.iloc[0].to_dict()
+                    logger.info(f"No music benchmark for mood {mood!r}; "
+                                f"falling back to the hook-type ranking.")
                 df = ch.run_query_df(_query(clauses))
                 if df.empty and topic_category:
                     df = ch.run_query_df(_query([f"hook_type = {ch.sql_literal(hook_type)}"]))

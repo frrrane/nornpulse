@@ -13,10 +13,21 @@
       "subscribers": 2,
       "profile": {
         "category_id": "28",
-        "caption_font": "Condensed — Roboto Condensed",
-        "music_mood": "dramatic",
-        "preferred_hooks": ["curiosity_gap", "shock_stat", "contrarian_claim"],
-        "topic_hints": ["science", "space", "technology"]
+        "caption_font": "Condensed \u2014 Roboto Condensed",
+        "music_mood": "epic",
+        "preferred_hooks": [
+          "curiosity_gap",
+          "shock_stat",
+          "contrarian_claim"
+        ],
+        "topic_hints": [
+          "science",
+          "space",
+          "technology"
+        ],
+        "avoid_motion": [
+          "shake"
+        ]
       }
     },
     "sloptokdaily": {
@@ -25,10 +36,19 @@
       "subscribers": 14,
       "profile": {
         "category_id": "23",
-        "caption_font": "Impact — Roboto Black",
+        "caption_font": "Impact \u2014 Roboto Black",
         "music_mood": "playful",
-        "preferred_hooks": ["visual_disruption", "shock_stat", "direct_question"],
-        "topic_hints": ["funny", "comedy", "ai"]
+        "preferred_hooks": [
+          "visual_disruption",
+          "shock_stat",
+          "direct_question"
+        ],
+        "topic_hints": [
+          "funny",
+          "comedy",
+          "ai"
+        ],
+        "avoid_motion": []
       }
     }
   }

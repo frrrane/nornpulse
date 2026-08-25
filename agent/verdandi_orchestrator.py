@@ -286,6 +286,8 @@ class VerdandiADK:
         clip_id_prefix: str = "",
         caption_language: Optional[str] = None,
         caption_font: Optional[str] = None,
+        music_mood: Optional[str] = None,
+        avoid_motion: Optional[List[str]] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Callable]:
         """Builds request-scoped tool functions closing over this call's state."""
@@ -433,7 +435,8 @@ class VerdandiADK:
             # A composition failure never blocks the clip — render simply
             # proceeds without music.
             music_path = None
-            music_benchmark = self.urdr.get_top_music_benchmark(hook_type=hook_type, topic_category=topic_focus)
+            music_benchmark = self.urdr.get_top_music_benchmark(
+                hook_type=hook_type, topic_category=topic_focus, mood=music_mood)
             if music_benchmark:
                 _emit("bragi", f"🎵 Bragi (music) is composing a {music_benchmark.get('mood', 'custom')} score (clip {clip_counter[0]})...")
                 music_path = self.bragi.compose_track(hook_type, music_benchmark)
@@ -443,7 +446,9 @@ class VerdandiADK:
             # principle as Bragi's music choice above: rather than a crop
             # style chosen ad hoc per render, the visual treatment is
             # looked up from historical hook_type performance.
-            visual_benchmark = self.urdr.get_top_visual_benchmark(hook_type=hook_type, topic_category=topic_focus)
+            visual_benchmark = self.urdr.get_top_visual_benchmark(
+                hook_type=hook_type, topic_category=topic_focus,
+                avoid_motion=avoid_motion)
             crop_mode = visual_benchmark.get("crop_mode", "center_crop") if visual_benchmark else "center_crop"
             motion_effect = visual_benchmark.get("motion_effect", "none") if visual_benchmark else "none"
             color_grade = visual_benchmark.get("color_grade", "neutral") if visual_benchmark else "neutral"
@@ -848,6 +853,7 @@ class VerdandiADK:
         channel_subscribers: int = 0,
         caption_font: Optional[str] = None,
         source_ref: Optional[str] = None,
+        channel_profile: Optional[Any] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -946,6 +952,13 @@ class VerdandiADK:
             topic_focus=topic_focus, window=transcript_window, vision_mode=vision_mode,
             clip_id_prefix=clip_id_prefix, caption_language=caption_language,
             caption_font=caption_font,
+            # The channel's own editorial constraints. Without these the
+            # seeded benchmarks decide alone, and they are ranked on a
+            # generic taxonomy: a space channel was given synthwave because
+            # synthwave scores highest overall, and shake because shake does.
+            music_mood=getattr(getattr(channel_profile, "music_mood", None), "strip", lambda: None)()
+            if getattr(channel_profile, "music_mood", None) else None,
+            avoid_motion=list(getattr(channel_profile, "avoid_motion", []) or []),
             progress_callback=progress_callback,
         )
         prompt = self._build_prompt(
@@ -1015,6 +1028,7 @@ class VerdandiADK:
         content_hint: Optional[str] = None,
         caption_language: Optional[str] = None,
         channel_subscribers: int = 0,
+        channel_profile: Optional[Any] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -1100,6 +1114,7 @@ class VerdandiADK:
                     caption_language=caption_language,
                     channel_subscribers=channel_subscribers,
                     source_ref=url,
+                    channel_profile=channel_profile,
                     progress_callback=_relay,
                 )
                 all_clips.extend(clips)

@@ -75,6 +75,12 @@ class ChannelProfile:
     # Appended to every upload's tag candidates, so they are still subject
     # to the same relevance and provenance rules as anything else.
     topic_hints: List[str] = field(default_factory=list)
+    # Motion effects this channel will not use, whatever the benchmarks say.
+    # The benchmarks are seeded priors ranked on a generic taxonomy, and
+    # "shake" tops them, so without this it is chosen for every clip -- which
+    # is how a NASA explainer came back wobbling and was rejected as "too
+    # bouncy". A genuine editorial constraint, not a measurement.
+    avoid_motion: List[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.category_id not in VALID_CATEGORIES:
@@ -144,6 +150,7 @@ class Channel:
                 "music_mood": self.profile.music_mood,
                 "preferred_hooks": list(self.profile.preferred_hooks),
                 "topic_hints": list(self.profile.topic_hints),
+                "avoid_motion": list(self.profile.avoid_motion),
             },
         }
 
@@ -192,6 +199,7 @@ def _parse(raw: Dict[str, Any], slug: str) -> Channel:
         music_mood=profile_raw.get("music_mood", base_profile.music_mood),
         preferred_hooks=list(profile_raw.get("preferred_hooks", base_profile.preferred_hooks)),
         topic_hints=list(profile_raw.get("topic_hints", base_profile.topic_hints)),
+        avoid_motion=list(profile_raw.get("avoid_motion", base_profile.avoid_motion)),
     )
     return Channel(
         slug=slug,
