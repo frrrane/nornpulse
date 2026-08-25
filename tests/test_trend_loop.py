@@ -227,3 +227,164 @@ def test_ip_constraint_survives_the_voice_reference():
     """
     assert "no copyrighted characters" in tl._BRIEF_PROMPT
     assert "no real identifiable people" in tl._BRIEF_PROMPT
+
+
+# --- the look, not just the joke -------------------------------------------
+#
+# The first two comedy generations were executed faithfully and were not
+# funny. Both came back cinematic: golden hour, shallow depth of field,
+# beautifully graded. The premise survived review; the polish killed it. So
+# the aesthetic direction is now part of the brief, and the terms that would
+# sand the texture off are removed rather than merely discouraged.
+
+class _ScienceChannel:
+    slug = "nornpulse"
+    title = "Norn Labs"
+
+    class profile:
+        category_id = "28"
+        topic_hints = ["science", "space", "technology"]
+        music_mood = "dramatic"
+
+
+def _recording_stub(monkeypatch, payload):
+    """Like _stub_model, but keeps the prompt that was sent."""
+    seen = {}
+    text = payload if isinstance(payload, str) else json.dumps(payload)
+
+    class _Resp:
+        def __init__(self): self.text = text
+
+    class _Models:
+        def generate_content(self, **kw):
+            seen["prompt"] = kw.get("contents", "")
+            return _Resp()
+
+    class _Client:
+        def __init__(self, **kw): self.models = _Models()
+
+    import google.genai as genai
+    monkeypatch.setattr(genai, "Client", _Client)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
+    return seen
+
+
+def test_comedy_channel_is_recognised_by_category_or_hints():
+    assert tl.is_comedy(_Channel)
+    assert not tl.is_comedy(_ScienceChannel)
+
+
+@pytest.mark.parametrize("term", [
+    "low quality", "blurry", "glitchy artifacts", "deformed hands",
+    "ugly", "uncanny", "grainy", "pixelated", "bad anatomy",
+])
+def test_polish_guards_are_stripped(term):
+    """Each of these describes the aesthetic, not the failure."""
+    out = tl.strip_polish_guards(f"watermarks, {term}, text overlay")
+    assert term not in out
+    assert "watermarks" in out and "text overlay" in out
+
+
+def test_stripping_only_removes_whole_items():
+    """"a glitch in the mainframe" is a subject, not a quality complaint."""
+    kept = tl.strip_polish_guards("a glitch in the mainframe, blurry")
+    assert kept == "a glitch in the mainframe"
+
+
+def test_stripping_survives_an_empty_or_total_match():
+    assert tl.strip_polish_guards("") == ""
+    assert tl.strip_polish_guards("blurry, low quality") == ""
+
+
+def test_comedy_brief_keeps_its_texture(monkeypatch):
+    payload = dict(BRIEF)
+    payload["negative_prompt"] = "logos, low quality, glitchy artifacts, watermarks"
+    _stub_model(monkeypatch, payload)
+    brief = tl.write_brief(_Channel, tl.candidate_topics(TRENDING), voice=[])
+    assert "low quality" not in brief.negative_prompt
+    assert "glitchy artifacts" not in brief.negative_prompt
+    assert "logos" in brief.negative_prompt and "watermarks" in brief.negative_prompt
+
+
+def test_a_science_channel_keeps_its_polish_guards(monkeypatch):
+    """
+    Stripping is for channels whose humour depends on things looking wrong.
+    A science channel asking not to be blurry means it.
+    """
+    payload = dict(BRIEF)
+    payload["negative_prompt"] = "low quality, blurry"
+    _stub_model(monkeypatch, payload)
+    brief = tl.write_brief(_ScienceChannel, tl.candidate_topics(TRENDING), voice=[])
+    assert brief.negative_prompt == "low quality, blurry"
+
+
+def test_the_look_direction_reaches_a_comedy_brief_only(monkeypatch):
+    seen = _recording_stub(monkeypatch, BRIEF)
+    tl.write_brief(_Channel, tl.candidate_topics(TRENDING), voice=[])
+    assert "HOW IT MUST LOOK" in seen["prompt"]
+    assert "shallow depth of field" in seen["prompt"]
+
+    seen = _recording_stub(monkeypatch, BRIEF)
+    tl.write_brief(_ScienceChannel, tl.candidate_topics(TRENDING), voice=[])
+    assert "HOW IT MUST LOOK" not in seen["prompt"]
+
+
+# --- three premises, then a choice -----------------------------------------
+
+def _candidates(*angles, pick=0):
+    return {
+        "suitable": True,
+        "candidates": [dict(BRIEF, angle=a, title=f"title {i}")
+                       for i, a in enumerate(angles)],
+        "pick": pick,
+        "pick_reason": "the stupidest one",
+    }
+
+
+def test_the_model_choice_is_honoured(monkeypatch):
+    _stub_model(monkeypatch, _candidates("first", "second", "third", pick=2))
+    brief = tl.write_brief(_Channel, tl.candidate_topics(TRENDING), voice=[])
+    assert brief.angle == "third"
+    assert brief.extra["pick_reason"] == "the stupidest one"
+
+
+def test_the_rejected_premises_are_kept_for_review(monkeypatch):
+    """
+    A reviewer seeing only the winner cannot tell whether the choice was
+    good. The two it beat are cheap to carry and make the decision legible.
+    """
+    _stub_model(monkeypatch, _candidates("first", "second", "third", pick=1))
+    brief = tl.write_brief(_Channel, tl.candidate_topics(TRENDING), voice=[])
+    alternatives = brief.extra["alternatives"]
+    assert len(alternatives) == 2
+    assert {a["angle"] for a in alternatives} == {"first", "third"}
+
+
+@pytest.mark.parametrize("bad", [9, -1, "two", None])
+def test_an_unusable_pick_falls_back_rather_than_failing(bad, monkeypatch):
+    """Losing the choice is a shame; losing three written premises is worse."""
+    _stub_model(monkeypatch, _candidates("first", "second", pick=bad))
+    brief = tl.write_brief(_Channel, tl.candidate_topics(TRENDING), voice=[])
+    assert brief is not None
+    assert brief.angle in ("first", "second")
+
+
+def test_a_candidate_with_an_invented_topic_is_dropped_not_fatal(monkeypatch):
+    """
+    One bad candidate must not cost the other two — but it must not be
+    published with measured trend numbers attached to a tag nobody measured.
+    """
+    payload = _candidates("first", "second", pick=0)
+    payload["candidates"][0]["topic"] = "a tag that was never trending"
+    _stub_model(monkeypatch, payload)
+    brief = tl.write_brief(_Channel, tl.candidate_topics(TRENDING), voice=[])
+    assert brief.angle == "second"
+    assert brief.topic == "funny moments"
+
+
+def test_a_single_object_response_still_works(monkeypatch):
+    """Older shape, and what a model returns when it ignores the list."""
+    _stub_model(monkeypatch, BRIEF)
+    brief = tl.write_brief(_Channel, tl.candidate_topics(TRENDING), voice=[])
+    assert brief is not None
+    assert brief.extra["alternatives"] == []

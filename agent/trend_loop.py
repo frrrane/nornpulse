@@ -54,6 +54,77 @@ TOPIC_SHORTLIST = 40
 # trend, and grounding a whole video in it would overstate the evidence.
 MIN_TREND_VIDEOS = 2
 
+# How many premises the model writes before one is chosen. Three is enough
+# for the second and third to escape the first idea's gravity, and it is one
+# call either way — the expensive step is generation, not writing.
+CANDIDATES = 3
+
+# Terms that suppress exactly the register a slop-comedy channel trades in.
+#
+# The model appends these reflexively: every prompt-writing guide it has read
+# ends with "avoid: low quality, blurry, artifacts, deformed". On a channel
+# whose best performers are titled "Everything's Slightly Off & Deeply
+# Unsettling", that list removes the joke. The first two generations for the
+# comedy channel came back beautifully shot and completely unfunny — a
+# cinematic, golden-hour, shallow-depth-of-field short film about a man
+# eating boiled peanuts. The brief was executed faithfully; the brief asked
+# for the wrong thing.
+#
+# Stripped rather than argued with, for the same reason the rights check has
+# a pattern net under its model call: telling a model not to add something is
+# an instruction, not a control.
+# Matched as a vocabulary rather than as phrases: an item is dropped when
+# every word in it is one of these. "glitchy artifacts" and "deformed hands"
+# are two words each and arrive in a dozen combinations, so enumerating the
+# phrases loses to the model's inventiveness. Nothing worth keeping in a
+# negative prompt — watermarks, text overlay, logos, montage, black frame —
+# shares a single word with this list, so the rule is safe in the direction
+# that matters.
+#
+# Deliberately absent: horror, scary, disturbing, gore. Those are about what
+# the video is *about*, not how it looks, and a channel is entitled to avoid
+# them.
+_POLISH_WORDS = frozenset("""
+    low lo res resolution quality bad poor worst awful terrible
+    blurry blurred blur grainy grain noisy noise compression compressed
+    out of focus
+    glitch glitchy glitches glitching artifact artifacts artifacting
+    distorted distortion deformed deformity disfigured malformed
+    mutated mutation warped
+    ugly creepy unsettling uncanny weird cursed nightmarish
+    amateur amateurish cheap crude janky sloppy
+    jpeg jpg pixelated pixelation pixels aliasing
+    extra missing fingers limbs arms legs hands anatomy proportions
+""".split())
+
+
+def is_comedy(channel) -> bool:
+    """Whether this channel's humour depends on things looking wrong."""
+    from agent.channels import CATEGORY_COMEDY
+    if getattr(channel.profile, "category_id", "") == CATEGORY_COMEDY:
+        return True
+    hints = {h.lower() for h in getattr(channel.profile, "topic_hints", [])}
+    return bool(hints & {"funny", "comedy", "humour", "humor", "meme", "memes"})
+
+
+def _is_polish_guard(item: str) -> bool:
+    """Whether a negative-prompt item is purely a complaint about fidelity."""
+    words = re.findall(r"[a-z]+", item.replace("-", " ").lower())
+    return bool(words) and all(w in _POLISH_WORDS for w in words)
+
+
+def strip_polish_guards(negative_prompt: str) -> str:
+    """
+    Drop the terms that would sand the texture off a comedy clip.
+
+    Operates on whole comma-separated items, so "glitchy artifacts" goes and
+    "a glitch in the mainframe" — where the guard words sit alongside real
+    ones — stays.
+    """
+    kept = [part.strip() for part in negative_prompt.split(",")
+            if part.strip() and not _is_polish_guard(part)]
+    return ", ".join(kept)
+
 
 @dataclass
 class Brief:
@@ -217,22 +288,70 @@ The IP constraint is real and not negotiable: no copyrighted characters, no \
 real identifiable people, no brands. Note that this channel's own back \
 catalogue leans on them heavily — you must hit the same ENERGY with original \
 subjects. Invent the cursed thing rather than borrowing it.
+{look}
+WRITE THREE, THEN CHOOSE
+Write {n} genuinely DIFFERENT premises before choosing one. Different means \
+different topics, or takes so far apart they could not be confused — not \
+three rewordings of one idea. Your first idea is almost always the most \
+obvious one available, which is why it is written first and why it is rarely \
+the funniest.
+
+Then pick. Judge them on which would make a stranger mid-scroll actually \
+stop — NOT on which is the most competently written or the most tasteful. \
+The best one is usually the one that felt slightly too stupid to submit.
 
 Return ONLY JSON:
 {{
   "suitable": true,
-  "topic": "<the exact tag you picked, copied from the list>",
-  "angle": "<the comedic or editorial take, one sentence>",
-  "video_prompt": "<a vivid, self-contained prompt for a text-to-video model: \
-subject, action, setting, camera, lighting, mood. No named characters or brands.>",
-  "negative_prompt": "<what the generator should avoid, comma separated>",
-  "title": "<YouTube title, under 80 characters>",
-  "caption": "<one-line description>",
-  "hook_type": "<one of: shock_stat, curiosity_gap, contrarian_claim, \
+  "candidates": [
+    {{
+      "topic": "<the exact tag, copied from the list above>",
+      "angle": "<the comedic or editorial take, one sentence>",
+      "video_prompt": "<a vivid, self-contained prompt for a text-to-video \
+model: subject, action, setting, camera, lighting, mood. No named characters \
+or brands.>",
+      "negative_prompt": "<what the generator should avoid, comma separated>",
+      "title": "<YouTube title, under 80 characters>",
+      "caption": "<one-line description>",
+      "hook_type": "<one of: shock_stat, curiosity_gap, contrarian_claim, \
 problem_agitation, direct_question, visual_disruption, metaphor_analogy, \
 story_in_medias_res>",
-  "rationale": "<why this topic suits THIS channel, one sentence>"
+      "rationale": "<why this topic suits THIS channel, one sentence>"
+    }}
+  ],
+  "pick": <0-based index of the one you are choosing>,
+  "pick_reason": "<why that one and not the other two, one sentence>"
 }}"""
+
+
+# Appended for comedy channels only. Everything above is about what happens;
+# this is about what it looks like, which turned out to be the half that was
+# wrong.
+_COMEDY_LOOK = """
+HOW IT MUST LOOK — this matters as much as the premise
+The last two videos this channel generated failed here, not on the writing. \
+Both were shot beautifully: golden hour, shallow depth of field, cinematic \
+grade, hyper-detailed. Both were completely unfunny. A well-made short film \
+about a stupid thing is not a joke about the thing — the craft cancels it. \
+The audience for this channel is there for footage that looks WRONG.
+
+So:
+- Do NOT ask for: cinematic, filmic, film grain, 8k, hyper-detailed, \
+photorealistic, professionally shot, shallow depth of field, golden hour, \
+dramatic lighting, colour grading, epic.
+- DO ask for the register the channel actually trades in: flat and \
+over-lit, garish over-saturated colour, cheap consumer-camera or early-CGI \
+look, plasticky surfaces, subjects staring slightly past the lens, motion \
+that is a little too smooth or a little too stiff, compositions that are \
+almost but not quite centred.
+- Leave the negative_prompt for genuine ruin only — a black frame, text and \
+watermarks, a montage. Do NOT put low quality, blurry, glitchy, deformed, \
+ugly, uncanny or artifacts in it. Those describe the aesthetic, not the \
+failure. Anything of that kind will be stripped out before generation \
+anyway, so spending the field on it just wastes it.
+
+The target is "somebody rendered this in 2007 and something is deeply off \
+about it", not "this could screen at a festival"."""
 
 
 def write_brief(channel, topics: List[Dict[str, Any]],
@@ -278,12 +397,15 @@ def write_brief(channel, topics: List[Dict[str, Any]],
             "\n  THIS CHANNEL'S OWN VOICE (real titles, best performers first —\n"
             "  match this register, not a generic idea of comedy):\n" + lines)
 
+    comedy = is_comedy(channel)
     prompt = _BRIEF_PROMPT.format(
         title=channel.title,
         hints=", ".join(channel.profile.topic_hints) or "general",
         tone=tone or channel.profile.music_mood or "neutral",
         voice=voice_block,
         topics=listed,
+        look=_COMEDY_LOOK if comedy else "",
+        n=CANDIDATES,
     )
 
     client = genai.Client(api_key=key)
@@ -297,16 +419,54 @@ def write_brief(channel, topics: List[Dict[str, Any]],
         logger.info(f"Model declined every trending topic: {data.get('why', 'no reason given')}")
         return None
 
+    # A model asked for a list will occasionally return a single object. Both
+    # shapes are accepted rather than refused, because the content is fine
+    # and the only thing lost is the choice between alternatives.
+    raw = data.get("candidates")
+    candidates = raw if isinstance(raw, list) and raw else [data]
+
+    built = [b for b in (_brief_from(c, topics, comedy) for c in candidates) if b]
+    if not built:
+        logger.warning("No candidate survived validation against the trending list.")
+        return None
+
+    index = data.get("pick", 0)
+    try:
+        chosen = built[int(index)]
+    except (TypeError, ValueError, IndexError):
+        logger.warning(f"Model returned an unusable pick {index!r}; taking the first.")
+        chosen = built[0]
+
+    chosen.extra["pick_reason"] = str(data.get("pick_reason", "")).strip()
+    chosen.extra["alternatives"] = [
+        {"title": b.title, "angle": b.angle, "topic": b.topic}
+        for b in built if b is not chosen
+    ]
+    if len(built) > 1:
+        logger.info(f"Chose 1 of {len(built)} premises: {chosen.title!r}")
+    return chosen
+
+
+def _brief_from(data: Dict[str, Any], topics: List[Dict[str, Any]],
+                comedy: bool) -> Optional[Brief]:
+    """
+    Build one Brief from one candidate, or None if its topic is not real.
+
+    The model is asked to copy a tag from the list; if it invented one, the
+    measured trend numbers would be attached to something that was never
+    measured, which is the one thing this pipeline must not do.
+    """
     topic = str(data.get("topic", "")).strip()
-    # The model is asked to copy a tag from the list; if it invented one, the
-    # measured trend numbers below would be attached to something that was
-    # never measured.
     match = next((t for t in topics if t["tag"].lower() == topic.lower()), None)
     if not match:
         logger.warning(
-            f"Model returned topic {topic!r}, which is not in the trending list. "
+            f"Discarding candidate: topic {topic!r} is not in the trending list. "
             f"Refusing to label an invented topic as measured.")
         return None
+
+    negative = str(data.get("negative_prompt", "")).strip()
+    if comedy:
+        negative = strip_polish_guards(negative)
 
     return Brief(
         topic=match["tag"],
@@ -315,7 +475,7 @@ def write_brief(channel, topics: List[Dict[str, Any]],
         title=str(data.get("title", "")).strip()[:100],
         caption=str(data.get("caption", "")).strip(),
         hook_type=str(data.get("hook_type", "")).strip(),
-        negative_prompt=str(data.get("negative_prompt", "")).strip(),
+        negative_prompt=negative,
         trend_videos=match["videos"],
         trend_median_views=match["median_views"],
         rationale=str(data.get("rationale", "")).strip(),
