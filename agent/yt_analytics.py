@@ -77,17 +77,38 @@ def _client(credentials):
 
 
 def _query(credentials, **params) -> Dict[str, Any]:
+    """
+    Run one report, translating the failures that have a specific fix.
+
+    Both of the common ones are 403s with completely different remedies,
+    and matching on the status alone gets it wrong: the first version of
+    this told a correctly-scoped token to re-authorise, when the real
+    problem was an API that had never been switched on. A confident wrong
+    diagnosis costs more than no diagnosis, so the message has to come from
+    the text, not the code.
+    """
     try:
         return _client(credentials).reports().query(**params).execute()
     except Exception as e:
         message = str(e)
-        if "insufficient" in message.lower() or "403" in message[:80]:
+        lowered = message.lower()
+
+        if "has not been used in project" in lowered or "it is disabled" in lowered:
+            raise AnalyticsUnavailable(
+                "The YouTube Analytics API is not enabled on this Google "
+                "Cloud project. Enable youtubeanalytics.googleapis.com and "
+                "retry — this is a project setting and has nothing to do "
+                "with the token or its scopes.") from e
+
+        if "insufficient authentication scopes" in lowered or \
+                "scope_insufficient" in lowered:
             raise AnalyticsUnavailable(
                 "The token does not carry the yt-analytics.readonly scope. "
                 "Re-run the OAuth flow for this channel: scopes are fixed "
                 "when a token is granted, so an existing token cannot gain "
                 "one.") from e
-        raise AnalyticsUnavailable(message[:200]) from e
+
+        raise AnalyticsUnavailable(message[:300]) from e
 
 
 def summary(credentials, start_date: str, end_date: str,

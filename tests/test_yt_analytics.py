@@ -76,12 +76,33 @@ def test_diagnose_says_why_there_is_nothing(monkeypatch):
 # --- the scope problem is named ---------------------------------------------
 
 def test_a_missing_scope_says_re_authorisation_is_required(monkeypatch):
-    """
-    A 403 here has exactly one cause and one fix, and guessing at it costs
-    a confused hour.
-    """
-    _install(monkeypatch, {}, raises=Exception("403 insufficient authentication scopes"))
+    _install(monkeypatch, {},
+             raises=Exception("403 ... insufficient authentication scopes"))
     with pytest.raises(ya.AnalyticsUnavailable, match="Re-run the OAuth flow"):
+        ya.summary(None, "2026-08-01", "2026-08-25")
+
+
+def test_a_disabled_api_is_not_reported_as_a_scope_problem(monkeypatch):
+    """
+    Both failures are 403s with completely different fixes, and the first
+    version of this matched on the status alone -- so a correctly-scoped
+    token was told to re-authorise when the real problem was an API that
+    had never been switched on. Re-authorising would not have helped, and
+    the message would have sent someone to do it twice.
+    """
+    _install(monkeypatch, {}, raises=Exception(
+        '403 ... "YouTube Analytics API has not been used in project 6474763116 '
+        'before or it is disabled."'))
+    with pytest.raises(ya.AnalyticsUnavailable) as excinfo:
+        ya.summary(None, "2026-08-01", "2026-08-25")
+    assert "not enabled" in str(excinfo.value)
+    assert "OAuth" not in str(excinfo.value)
+
+
+def test_an_unrecognised_failure_is_passed_through_verbatim(monkeypatch):
+    """Better no diagnosis than a confident wrong one."""
+    _install(monkeypatch, {}, raises=Exception("503 backend is having a day"))
+    with pytest.raises(ya.AnalyticsUnavailable, match="backend is having a day"):
         ya.summary(None, "2026-08-01", "2026-08-25")
 
 
