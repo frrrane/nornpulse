@@ -117,6 +117,18 @@ def main() -> int:
     print(f"  caption   {brief.caption}")
     print(f"  hook      {brief.hook_type}")
     print(f"  why       {brief.rationale}")
+    # The premises this one beat. A reviewer shown only the winner cannot
+    # tell whether the choice was good, and the alternatives cost nothing —
+    # they were written in the same call.
+    alternatives = brief.extra.get("alternatives") or []
+    if alternatives:
+        reason = brief.extra.get("pick_reason", "")
+        print(f"\n  chosen over {len(alternatives)} other premise"
+              f"{'s' if len(alternatives) > 1 else ''}"
+              f"{': ' + reason if reason else ''}")
+        for other in alternatives:
+            print(f"    · [{other['topic']}] {other['angle']}")
+
     print(f"\n  video prompt:\n    {brief.video_prompt}")
     if brief.negative_prompt:
         print(f"  avoiding:\n    {brief.negative_prompt}")
