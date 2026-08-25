@@ -298,6 +298,12 @@ BANNER_FONT_PX = 64
 BANNER_MIN_FONT_PX = 36
 BANNER_FALLBACK_WRAP = 24
 
+# A clip lifted out of the middle of a longer video starts and stops in the
+# middle of a shot, which reads as an accident rather than an edit -- a
+# reviewer asked for the transition to be "more seamless". Short enough not
+# to spend the first second of a twelve-second clip fading in.
+EDGE_FADE_SEC = 0.35
+
 
 def _escape_drawtext(text: str) -> str:
     """
@@ -751,16 +757,26 @@ class SkuldRenderer:
         because a two-line title inside a one-line box is the same defect
         wearing a different hat.
         """
-        box_rgb = _lerp_rgb((10, 10, 15), (90, 30, 10), warmth)     # near-black -> warm maroon
-        text_rgb = _lerp_rgb((255, 255, 255), (255, 214, 140), warmth)  # white -> warm cream
+        # A saturated accent rather than near-black. The old pair ran from
+        # (10,10,15) to (90,30,10) -- values dark enough to read as a grey
+        # slab over dark footage, which a reviewer called a colour choice
+        # that "could be more engaging". These keep the same cool-to-warm
+        # direction with enough chroma to register as a deliberate band.
+        box_rgb = _lerp_rgb((22, 32, 96), (150, 28, 42), warmth)    # indigo -> crimson
+        text_rgb = _lerp_rgb((255, 255, 255), (255, 238, 205), warmth)  # white -> warm white
         box_hex = _rgb_to_ffmpeg_hex(box_rgb)
         text_hex = _rgb_to_ffmpeg_hex(text_rgb)
+
+        # Resolved once: the measuring, the sizing and the drawing all have
+        # to agree about which file is being used, or the box is built for
+        # one face and filled with another.
+        font = text_fit.font_file(banner_font)
 
         lines, font_px = text_fit.fit_text(
             hook_banner_text,
             max_width_px=BANNER_WIDTH - 2 * BANNER_PADDING,
             font_px=BANNER_FONT_PX,
-            font_path=text_fit.font_file(banner_font),
+            font_path=font,
             min_font_px=BANNER_MIN_FONT_PX,
             fallback_wrap=BANNER_FALLBACK_WRAP,
         )
@@ -768,10 +784,26 @@ class SkuldRenderer:
             return ""
 
         line_height = int(font_px * 1.25)
-        box_height = len(lines) * line_height + 2 * BANNER_PADDING
+
+        # The box is sized to the ink, not to the line boxes.
+        #
+        # A line box is 1.25x the point size and the glyphs fill about two
+        # thirds of it, so a box sized on line boxes holds 56px of text in
+        # 80px of space and the slack all collects below the words: measured
+        # at 25px above and 47px below, which a reviewer read as the title
+        # not being centred.
+        #
+        # No vertical offset is applied on top of that. drawtext's y lands
+        # within a pixel of the ink top already -- measured, not assumed --
+        # so shifting by the font's own bbox offset double-counts and pushes
+        # the text back out the other way.
+        extents = text_fit.ink_extents(lines, font, font_px, line_height)
+        ink_height = extents[1] if extents else len(lines) * line_height
+        box_height = ink_height + 2 * BANNER_PADDING
+        first_line_y = BANNER_Y + BANNER_PADDING
 
         parts = [f",drawbox=x={BANNER_X}:y={BANNER_Y}:w={BANNER_WIDTH}"
-                 f":h={box_height}:color={box_hex}@0.75:t=fill"]
+                 f":h={box_height}:color={box_hex}@0.88:t=fill"]
 
         # One drawtext per line, each centred on its own width. A single
         # drawtext with embedded newlines left-aligns every line inside the
@@ -782,7 +814,6 @@ class SkuldRenderer:
         # Centred on the box rather than the frame: the box is inset, so
         # centring on frame width leaves the text visibly off inside it.
         box_centre = BANNER_X + BANNER_WIDTH / 2
-        font = text_fit.font_file(banner_font)
         # A concrete bold file, not drawtext's default. Left unset, ffmpeg
         # falls back to a regular weight that disappears over video -- the
         # banner had never specified one.
@@ -794,7 +825,7 @@ class SkuldRenderer:
                 f":fontcolor={text_hex}:fontsize={font_px}"
                 f":borderw=3:bordercolor=black@0.6"
                 f":x={box_centre:.0f}-text_w/2"
-                f":y={BANNER_Y + BANNER_PADDING + i * line_height}")
+                f":y={first_line_y + i * line_height}")
 
         return ",".join(parts)
 
@@ -860,6 +891,17 @@ class SkuldRenderer:
             # literal backslash in the filename libass tries to open.
             sub_path_str = str(sub_path).replace("\\", "/")
             vf += f",ass=filename='{sub_path_str}'"
+
+        # Fade last, over everything: the banner and captions should come up
+        # with the picture rather than sitting at full strength over a black
+        # frame. st is measured from the start of the trimmed clip, so the
+        # out-fade is placed from the clip's own length rather than the
+        # source timeline.
+        clip_seconds = max(0.0, clip_end_sec - clip_start_sec)
+        if clip_seconds > 4 * EDGE_FADE_SEC:
+            vf += (f",fade=t=in:st=0:d={EDGE_FADE_SEC}"
+                   f",fade=t=out:st={clip_seconds - EDGE_FADE_SEC:.2f}"
+                   f":d={EDGE_FADE_SEC}")
 
         vf += "[scaled]"
 

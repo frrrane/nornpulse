@@ -459,22 +459,38 @@ def test_no_banner_line_overflows_the_box(title):
 
 
 @pytest.mark.parametrize("title", REJECTED_TITLES)
-def test_the_box_is_sized_to_the_lines_it_holds(title):
+def test_the_box_is_sized_to_the_ink_it_holds(title):
     """
-    A two-line title in a one-line box is the same defect in a hat. Not
-    asserting that these titles *do* wrap: whether they need two lines
-    depends on the face available, and switching to a narrower black weight
-    put all three back on one line. The invariant is that the box matches
-    however many lines there turn out to be.
+    Sized on the ink, not on the line boxes. A line box is 1.25x the point
+    size and the glyphs fill about two thirds of it, so a box built from
+    line boxes held 56px of text in 80px of space and the slack collected
+    below the words — measured at 25px above and 47px below, which a
+    reviewer read as the title not being centred.
+
+    Not asserting that these titles wrap: whether they need two lines
+    depends on the face available, and a narrower black weight put all
+    three back on one line. The invariant is that the box fits the ink with
+    equal padding either side.
     """
     from agent import skuld_renderer as sk
+    from agent import text_fit
 
     f = _banner(title)
     parts = _parts(f)
-    lines = f.count("drawtext=")
-    assert lines >= 1
-    expected = lines * int(sk.BANNER_FONT_PX * 1.25) + 2 * sk.BANNER_PADDING
-    assert parts["box_h"] == expected
+    lines = [ln for ln in _re.findall(r"text='([^']*)'", f)]
+    extents = text_fit.ink_extents(
+        lines, text_fit.font_file(), parts["font"], int(parts["font"] * 1.25))
+    if extents is None:
+        pytest.skip("no measurable font on this machine")
+    assert parts["box_h"] == extents[1] + 2 * sk.BANNER_PADDING
+
+
+def test_a_two_line_banner_is_taller_than_a_one_line_one():
+    """Whatever the sizing rule, more lines must mean more box."""
+    one = _parts(_banner("Short"))["box_h"]
+    two = _parts(_banner("A considerably longer title that will certainly "
+                         "need to wrap onto a second line"))["box_h"]
+    assert two > one
 
 
 @pytest.mark.parametrize("title", REJECTED_TITLES)

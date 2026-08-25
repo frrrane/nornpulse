@@ -102,6 +102,39 @@ def available_faces() -> Dict[str, str]:
             if (BUNDLED_FONT_DIR / filename).exists()}
 
 
+def ink_extents(lines: List[str], font_path: Optional[str], font_px: int,
+                line_height: int) -> Optional[Tuple[int, int]]:
+    """
+    Where the drawn glyphs actually sit, as (offset from the draw origin to
+    the top of the ink, total ink height).
+
+    Needed because a line box is not the ink in it. drawtext's y is the top
+    of the text box, and a line box at 1.25x the point size leaves roughly a
+    quarter of its height as leading below the glyphs — so text placed by
+    line box alone sits high, with all the slack collecting underneath. A
+    reviewer measured that as the title not being centred: 25px above,
+    47px below.
+
+    Returns None when the font cannot be measured, so a caller can fall
+    back to line-box positioning rather than guessing an offset.
+    """
+    if not font_path or not lines:
+        return None
+    try:
+        from PIL import ImageFont
+        font = ImageFont.truetype(font_path, font_px)
+    except Exception:
+        return None
+
+    # getbbox is relative to the same origin drawtext uses, so the numbers
+    # are directly comparable.
+    first = font.getbbox(lines[0])
+    last = font.getbbox(lines[-1])
+    top = first[1]
+    bottom = (len(lines) - 1) * line_height + last[3]
+    return top, max(1, bottom - top)
+
+
 def measurer(font_path: Optional[str], font_px: int) -> Optional[Callable[[str], float]]:
     """A width-in-pixels function for this font, or None if unmeasurable."""
     if not font_path:
