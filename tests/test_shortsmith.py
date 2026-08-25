@@ -94,3 +94,79 @@ def test_drawtext_special_characters_are_neutralised(raw, forbidden):
 
 def test_backslashes_are_escaped_first():
     assert shortsmith._escape("a\\b").startswith("a\\\\")
+
+
+# --- fitting the hook to the frame -----------------------------------------
+#
+# A character-count wrap is a proxy for a pixel budget, and the two part
+# company as soon as the text is wide-glyphed. "Florida Lawn Care" is
+# seventeen characters, inside a twenty-one character wrap, and rendered
+# 722px wide in a 720px frame -- running off both edges on the one frame
+# that has to work.
+
+FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+pytestmark_font = pytest.mark.skipif(
+    not __import__("pathlib").Path(FONT).exists(), reason="DejaVu not installed")
+
+
+def _width_of(text, px):
+    from PIL import ImageFont
+    return ImageFont.truetype(FONT, px).getlength(text)
+
+
+@pytestmark_font
+@pytest.mark.parametrize("text", [
+    "Florida Lawn Care Accordion Spell Backfires",
+    "WHEN YOUR LANDLORD SEES THE FLOOD",
+    "MMMMMMMMMMMMMMMMMMM WWWWW",
+    "Short one",
+])
+def test_no_line_exceeds_the_frame(text):
+    lines, px = shortsmith.fit_hook(text, 720, 1280, FONT)
+    limit = 720 * shortsmith.HOOK_WIDTH_FRACTION
+    assert lines
+    for line in lines:
+        assert _width_of(line, px) <= limit, f"{line!r} overflows at {px}px"
+
+
+@pytestmark_font
+def test_the_regression_case_specifically():
+    """The exact string that overflowed, at the exact frame size."""
+    lines, px = shortsmith.fit_hook("Florida Lawn Care Accordion Spell", 720, 1280, FONT)
+    assert all(_width_of(line, px) <= 720 for line in lines)
+
+
+@pytestmark_font
+def test_an_unbreakable_word_shrinks_the_font_rather_than_clipping():
+    """No wrap can save one long word, so the type comes down first."""
+    lines, px = shortsmith.fit_hook("Supercalifragilisticexpialidocious", 720, 1280, FONT)
+    assert px < 1280 // shortsmith.HOOK_FONT_DIVISOR
+    assert len(lines) <= 2
+
+
+@pytestmark_font
+def test_the_font_never_shrinks_below_readable():
+    _, px = shortsmith.fit_hook("W" * 60, 720, 1280, FONT)
+    assert px >= shortsmith.HOOK_MIN_FONT_PX
+
+
+@pytestmark_font
+def test_a_wider_frame_keeps_the_hook_on_one_line():
+    """Wrapping should respond to the frame, not to a fixed character count."""
+    narrow, _ = shortsmith.fit_hook("Florida Lawn Care", 720, 1280, FONT)
+    wide, _ = shortsmith.fit_hook("Florida Lawn Care", 1080, 1920, FONT)
+    assert len(wide) <= len(narrow)
+
+
+def test_unmeasurable_font_falls_back_to_a_narrow_wrap():
+    """A narrower hook than necessary beats one that runs off the frame."""
+    lines, px = shortsmith.fit_hook(
+        "Florida Lawn Care Accordion Spell", 720, 1280, font_path=None)
+    assert lines
+    assert all(len(line) <= shortsmith.HOOK_WRAP_WIDTH + 1 for line in lines)
+    assert px > 0
+
+
+def test_missing_video_size_does_not_raise():
+    assert shortsmith.video_size("/nonexistent/file.mp4") is None
