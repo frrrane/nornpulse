@@ -477,3 +477,128 @@ def test_make_tools_accepts_what_orchestrate_generation_sends():
     for forwarded in ("caption_language", "caption_font", "clip_id_prefix",
                       "vision_mode", "window", "topic_focus", "progress_callback"):
         assert forwarded in params, f"_make_tools() cannot accept {forwarded}"
+
+
+# --------------------------------------------------------------------------
+# Making the source video visible to the model
+#
+# The two surfaces do this completely differently. AI Studio has a Files
+# API; Vertex has none at all -- the SDK answers "This method is only
+# supported in the Gemini Developer client" -- and reads from Cloud Storage
+# instead. Getting the dispatch wrong fails the whole generation after the
+# download and transcription have already been paid for.
+# --------------------------------------------------------------------------
+
+def _adk():
+    return VerdandiADK.__new__(VerdandiADK)
+
+
+def test_the_digest_is_content_addressed_not_name_addressed(tmp_path):
+    """
+    The pipeline reuses fixed local names -- yt_input.mp4,
+    batch_0_input.mp4 -- for whatever it is working on. Keying the staged
+    object on the name would let one run read the previous run's video.
+    """
+    from agent.verdandi_orchestrator import _file_digest
+
+    a = tmp_path / "yt_input.mp4"
+    b = tmp_path / "yt_input_again.mp4"
+    a.write_bytes(b"first video")
+    b.write_bytes(b"a completely different video")
+    assert _file_digest(a) != _file_digest(b)
+
+    same = tmp_path / "renamed.mp4"
+    same.write_bytes(b"first video")
+    assert _file_digest(a) == _file_digest(same), "same bytes must reuse the object"
+
+
+def test_vertex_stages_to_cloud_storage(monkeypatch, tmp_path):
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"pretend video bytes")
+
+    uploaded = {}
+
+    class _Blob:
+        def __init__(self, key): self.key = key
+        def exists(self): return False
+        def upload_from_filename(self, path): uploaded["path"] = path
+
+    class _Bucket:
+        def __init__(self, name): self.name = name
+        def blob(self, key):
+            uploaded["key"] = key
+            return _Blob(key)
+
+    class _StorageClient:
+        def __init__(self, **kw): pass
+        def bucket(self, name):
+            uploaded["bucket"] = name
+            return _Bucket(name)
+
+    import google.cloud.storage as storage
+    monkeypatch.setattr(storage, "Client", _StorageClient)
+    monkeypatch.setenv("NORNPULSE_USE_VERTEX", "true")
+    monkeypatch.setenv("NORNPULSE_VERTEX_PROJECT", "norn-labs")
+    monkeypatch.setenv("NORNPULSE_MEDIA_BUCKET", "a-test-bucket")
+
+    part = _adk()._upload_video(str(video))
+
+    assert uploaded["bucket"] == "a-test-bucket"
+    assert uploaded["key"].startswith("sources/")
+    assert part.file_data.file_uri.startswith("gs://a-test-bucket/sources/")
+    assert part.file_data.mime_type == "video/mp4"
+
+
+def test_an_already_staged_video_is_not_uploaded_twice(monkeypatch, tmp_path):
+    """Fifty megabytes per run is worth not paying twice."""
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"pretend video bytes")
+    calls = {"uploads": 0}
+
+    class _Blob:
+        def exists(self): return True
+        def upload_from_filename(self, path): calls["uploads"] += 1
+
+    class _Bucket:
+        def blob(self, key): return _Blob()
+
+    class _StorageClient:
+        def __init__(self, **kw): pass
+        def bucket(self, name): return _Bucket()
+
+    import google.cloud.storage as storage
+    monkeypatch.setattr(storage, "Client", _StorageClient)
+    monkeypatch.setenv("NORNPULSE_USE_VERTEX", "true")
+    monkeypatch.setenv("NORNPULSE_VERTEX_PROJECT", "norn-labs")
+
+    _adk()._upload_video(str(video))
+    assert calls["uploads"] == 0
+
+
+def test_ai_studio_still_uses_the_files_api(monkeypatch, tmp_path):
+    """The default path must not have moved."""
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"pretend video bytes")
+    monkeypatch.delenv("NORNPULSE_USE_VERTEX", raising=False)
+
+    used = {}
+
+    class _State:
+        name = "ACTIVE"
+
+    class _FileObj:
+        state = _State()
+        name = "files/abc"
+        mime_type = "video/mp4"
+
+    class _Files:
+        def upload(self, file):
+            used["uploaded"] = file
+            return _FileObj()
+
+    adk = _adk()
+    adk.client = type("C", (), {"files": _Files()})()
+    result = adk._upload_video(str(video))
+
+    assert used["uploaded"] == str(video)
+    assert result.name == "files/abc"

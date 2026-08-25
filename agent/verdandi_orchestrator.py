@@ -46,6 +46,32 @@ AUTO_WINDOW_MAX_SEC = 600.0  # 10 minutes
 # those in one go.
 BATCH_MAX_VIDEOS = 3
 
+# Where source video is staged when running against Vertex, which has no
+# Files API and reads from Cloud Storage instead. The bucket carries a
+# short lifecycle rule: nothing in this code deletes what it uploads, and
+# the Files API used to expire its own uploads after 48 hours, so without
+# one every run would leave a permanent copy of its source behind.
+DEFAULT_MEDIA_BUCKET = "norn-labs-pipeline-media"
+
+
+def _file_digest(path: Path, chunk_size: int = 1 << 20) -> str:
+    """
+    A short content hash, used to name the staged copy of a video.
+
+    Content-addressed rather than named after the file, because the
+    pipeline reuses fixed local names — yt_input.mp4, batch_0_input.mp4 —
+    for whatever it is working on. Keying the object on the name would let
+    one run read the previous run's video; keying it on the bytes means a
+    repeated run of the same source skips a fifty-megabyte upload and a
+    different source can never collide with it.
+    """
+    import hashlib
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()[:32]
+
 
 def filter_transcript_by_window(transcript_text: str, window: Optional[Tuple[float, float]]) -> str:
     """
@@ -705,7 +731,64 @@ class VerdandiADK:
             f"The clip_id values in your JSON response MUST exactly match the clip_id values you passed to tool_execute_skuld_render."
         )
 
-    def _upload_video(self, video_path: str, timeout_sec: float = 120.0) -> types.File:
+    def _upload_video(self, video_path: str, timeout_sec: float = 120.0):
+        """
+        Make the source video available to the model, whichever surface
+        this is running against.
+
+        The two do it completely differently. AI Studio has a Files API
+        that takes an upload and processes it. Vertex has no Files API at
+        all — the SDK answers "This method is only supported in the Gemini
+        Developer client" — and reads instead from Cloud Storage, so the
+        file has to be put in a bucket and referenced by URI.
+
+        Returns a content part either way, which is all the caller needs:
+        a types.File and a types.Part are both valid entries in the list
+        passed to send_message.
+        """
+        from agent import genai_client as gc
+
+        if gc.use_vertex():
+            return self._upload_video_to_gcs(video_path)
+        return self._upload_video_to_files_api(video_path, timeout_sec)
+
+    def _upload_video_to_gcs(self, video_path: str):
+        """
+        Put the video in Cloud Storage and hand back a gs:// reference.
+
+        The bucket has a short lifecycle rule because nothing here deletes
+        what it uploads: the Files API expired its uploads by itself after
+        48 hours, and moving to Cloud Storage silently drops that, so
+        without a rule every run of the pipeline would leave a permanent
+        copy of its source video behind.
+        """
+        from google.cloud import storage
+
+        bucket_name = os.getenv("NORNPULSE_MEDIA_BUCKET", DEFAULT_MEDIA_BUCKET)
+        source = Path(video_path)
+        # Namespaced by content so a repeated run of the same source reuses
+        # the object rather than uploading fifty megabytes again.
+        key = f"sources/{_file_digest(source)}{source.suffix or '.mp4'}"
+        uri = f"gs://{bucket_name}/{key}"
+
+        client = storage.Client(project=os.getenv("GOOGLE_CLOUD_PROJECT")
+                                or os.getenv("NORNPULSE_VERTEX_PROJECT"))
+        blob = client.bucket(bucket_name).blob(key)
+
+        _t0 = time.perf_counter()
+        if blob.exists():
+            logger.info(f"Reusing {uri} — already uploaded.")
+        else:
+            logger.info(f"Uploading '{video_path}' to {uri}...")
+            blob.upload_from_filename(str(source))
+            logger.info(
+                f"⏱️ Upload of {source.stat().st_size / 1e6:.1f} MB took "
+                f"{time.perf_counter() - _t0:.1f}s")
+
+        return types.Part.from_uri(file_uri=uri, mime_type="video/mp4")
+
+    def _upload_video_to_files_api(self, video_path: str,
+                                   timeout_sec: float = 120.0) -> types.File:
         """
         Uploads the source video to Gemini's Files API and blocks until
         it's ACTIVE (processed and ready to reason over) or the timeout
