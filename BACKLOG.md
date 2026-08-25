@@ -28,6 +28,39 @@ submission is **Wed 9 September 2026, 2pm PDT**.
   not exist by the deadline. `publish_file.py` handles externally-made video;
   `test_hitl.py` → `check_approvals.py` handles pipeline-generated clips.
 
+## Engagement ideas, proposed and parked
+
+These came out of reviewing real rejected clips. Ordered by effect per unit
+of work, judged against what the clips actually looked like.
+
+- [ ] **Weave generated footage into cut clips.** Both halves already exist
+  and have never been connected: `agent/footage.py` generates Veo clips,
+  `agent/skuld_renderer.py` cuts and composites source video. Three forms,
+  cheapest first:
+
+  1. *Generated cold-open*, one or two seconds before the cut begins — the
+     visual equivalent of the hook banner. One Veo call per clip, lands on
+     the first second, which is the second that decides retention.
+  2. *Generated B-roll under narration*, where the transcript says
+     something the source does not show. This is the one that earns its
+     keep: the NASA source has long stretches where the audio is more
+     interesting than the picture. Needs the model to identify which
+     moments lack visual support, which is real reasoning rather than a
+     wiring job.
+  3. *Generated backdrop instead of blur*, compositing the source over a
+     themed generated background rather than a blurred copy of itself.
+
+  Every insert is a paid Veo call on a clip that currently costs nothing
+  beyond rendering, so at six uploads a day this is a real line item.
+
+- [ ] **Punchier titles.** "NASA's Plan For A Permanent Moon Base" is
+  descriptive, not curious. The channel's own best-performing hook types are
+  curiosity_gap and shock_stat; the title is written as if neither applied.
+
+- [ ] **Word-level caption timing.** Captions currently follow transcript
+  cues, which is a sentence-level rhythm. Word-level pop timing reads as
+  considerably more energetic and is what the format's conventions expect.
+
 ## Housekeeping
 
 - [ ] **GitHub sync and repo clean-up.** Several root scripts predate the
