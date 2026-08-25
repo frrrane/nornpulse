@@ -999,6 +999,7 @@ class VerdandiOrchestrator:
         source_ref: Optional[str] = None,
         channel_profile: Optional[Any] = None,
         opener_sec: float = 0.0,
+        rewatch_evidence: str = "",
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -1130,7 +1131,8 @@ class VerdandiOrchestrator:
                         "defaulting to the same hook type regardless of content. You have the actual "
                         "video attached, not just transcript text where one exists — weigh the real "
                         "vocal delivery and energy you observe, not just word content, when a hook_type "
-                        "implies a particular tone. AVOID THE SOURCE'S OWN TITLE "
+                        "implies a particular tone. " + (rewatch_evidence or "") +
+                        "AVOID THE SOURCE'S OWN TITLE "
                         "CARDS: a long video punctuates itself with full-screen "
                         "chapter headings and lower-third captions. Those are the "
                         "source's furniture, not its content -- they carry no "
@@ -1202,6 +1204,7 @@ class VerdandiOrchestrator:
         channel_subscribers: int = 0,
         channel_profile: Optional[Any] = None,
         opener_sec: float = 0.0,
+        rewatch_evidence: str = "",
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -1265,6 +1268,22 @@ class VerdandiOrchestrator:
                 _emit("transcribe", f"🗂️ {label}: extracting transcript...")
                 transcript_text = get_or_create_transcript(video_path)
 
+                # What viewers of the original actually scrubbed back to.
+                # Measured, about this exact video, and free -- it comes
+                # from the same metadata probe the download already makes.
+                rewatch_evidence = ""
+                try:
+                    from agent import heatmap as hm
+                    moments = hm.fetch(url)
+                    rewatch_evidence = hm.describe(
+                        moments, duration_sec=probed_duration or None)
+                    if rewatch_evidence:
+                        logger.info(
+                            f"Most-replayed graph: {len(moments)} buckets, "
+                            f"{len(hm.peaks(moments))} peaks worth naming.")
+                except Exception as e:
+                    logger.info(f"No re-watch evidence for {url}: {str(e)[:100]}")
+
                 # Re-emit the inner pipeline's stage events with the batch
                 # prefix, so the stepper keeps lighting up the right Norn
                 # while also saying which video it's on.
@@ -1289,6 +1308,7 @@ class VerdandiOrchestrator:
                     source_ref=url,
                     channel_profile=channel_profile,
                     opener_sec=opener_sec,
+                    rewatch_evidence=rewatch_evidence,
                     progress_callback=_relay,
                 )
                 all_clips.extend(clips)
