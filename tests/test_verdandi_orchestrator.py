@@ -661,3 +661,90 @@ def test_full_width_graphics_exclude_the_side_cropping_modes():
     assert "SIDE_CROPPING_MODES" in source
     # The channel's own exclusions must survive alongside the segment's.
     assert "list(avoid_crop or [])" in source
+
+
+# --------------------------------------------------------------------------
+# Cutting on the hook
+#
+# snap_to_sentences stops a clip beginning mid-word, which is not the same
+# as beginning well. A Short has about a second to justify itself, and that
+# second is spent very differently by "More than twenty lunar landings are
+# planned" than by "And so that means the lander will need more fuel".
+# --------------------------------------------------------------------------
+
+HOOK_TRANSCRIPT = "\n".join([
+    "[00:10] And so that means the lander will need more fuel.",
+    "[00:14] More than twenty lunar landings are planned this decade.",
+    "[00:20] It weighs forty tons.",
+])
+
+
+@pytest.mark.parametrize("line,fragment", [
+    ("And so that means the lander needs fuel.", "And"),
+    ("But the temperature swings wildly.", "But"),
+    ("So NASA built a second one.", "So"),
+    ("Because the surface is unstable.", "Because"),
+    ("However, that plan changed.", "However"),
+    ("Basically it comes down to mass.", "Basically"),
+])
+def test_a_backward_referring_opener_is_flagged(line, fragment):
+    from agent.verdandi_orchestrator import weak_opening
+    problem = weak_opening(line)
+    assert problem and fragment in problem
+
+
+@pytest.mark.parametrize("line", [
+    "It weighs forty tons.",
+    "They never came back.",
+    "This is the hard part.",
+    "There is no atmosphere.",
+])
+def test_a_pronoun_with_no_referent_is_flagged(line):
+    from agent.verdandi_orchestrator import weak_opening
+    assert "refer" in (weak_opening(line) or "")
+
+
+def test_a_mid_sentence_opener_is_flagged():
+    from agent.verdandi_orchestrator import weak_opening
+    assert weak_opening("than twenty lunar landings are planned.") == "opens mid-sentence"
+
+
+@pytest.mark.parametrize("line", [
+    "More than twenty lunar landings are planned this decade.",
+    "NASA plans a permanent base at the lunar south pole.",
+    "Why is the far side so difficult to reach?",
+    "Temperatures swing three hundred degrees.",
+])
+def test_a_strong_opener_passes(line):
+    from agent.verdandi_orchestrator import weak_opening
+    assert weak_opening(line) is None
+
+
+def test_an_empty_line_is_not_a_complaint():
+    """No transcript is a different problem, and not this one's to report."""
+    from agent.verdandi_orchestrator import weak_opening
+    assert weak_opening("") is None
+    assert weak_opening("   ") is None
+
+
+def test_the_opening_line_is_read_from_the_cut_point():
+    from agent.verdandi_orchestrator import clip_opening_line
+    assert clip_opening_line(HOOK_TRANSCRIPT, 14).startswith("More than twenty")
+    assert clip_opening_line(HOOK_TRANSCRIPT, 20).startswith("It weighs")
+
+
+def test_a_cut_landing_just_before_a_cue_still_finds_it():
+    """
+    Cut points are snapped and clamped, so they rarely equal a cue time
+    exactly. Half a second of tolerance keeps a near-miss from reporting
+    the wrong line.
+    """
+    from agent.verdandi_orchestrator import clip_opening_line
+    assert clip_opening_line(HOOK_TRANSCRIPT, 14.4).startswith("More than twenty")
+
+
+def test_the_weak_cut_and_the_strong_cut_are_told_apart():
+    """The two cut points that matter, on the same transcript."""
+    from agent.verdandi_orchestrator import clip_opening_line, weak_opening
+    assert weak_opening(clip_opening_line(HOOK_TRANSCRIPT, 10)) is not None
+    assert weak_opening(clip_opening_line(HOOK_TRANSCRIPT, 14)) is None

@@ -173,6 +173,58 @@ def snap_to_sentences(start_sec: float, end_sec: float, transcript_text: str,
     return snapped_start, snapped_end
 
 
+# Words that, as the first thing a viewer hears, tell them they have walked
+# in halfway through. A Short has about one second to justify itself, and it
+# is spent differently by "More than twenty lunar landings" than by "And so
+# that means the lander will need...".
+#
+# Conjunctions and discourse markers are the clearest tell: they explicitly
+# refer back to something the viewer did not hear.
+_WEAK_FIRST_WORD = re.compile(
+    r"^\s*(and|but|so|or|because|which|then|also|well|now|anyway|however|"
+    r"therefore|thus|plus|although|though|since|while|whereas|meanwhile|"
+    r"basically|actually|essentially|obviously)\b", re.I)
+
+# Pronouns with no referent yet. "It weighs forty tons" is a fine sentence
+# and a poor opening line, because nobody knows what "it" is.
+_ORPHAN_PRONOUN = re.compile(
+    r"^\s*(it|this|that|these|those|they|them|he|she|his|her|their|there)\b",
+    re.I)
+
+
+def clip_opening_line(transcript_text: str, start_sec: float) -> str:
+    """The first thing spoken at or after the cut point."""
+    for time_sec, text in parse_cues(transcript_text):
+        if time_sec >= start_sec - 0.5 and text.strip():
+            return text.strip()
+    return ""
+
+
+def weak_opening(line: str) -> Optional[str]:
+    """
+    Why this opening line will lose a viewer, or None if it will not.
+
+    Deterministic, because the instruction telling the model to open
+    strongly is an instruction and not a control — the same reason the
+    rights check has a pattern net under its model call. A reviewer should
+    see this before the clip is rendered rather than after watching it.
+    """
+    line = (line or "").strip()
+    if not line:
+        return None
+
+    if _WEAK_FIRST_WORD.match(line):
+        first = line.split()[0].rstrip(",.")
+        return (f"opens on {first!r}, which refers back to something the "
+                f"viewer has not heard")
+    if _ORPHAN_PRONOUN.match(line):
+        first = line.split()[0].rstrip(",.")
+        return (f"opens on {first!r} with nothing for it to refer to yet")
+    if line[:1].islower():
+        return "opens mid-sentence"
+    return None
+
+
 def unique_clip_id(clip_id: str, output_dir: str | Path) -> str:
     """
     Make a clip id that no previous run has already used on disk.
@@ -550,11 +602,23 @@ class VerdandiADK:
             # ultimately trust, independent of whatever the model's final
             # text summary says — so a malformed closing JSON response can
             # never orphan a clip that actually rendered successfully.
+            # What the viewer actually hears first, and whether it will
+            # lose them. Recorded on the clip so a reviewer sees it in the
+            # staging email rather than discovering it by watching.
+            opening = clip_opening_line(
+                resolved_transcript, parse_time_to_seconds(start_time))
+            opening_problem = weak_opening(opening)
+            if opening_problem:
+                logger.warning(
+                    f"{clip_id}: weak opening line — {opening_problem}: {opening[:70]!r}")
+
             rendered_clips.append(
                 {
                     "clip_id": clip_id,
                     "start_time": start_time,
                     "end_time": end_time,
+                    "opening_line": opening,
+                    "opening_problem": opening_problem,
                     "output_video_path": result["output_video_path"],
                     "has_subtitles": result["has_subtitles"],
                     "has_bragi_score": result.get("has_bragi_score", False),
@@ -1010,7 +1074,16 @@ class VerdandiADK:
                         "defaulting to the same hook type regardless of content. You have the actual "
                         "video attached, not just transcript text where one exists — weigh the real "
                         "vocal delivery and energy you observe, not just word content, when a hook_type "
-                        "implies a particular tone. Since you can see the frames, you are "
+                        "implies a particular tone. CUT ON THE HOOK: a Short has about "
+                        "one second to justify itself, so start_time must land on the most "
+                        "arresting line available in the segment, not on the chronological "
+                        "start of the thought that contains it. A first line beginning with "
+                        "\"And\", \"So\", \"But\", \"Because\", \"Now\" or a pronoun with "
+                        "nothing to refer to yet tells the viewer they walked in halfway "
+                        "through, and they leave. Prefer a line carrying a number, a "
+                        "superlative, a question or a concrete noun; move start_time "
+                        "forward to reach one, and let the setup arrive afterwards or not "
+                        "at all. Since you can see the frames, you are "
                         "also the only part of this pipeline that knows whether a segment "
                         "carries burned-in titles, captions or labelled diagrams running "
                         "close to the left and right edges — look, and set "
