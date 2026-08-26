@@ -17,13 +17,18 @@ through YouTube Studio throws away the three things worth having:
   * an outcome row that stats sync fills in, which is what makes the
     forecast checkable at all
 
-Publications are marked source='external' so they never count toward
-NornPulse's own track record. The forecast is still logged and still
-graded: a forecast is a claim about a channel, and any video that channel
-publishes tests it.
+Publications default to source='external' so they never count toward
+NornPulse's own track record; pass --source generated for a file this
+pipeline did make. The forecast is logged and graded either way: a
+forecast is a claim about a channel, and any video that channel publishes
+tests it.
 
-    python publish_file.py slop.mp4 --title "..." --channel sloptokdaily
+    python publish_file.py slop.mp4 --title "..." --channel sloptokdaily --stage
     python publish_file.py slop.mp4 --title "..." --dry-run
+
+--stage emails the clip for approval instead of uploading it, and is the
+reviewed path; check_approvals.py picks the reply up. Without it the
+upload happens immediately.
 
 Uploading costs 1,600 YouTube quota units against a 10,000/day budget, so
 roughly six uploads a day is the ceiling.
@@ -75,6 +80,13 @@ def main() -> int:
                     choices=["private", "unlisted", "public"])
     ap.add_argument("--thumbnail", default=None, help="optional custom thumbnail")
     ap.add_argument("--hook-type", default="", help="hook taxonomy label, if known")
+    ap.add_argument("--stage", action="store_true",
+                    help="email for approval instead of uploading; reply "
+                         "APPROVE, then run check_approvals.py")
+    ap.add_argument("--source", default="external",
+                    choices=["external", "generated"],
+                    help="'generated' if this pipeline made the file, so it "
+                         "counts toward NornPulse's own track record")
     ap.add_argument("--no-guard", action="store_true",
                     help="skip the rights check on the title and tags")
     ap.add_argument("--dry-run", action="store_true",
@@ -120,7 +132,11 @@ def main() -> int:
         print("   ⚠️  ffprobe could not read this file; publishing anyway")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    clip_id = unique_clip_id(f"ext_{video.stem}"[:48], OUTPUT_DIR)
+    # The prefix follows --source, because the id is what shows up in the
+    # approval email and in ClickHouse, and calling a clip this pipeline
+    # generated "ext_" is a lie told in the one place someone reads it.
+    prefix = "gen" if args.source == "generated" else "ext"
+    clip_id = unique_clip_id(f"{prefix}_{video.stem}"[:48], OUTPUT_DIR)
 
     # The minimum a clip needs to be tagged: tag selection reads the title
     # and caption, and nothing else about a video it did not produce.
@@ -166,6 +182,47 @@ def main() -> int:
         print(f"\n(dry run — nothing uploaded, clip_id would be {clip_id})")
         return 0
 
+    if args.stage:
+        # The sidecar goes down before the email does. check_approvals.py
+        # looks the clip up by id when the reply lands, so an approval whose
+        # sidecar was never written is a dead end — the reply is read, the
+        # clip cannot be found, and the decision is lost.
+        clip_record = dict(clip)
+        clip_record.update({
+            "output_video_path": str(video.resolve()),
+            "virality_score": 0.0,
+            "source": args.source,
+            "tags": tags,
+            "thumbnail_path": args.thumbnail,
+        })
+        if not args.no_guard:
+            clip_record["rights_check"] = (
+                f"{verdict.level.upper()} — {verdict.summary()}")
+            clip_record["rights_not_checked"] = ", ".join(verdict.checks_not_run)
+        else:
+            clip_record["rights_check"] = "skipped (--no-guard)"
+        if forecast:
+            clip_record["forecast_p50"] = f"{forecast['p50']:,.0f} views"
+            clip_record["forecast_range"] = (
+                f"{forecast['p10']:,.0f} - {forecast['p90']:,.0f} views")
+
+        sidecar = OUTPUT_DIR / f"{clip_id}_metadata.json"
+        sidecar.write_text(json.dumps(clip_record, indent=2), encoding="utf-8")
+
+        print(f"\n📧 Emailing {clip_id} for approval...")
+        ok = publisher.send_gmail_staged_approval(
+            clip_id=clip_id, title=args.title, virality=0.0,
+            video_path=str(video), clip=clip_record)
+        if not ok:
+            print(f"❌ Could not send the staging email — see logs. The clip is "
+                  f"still at {video}")
+            return 1
+        print("✅ sent. Reply APPROVE or REJECT, then run:")
+        print(f"   python check_approvals.py --channel {channel.slug} "
+              f"--privacy {args.privacy}")
+        return 0
+
+    print(f"\n⚠️  Uploading directly, without review. --stage is the reviewed path.")
     print(f"\n⬆️  Uploading as {args.privacy}...")
     try:
         res = publisher.upload_to_youtube_shorts(
@@ -175,7 +232,7 @@ def main() -> int:
             privacy_status=args.privacy,
             thumbnail_path=args.thumbnail,
             clip=clip,
-            source="external",
+            source=args.source,
         )
     except PublishError as e:
         print(f"❌ {e}")
