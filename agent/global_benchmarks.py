@@ -167,7 +167,11 @@ def materialise_fact(fact: Fact) -> Optional[pd.DataFrame]:
     """
     logger.info(f"Materialising '{fact.dimension}' (1/{fact.divisor} sample)...")
     try:
-        df = ch.run_query_df(_fact_query(fact))
+        # Guardrails off: this deliberately scans the public 4.56-billion-row
+        # dataset through remoteSecure, which is exactly the shape of read
+        # the default limits exist to stop. It is a seeding job run by hand,
+        # not an agent-written query.
+        df = ch.run_query_df(_fact_query(fact), guardrails=False)
     except Exception as e:
         logger.warning(f"Fact '{fact.dimension}' did not complete: {ch._unwrap_exception(e)[:200]}")
         return None
@@ -552,7 +556,11 @@ def materialise_hook_patterns() -> Optional[pd.DataFrame]:
     ensure_table()
     logger.info(f"Materialising hook patterns over {len(UPLOADER_WINDOWS) - 1} uploader windows...")
     try:
-        df = ch.run_query_df(hook_pattern_query())
+        # Guardrails off: this deliberately scans the public 4.56-billion-row
+        # dataset through remoteSecure, which is exactly the shape of read
+        # the default limits exist to stop. It is a seeding job run by hand,
+        # not an agent-written query.
+        df = ch.run_query_df(hook_pattern_query(), guardrails=False)
     except Exception as e:
         logger.warning(f"Hook-pattern fact did not complete: {ch._unwrap_exception(e)[:200]}")
         return None
@@ -678,7 +686,11 @@ def materialise_age_curve() -> Optional[pd.DataFrame]:
     ensure_table()
     logger.info("Materialising the view-growth curve by video age...")
     try:
-        df = ch.run_query_df(age_curve_query())
+        # Guardrails off: this deliberately scans the public 4.56-billion-row
+        # dataset through remoteSecure, which is exactly the shape of read
+        # the default limits exist to stop. It is a seeding job run by hand,
+        # not an agent-written query.
+        df = ch.run_query_df(age_curve_query(), guardrails=False)
     except Exception as e:
         logger.warning(f"Age-curve fact did not complete: {ch._unwrap_exception(e)[:200]}")
         return None

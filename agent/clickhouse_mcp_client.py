@@ -29,6 +29,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import threading
@@ -384,12 +385,70 @@ def sql_literal(value: Any) -> str:
     return f"'{escaped}'"
 
 
-def run_query(query: str) -> Dict[str, Any]:
+# Guardrails against a runaway agent query.
+#
+# Verdandi and the dashboard both put model-written or model-parameterised
+# SQL in front of a warehouse holding a 4.56-billion-row table, which is
+# exactly the case ClickHouse warned about in the hackathon build session:
+# an LLM that phrases a question slightly wrong can ask for a scan that
+# never returns, or for a result set large enough to exhaust the client.
+#
+# Chosen to be far above anything the pipeline legitimately does -- the
+# largest local table holds a few hundred rows -- so hitting one of these
+# means something has genuinely gone wrong rather than that a real query
+# was too ambitious.
+MAX_EXECUTION_TIME_SEC = int(os.getenv("CLICKHOUSE_MAX_EXECUTION_TIME", "60"))
+MAX_RESULT_ROWS = int(os.getenv("CLICKHOUSE_MAX_RESULT_ROWS", "100000"))
+MAX_ROWS_TO_READ = int(os.getenv("CLICKHOUSE_MAX_ROWS_TO_READ", "2000000000"))
+
+# Overflow modes are set explicitly rather than left to the server default.
+# The alternative to 'throw' is 'break', which stops early and returns a
+# *partial* result with no indication that it did -- a truncated aggregate
+# looks exactly like a real one, and this project would then publish a
+# number nobody measured. Failing loudly is the only acceptable behaviour.
+_GUARDRAILS = (
+    f"max_execution_time={MAX_EXECUTION_TIME_SEC}, "
+    f"max_result_rows={MAX_RESULT_ROWS}, "
+    f"max_rows_to_read={MAX_ROWS_TO_READ}, "
+    f"result_overflow_mode='throw', read_overflow_mode='throw', "
+    f"timeout_overflow_mode='throw'"
+)
+
+_READ_STATEMENT = re.compile(r"^\s*(SELECT|WITH)\b", re.I)
+
+
+def apply_guardrails(query: str) -> str:
+    """
+    Append resource limits to a read query.
+
+    Only reads: a SETTINGS clause on an INSERT or an ALTER either means
+    something different or is a syntax error, and the runaway risk is
+    reading rather than writing.
+
+    A query that already carries its own SETTINGS is left alone. Appending
+    a second clause is invalid SQL, and a caller who wrote one has thought
+    about limits more recently than this default has.
+    """
+    stripped = query.strip().rstrip(";").rstrip()
+    if not _READ_STATEMENT.match(stripped):
+        return query
+    if re.search(r"\bSETTINGS\b", stripped, re.I):
+        return query
+    return f"{stripped}\nSETTINGS {_GUARDRAILS}"
+
+
+def run_query(query: str, guardrails: bool = True) -> Dict[str, Any]:
     """
     Executes SQL via the official ClickHouse MCP server. Returns the
     parsed {"columns": [...], "rows": [[...], ...]} dict for SELECTs, or
     {} for statements with no result set (CREATE TABLE, INSERT).
+
+    Read queries carry resource limits unless `guardrails=False`. The one
+    caller that legitimately needs them off is the benchmark seeding job,
+    which scans the public 4.56-billion-row dataset on purpose.
     """
+    if guardrails:
+        query = apply_guardrails(query)
     raw = _call_tool("run_query", {"query": query})
     if not raw or not raw.strip():
         return {}
@@ -400,9 +459,9 @@ def run_query(query: str) -> Dict[str, Any]:
         return {"raw": raw}
 
 
-def run_query_df(query: str) -> pd.DataFrame:
+def run_query_df(query: str, guardrails: bool = True) -> pd.DataFrame:
     """Runs a SELECT via MCP and returns the result as a DataFrame."""
-    data = run_query(query)
+    data = run_query(query, guardrails=guardrails)
     columns = data.get("columns", [])
     rows = data.get("rows", [])
     if not columns:
