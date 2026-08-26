@@ -283,6 +283,40 @@ def _material_icon(name: str, size: str = "1.05rem") -> str:
             f"line-height:1;\">{name}</span>")
 
 
+# Hand-drawn, not traced from the brand-board JPEGs someone dropped in the
+# repo -- those are AI moodboard exports (grid, fake nav links, "ITERATION
+# 7" labels, file-format badges baked into the raster), not an isolated
+# mark on its own. NornPulse's is the same bead-on-a-thread the hero
+# graphic and fate_thread() draw, in the same two tokens the whole palette
+# already reserves for exactly this (copper = human/action, thread =
+# measured/real). NornLabs' is two interlocking hexagons in the same pair,
+# echoing the source board's own two-hex "N" without its specific
+# colourway. Both take a target width and derive height from their own
+# fixed aspect ratio, so callers can size them to match a text line
+# without the two marks drifting out of proportion with each other.
+def _nornpulse_mark(width: int) -> str:
+    h = round(width * 30 / 60)
+    return (f"<svg width='{width}' height='{h}' viewBox='0 0 60 30'>"
+            "<path d='M2,15 C12,2 18,28 30,15 C42,2 48,28 58,15' fill='none' "
+            "stroke='var(--thread)' stroke-width='3' stroke-linecap='round'/>"
+            "<path d='M2,15 C12,28 18,2 30,15 C42,28 48,2 58,15' fill='none' "
+            "stroke='var(--copper)' stroke-width='3' stroke-linecap='round'/>"
+            "<circle cx='2' cy='15' r='3' fill='var(--bone)'/>"
+            "<circle cx='30' cy='15' r='3' fill='var(--bone)'/>"
+            "<circle cx='58' cy='15' r='3' fill='var(--bone)'/>"
+            "</svg>")
+
+
+def _nornlabs_mark(width: int) -> str:
+    h = round(width * 40 / 40)
+    return (f"<svg width='{width}' height='{h}' viewBox='0 0 40 40'>"
+            "<path d='M13,3 L21.66,8 L21.66,18 L13,23 L4.34,18 L4.34,8 Z' fill='none' "
+            "stroke='var(--copper)' stroke-width='2'/>"
+            "<path d='M27,17 L35.66,22 L35.66,32 L27,37 L18.34,32 L18.34,22 Z' fill='none' "
+            "stroke='var(--thread)' stroke-width='2'/>"
+            "</svg>")
+
+
 def fate_thread(p10: float, p50: float, p90: float,
                 actual: Optional[float] = None, label: str = "") -> str:
     """
@@ -680,11 +714,21 @@ if "_transcript_source_video" not in st.session_state:
 # The ClickHouse banner below is deliberately still global — a silently
 # degraded connection has to be visible wherever you are.
 with st.sidebar:
+    # Both marks share one icon column width (28px, flex-shrink:0) so
+    # "NornPulse" and "Norn Labs" start at the same x regardless of each
+    # mark's own aspect ratio -- inline icon+text left them ragged, since
+    # a 44px-wide mark and a 24px-wide one push their labels to different
+    # start points even sharing a left edge.
     st.markdown(
         "<div style='padding:.35rem 0 .9rem 0;'>"
-        "<div style='font-family:var(--display);font-weight:800;font-size:1.22rem;"
-        "letter-spacing:-.02em;'>NornPulse</div>"
-        "<div class='eyebrow'>Norn Labs</div></div>", unsafe_allow_html=True)
+        "<div style='display:flex;align-items:center;gap:.5rem;'>"
+        f"<span style='display:inline-flex;width:28px;flex-shrink:0;'>{_nornpulse_mark(28)}</span>"
+        "<span style='font-family:var(--display);font-weight:800;font-size:1.22rem;"
+        "letter-spacing:-.02em;'>NornPulse</span></div>"
+        "<div style='display:flex;align-items:center;gap:.5rem;margin-top:.3rem;'>"
+        f"<span style='display:inline-flex;width:28px;flex-shrink:0;'>{_nornlabs_mark(26)}</span>"
+        "<span class='eyebrow'>Norn Labs</span></div>"
+        "</div>", unsafe_allow_html=True)
 
 # Global ClickHouse health banner, deliberately ABOVE the tabs so it's
 # visible no matter which tab is open. Urðr degrades to in-memory
@@ -758,7 +802,9 @@ def page_home():
         "</svg>"
         "<div style='position:relative;z-index:1;'>"
         "<div class='eyebrow'>Norn Labs · autonomous short-form engine</div>"
-        "<h1 style='margin:.15rem 0 .1rem 0;font-size:2.5rem;line-height:1.03;'>NornPulse</h1>"
+        "<div style='display:flex;align-items:center;gap:.7rem;margin:.15rem 0 .1rem 0;'>"
+        f"{_nornpulse_mark(64)}"
+        "<h1 style='margin:0;font-size:2.5rem;line-height:1.03;'>NornPulse</h1></div>"
         f"<p style='color:var(--bone-dim);max-width:56ch;margin:0 0 1.4rem 0;'>"
         f"Every cut, caption and cover is chosen against "
         f"<span style='font-family:var(--data);color:var(--thread);'>{grounded}</span> "
@@ -898,7 +944,10 @@ def page_home():
                     + [c for c in clips if c["state"] == rq.PENDING])
         for clip in showcase[:3]:
             meta = clip["metadata"]
-            c1, c2 = st.columns([1, 3], gap="medium")
+            # A 9:16 thumbnail at this width runs ~195px tall against two
+            # short lines of text -- top-aligned columns left the text
+            # stranded at the top with dead space below it.
+            c1, c2 = st.columns([1, 3], gap="medium", vertical_alignment="center")
             with c1:
                 if clip["thumbnail_path"]:
                     st.image(clip["thumbnail_path"], width=110)
@@ -906,7 +955,7 @@ def page_home():
                 st.markdown(f"**{meta.get('hook_title') or clip['clip_id']}**")
                 bits = [clip["state"]]
                 if meta.get("hook_type"):
-                    bits.append(f"`{meta['hook_type']}`")
+                    bits.append(f"`{_humanize_hook_type(meta['hook_type'])}`")
                 if (clip.get("decision") or {}).get("youtube_url"):
                     bits.append(f"[watch]({clip['decision']['youtube_url']})")
                 st.caption(" · ".join(bits))
@@ -1610,7 +1659,8 @@ def page_review():
                     facts.append(f"**{meta['virality_score']}**/100 virality")
                 if meta.get("hook_type"):
                     rank = meta.get("hook_rank")
-                    facts.append(f"hook `{meta['hook_type']}`" + (f" (Urðr #{rank})" if rank else ""))
+                    facts.append(f"hook `{_humanize_hook_type(meta['hook_type'])}`"
+                                 + (f" (Urðr #{rank})" if rank else ""))
                 if meta.get("start_time"):
                     facts.append(f"cut {meta['start_time']}–{meta.get('end_time', '?')}")
                 if facts:
