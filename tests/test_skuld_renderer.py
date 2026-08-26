@@ -674,3 +674,52 @@ def test_every_millisecond_in_two_minutes_is_well_formed():
 
 def test_a_negative_time_is_floored_not_wrapped():
     assert sr.seconds_to_ass_time(-1.0) == "0:00:00.00"
+
+
+# --- captions match the words being spoken ---------------------------------
+#
+# Three clips were rejected for "mismatched subtitles". Verified against the
+# rendered clip's own audio: the burned caption read "were missing." while the
+# speaker said "And we didn't really" -- a full phrase out of step. A transcript
+# line carries a start time and nothing else, so splitting it into word-chunks
+# meant guessing each chunk's moment by character count across a window running
+# to the NEXT line's start, which the speaker reaches before the window closes.
+
+_LINES = (
+    "[00:10.000] first line with several words in it\n"
+    "[00:14.000] second line also with several words\n"
+    "[00:18.000] third line closes the sample\n"
+)
+
+
+def test_one_caption_per_transcript_line(tmp_path):
+    """A caption that is never split cannot drift against itself."""
+    out = tmp_path / "t.ass"
+    sr.generate_rebased_ass_subtitle_file(_LINES, out, 10.0, 22.0)
+    assert len(_boundary_times(out)) == 3
+
+
+def test_a_caption_holds_its_whole_line_window(tmp_path):
+    out = tmp_path / "t.ass"
+    sr.generate_rebased_ass_subtitle_file(_LINES, out, 10.0, 22.0)
+    times = sorted(_boundary_times(out))
+    assert times[0] == pytest.approx((0.0, 4.0), abs=0.02)
+    assert times[1] == pytest.approx((4.0, 8.0), abs=0.02)
+
+
+def test_each_caption_carries_its_line_intact(tmp_path):
+    out = tmp_path / "t.ass"
+    sr.generate_rebased_ass_subtitle_file(_LINES, out, 10.0, 22.0)
+    body = out.read_text(encoding="utf-8-sig")
+    for phrase in ("first line with several words in it",
+                   "second line also with several words"):
+        assert phrase in _re.sub(r"\{[^}]*\}", "", body)
+
+
+def test_word_chunking_stays_off_until_word_timings_exist():
+    """
+    Guards the decision, not the code. The kinetic reveal is the nicer look
+    and cannot be timed honestly from line-level timestamps; turning it back
+    on needs real per-word times from transcription.
+    """
+    assert sr.WORD_CHUNK_CAPTIONS is False

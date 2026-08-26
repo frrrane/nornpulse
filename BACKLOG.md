@@ -18,6 +18,13 @@ submission is **Wed 9 September 2026, 2pm PDT**.
 
 ## Next
 
+- [ ] **Word-level caption timings.** Captions are one-per-line because a
+  transcript line carries a start time and nothing else, so the kinetic
+  word-chunk reveal had to guess each chunk's moment by character count and
+  lagged the audio by about a chunk by mid-line — three clips were rejected
+  for it. Ask the transcription model for per-word timestamps, then set
+  `skuld_renderer.WORD_CHUNK_CAPTIONS = True` to restore the reveal honestly.
+
 - [ ] **Scheduled staging.** `agent/norn_cron.py` exists but nothing imports it,
   and its body predates the trend loop — wiring it up means rewriting it against
   `trend_publish.py --stage`. Deliberately staging-only: a timer that fills a

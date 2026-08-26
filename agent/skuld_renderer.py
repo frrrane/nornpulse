@@ -358,6 +358,23 @@ def _kinetic_prefix(crazy: float) -> str:
     return "{" + tags + "}"
 
 
+# Whether to split a transcript line into word-chunks that reveal in
+# sequence, or show the line as one caption for its whole window.
+#
+# The kinetic reveal is the nicer look and it is off, because it cannot be
+# done honestly with the timing data available. A transcript line carries a
+# start time and nothing else, so each chunk's moment is guessed by
+# character count across a window that runs to the *next* line's start --
+# and the speaker finishes before then and pauses. Measured against the
+# clip's own audio, the chunks lagged by about one chunk by mid-line: the
+# caption read "were missing." while the audio said "And we didn\'t really".
+# Three clips were rejected for it.
+#
+# One caption per line cannot drift within itself. Turning this back on
+# needs real word-level timings from transcription, not a better guess.
+WORD_CHUNK_CAPTIONS = False
+
+
 def _words_per_chunk(crazy: float) -> int:
     """
     How many words reveal at once, per caption event. Ties directly into
@@ -490,7 +507,7 @@ def generate_rebased_ass_subtitle_file(
 
     style_line, secondary_bgr_hex = _build_style_line(warmth, crazy, caption_font)
     kinetic_prefix = _kinetic_prefix(crazy)
-    words_per_chunk = _words_per_chunk(crazy)
+    words_per_chunk = _words_per_chunk(crazy) if WORD_CHUNK_CAPTIONS else 0
 
     ass_content = f"""[Script Info]
 ScriptType: v4.00+
@@ -578,7 +595,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\
         if not clean_text:
             continue
 
-        chunks = _chunk_words(clean_text, words_per_chunk)
+        # words_per_chunk == 0 means "do not split": the line is one caption
+        # held across its own window, which is the only claim the timing data
+        # actually supports.
+        chunks = (_chunk_words(clean_text, words_per_chunk)
+                  if words_per_chunk else [clean_text])
         chunk_times = _distribute_chunk_times(chunks, rel_start, rel_end)
 
         for chunk_text, (chunk_start, chunk_end) in zip(chunks, chunk_times):
