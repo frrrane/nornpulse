@@ -15,6 +15,8 @@ import re
 
 import pytest
 
+from agent import skuld_renderer as sr
+
 from agent.skuld_renderer import (
     SkuldRenderer,
     _chunk_words,
@@ -573,3 +575,63 @@ def test_every_advertised_face_is_actually_present():
     if missing == set(text_fit.DISPLAY_FACES):
         pytest.skip("bundled fonts not fetched")
     assert not missing, f"advertised but absent: {sorted(missing)}"
+
+
+# --- captions at the clip boundary -----------------------------------------
+#
+# Two clips were rejected for out-of-sync subtitles. The cause was clamping a
+# line's window to the clip *before* distributing its words across it: a line
+# starting a second early had its words squeezed into the remainder, so text
+# whose audio had already played appeared at 0.00 and raced, and a line running
+# past the end was crushed the same way into 0.16s flashes.
+
+_STRADDLE = (
+    "[00:59 - 01:03] words spoken before the cut begins here now\n"
+    "[01:03 - 01:07] fully inside the clip window and unremarkable\n"
+    "[01:09 - 01:14] this line runs off the end of the clip entirely\n"
+)
+
+
+def _boundary_times(path):
+    out = []
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        if not line.startswith("Dialogue:"):
+            continue
+        f = line.split(",")
+        def sec(x):
+            h, m, s = x.split(":")
+            return int(h) * 3600 + int(m) * 60 + float(s)
+        out.append((sec(f[1]), sec(f[2])))
+    return out
+
+
+def test_no_caption_is_crushed_at_the_boundary(tmp_path):
+    out = tmp_path / "t.ass"
+    sr.generate_rebased_ass_subtitle_file(_STRADDLE, out, 60.0, 72.0)
+    times = _boundary_times(out)
+    assert times, "expected captions inside the window"
+    shortest = min(e - s for s, e in times)
+    assert shortest >= sr.MIN_VISIBLE_CHUNK_SEC
+
+
+def test_captions_stay_inside_the_clip(tmp_path):
+    out = tmp_path / "t.ass"
+    sr.generate_rebased_ass_subtitle_file(_STRADDLE, out, 60.0, 72.0)
+    for start, end in _boundary_times(out):
+        assert 0.0 <= start < end <= 12.0
+
+
+def test_captions_never_overlap(tmp_path):
+    """Trimming must not leave two chunks on screen at once."""
+    out = tmp_path / "t.ass"
+    sr.generate_rebased_ass_subtitle_file(_STRADDLE, out, 60.0, 72.0)
+    times = sorted(_boundary_times(out))
+    for (_, prev_end), (next_start, _) in zip(times, times[1:]):
+        assert next_start >= prev_end - 0.01
+
+
+def test_a_line_entirely_outside_the_window_is_dropped(tmp_path):
+    out = tmp_path / "t.ass"
+    sr.generate_rebased_ass_subtitle_file(
+        "[00:10 - 00:14] nowhere near the clip\n", out, 60.0, 72.0)
+    assert _boundary_times(out) == []

@@ -365,6 +365,11 @@ def _chunk_words(text: str, words_per_chunk: int) -> List[str]:
     return [" ".join(words[i:i + words_per_chunk]) for i in range(0, len(words), words_per_chunk)]
 
 
+# Below this a surviving fragment of a boundary-straddling chunk flashes
+# instead of reading, so it is dropped rather than shown.
+MIN_VISIBLE_CHUNK_SEC = 0.18
+
+
 def _distribute_chunk_times(
     chunks: List[str], rel_start: float, rel_end: float, min_chunk_dur: float = 0.28,
 ) -> List[Tuple[float, float]]:
@@ -530,8 +535,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\
         if max(abs_start, clip_start_sec) >= min(abs_end, clip_end_sec):
             continue
 
-        rel_start = max(0.0, abs_start - clip_start_sec)
-        rel_end = min(clip_duration, abs_end - clip_start_sec)
+        # The line's true position, NOT yet clamped to the clip.
+        #
+        # Clamping first and distributing afterwards is what desynced the
+        # captions. A line starting a second before the cut had its words
+        # squeezed into the remaining fraction, so text whose audio had
+        # already played appeared at 0.00 and raced; a line running past
+        # the end was crushed the same way, giving 0.16s chunks at the
+        # tail. Words are laid out at their real pace here and trimmed
+        # afterwards, so what survives sits where it is actually spoken.
+        rel_start = abs_start - clip_start_sec
+        rel_end = abs_end - clip_start_sec
 
         # Strip bracketed timestamp tags, e.g. "[00:12 - 00:16]"
         clean_text = re.sub(r"\[.*?\]", "", line)
@@ -557,6 +571,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\
         chunk_times = _distribute_chunk_times(chunks, rel_start, rel_end)
 
         for chunk_text, (chunk_start, chunk_end) in zip(chunks, chunk_times):
+            # Drop chunks spoken outside the clip, and trim the one that
+            # straddles each edge rather than sliding it inward.
+            if chunk_end <= 0.0 or chunk_start >= clip_duration:
+                continue
+            chunk_start = max(0.0, chunk_start)
+            chunk_end = min(clip_duration, chunk_end)
+            if chunk_end - chunk_start < MIN_VISIBLE_CHUNK_SEC:
+                # A sliver left at an edge flashes rather than reads.
+                continue
             if chunk_end <= chunk_start:
                 continue
             highlighted = _highlight_emphasis_word(chunk_text, secondary_bgr_hex)
