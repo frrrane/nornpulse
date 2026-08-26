@@ -1645,13 +1645,29 @@ def page_intelligence():
     with col_a1: st.metric("ADK Reasoning Engine", "Active 🟢")
     with col_a2:
         if not outcomes_df.empty and "youtube_video_id" in outcomes_df.columns:
-            published = int(outcomes_df["youtube_video_id"].nunique())
+            st.metric("Published Shorts", int(outcomes_df["youtube_video_id"].nunique()))
+        elif st.session_state.published_count:
+            st.metric("Published Shorts", st.session_state.published_count)
         else:
-            published = st.session_state.published_count
-        st.metric("Published Shorts", published)
+            # "0" here is a lie that looks like a measurement. The warehouse
+            # was unreachable, so the count is unknown -- and on the public
+            # demo it read 0 while the panels further down the same page
+            # said "11 of 11 published clip(s)", which is how a reviewer
+            # finds out the top of the page is not talking to the same
+            # source as the bottom.
+            st.metric("Published Shorts", "—")
+            st.caption("not measured — warehouse unreachable")
     with col_a3:
-        avg_retention = float(benchmarks_df["avg_3s_retention"].mean()) if not benchmarks_df.empty else 0.0
-        st.metric("Avg. 3s Retention", f"{avg_retention:.1f}%")
+        # Same rule as Grounding Alignment beside it: an em dash where there
+        # is nothing to average. "0.0%" reads as a measured floor rather than
+        # an absent benchmark, and this project's whole claim is that it says
+        # which is which.
+        if benchmarks_df.empty or "avg_3s_retention" not in benchmarks_df.columns:
+            st.metric("Avg. 3s Retention", "—")
+            st.caption("not measured — no benchmarks loaded")
+        else:
+            st.metric("Avg. 3s Retention",
+                      f"{float(benchmarks_df['avg_3s_retention'].mean()):.1f}%")
     with col_a4:
         st.metric("ClickHouse State", "Connected 🟢" if connected else "Fallback 🟡")
     with col_a5:
