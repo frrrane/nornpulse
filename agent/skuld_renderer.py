@@ -220,13 +220,24 @@ def measure_audio_mean_volume(video_path: str | Path, start_time: str, end_time:
 
 
 def seconds_to_ass_time(total_seconds: float) -> str:
-    """Converts total seconds into ASS time format 'H:MM:SS.cs'."""
+    """
+    Converts total seconds into ASS time format 'H:MM:SS.cs'.
+
+    Rounded to centiseconds *first*, then decomposed. Rounding the
+    fractional part on its own overflows: at 9.999 the fraction rounds to
+    100 centiseconds, which had nowhere to carry and printed as
+    "0:00:09.100" — three digits in a field that takes two. ASS timestamps
+    are fixed-width, so libass reads the malformed value as a different
+    time, and a caption lands somewhere it was never meant to. Every
+    caption whose edge fell in the last 5ms of a second was affected, and
+    at 59.999 the minute was wrong too.
+    """
     if total_seconds < 0:
         total_seconds = 0
-    h = int(total_seconds // 3600)
-    m = int((total_seconds % 3600) // 60)
-    s = int(total_seconds % 60)
-    cs = int(round((total_seconds - int(total_seconds)) * 100))
+    cs_total = int(round(total_seconds * 100))
+    h, rem = divmod(cs_total, 360_000)
+    m, rem = divmod(rem, 6_000)
+    s, cs = divmod(rem, 100)
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 

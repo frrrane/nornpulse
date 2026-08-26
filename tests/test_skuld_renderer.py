@@ -635,3 +635,42 @@ def test_a_line_entirely_outside_the_window_is_dropped(tmp_path):
     sr.generate_rebased_ass_subtitle_file(
         "[00:10 - 00:14] nowhere near the clip\n", out, 60.0, 72.0)
     assert _boundary_times(out) == []
+
+
+# --- ASS timestamps are fixed-width ----------------------------------------
+#
+# seconds_to_ass_time rounded the fractional part on its own, so at 9.999 the
+# fraction rounded to 100 centiseconds with nowhere to carry and printed
+# "0:00:09.100" -- three digits in a two-digit field. libass reads a malformed
+# fixed-width timestamp as a different time, so the caption landed somewhere it
+# was never meant to. Found in a staged clip, not by a test.
+
+_ASS_TIME = _re.compile(r"^\d+:\d{2}:\d{2}\.\d{2}$")
+
+
+@pytest.mark.parametrize("value,expected", [
+    (0.0, "0:00:00.00"),
+    (9.08, "0:00:09.08"),
+    (9.999, "0:00:10.00"),      # the regression: was 0:00:09.100
+    (59.999, "0:01:00.00"),     # carried into the minute
+    (3599.999, "1:00:00.00"),   # and into the hour
+    (12.0, "0:00:12.00"),
+])
+def test_ass_timestamps_carry_instead_of_overflowing(value, expected):
+    assert sr.seconds_to_ass_time(value) == expected
+
+
+@pytest.mark.parametrize("value", [0.0, 0.005, 9.999, 59.999, 61.4449, 3599.996])
+def test_ass_timestamps_are_always_well_formed(value):
+    assert _ASS_TIME.match(sr.seconds_to_ass_time(value))
+
+
+def test_every_millisecond_in_two_minutes_is_well_formed():
+    """The overflow only showed up in the last few ms of a second."""
+    bad = [i / 1000 for i in range(120_000)
+           if not _ASS_TIME.match(sr.seconds_to_ass_time(i / 1000))]
+    assert bad == []
+
+
+def test_a_negative_time_is_floored_not_wrapped():
+    assert sr.seconds_to_ass_time(-1.0) == "0:00:00.00"
