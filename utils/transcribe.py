@@ -5,6 +5,9 @@
 
 import os
 import logging
+import re
+import subprocess
+import tempfile
 from pathlib import Path
 from google import genai
 from google.genai import types
@@ -16,6 +19,46 @@ logger = logging.getLogger("nornpulse.transcribe")
 
 # Per-source cache. A transcript belongs to one video and nothing else.
 CACHE_DIR = Path("sample_data/transcripts")
+
+# How much video goes into one transcription call.
+#
+# Timestamps drift over a long video. Measured on a 22-minute NASA source
+# transcribed in a single call: accurate at 1, 5 and 10 minutes, then 88
+# SECONDS early by the 16-minute mark -- so a clip cut there was captioned
+# with words from a minute and a half earlier. Nothing downstream can
+# recover from that, and three separate caption fixes were made before the
+# timeline itself was checked.
+#
+# Chunking bounds the error instead of trying to correct it: each call sees
+# a short segment, and its timestamps are offset by where that segment
+# starts. Drift cannot accumulate past one chunk.
+TRANSCRIBE_CHUNK_SEC = 420.0
+
+# Below this a video is transcribed in one call, as before.
+TRANSCRIBE_CHUNK_THRESHOLD_SEC = 540.0
+
+_TIMESTAMP_RE = re.compile(r"\[(\d{1,3}):(\d{2}(?:\.\d+)?)\]")
+
+
+def _shift_timestamps(text: str, offset_sec: float) -> str:
+    """Rewrite every [MM:SS.mmm] in a chunk's transcript into source time."""
+    def bump(m):
+        total = int(m.group(1)) * 60 + float(m.group(2)) + offset_sec
+        return f"[{int(total // 60):02d}:{total % 60:06.3f}]"
+    return _TIMESTAMP_RE.sub(bump, text)
+
+
+def _segment(video_path: str, start: float, length: float, out: Path) -> bool:
+    """Cut one chunk out for transcription. Re-encoded, so the cut is exact."""
+    cmd = ["ffmpeg", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{length:.3f}",
+           "-i", str(video_path), "-c:v", "libx264", "-preset", "ultrafast",
+           "-crf", "32", "-c:a", "aac", "-y", str(out)]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, timeout=600)
+        return out.exists() and out.stat().st_size > 0
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        logger.warning(f"Could not cut {start:.0f}s-{start+length:.0f}s: {str(e)[:100]}")
+        return False
 
 class TranscriptionUnavailable(RuntimeError):
     """Raised when a transcript could not be produced for THIS video."""
@@ -66,37 +109,20 @@ def get_or_create_transcript(video_path: str) -> str:
     logger.info(f"Reading {video_path} locally for GenAI analysis...")
     
     try:
-        with open(video_path, "rb") as f:
-            video_bytes = f.read()
-            
-        # Using chat/structured approach or explicit system instructions to enforce timestamps
-        response = client.models.generate_content(
-            model=transcribe_model,
-            contents=[
-                types.Part.from_bytes(data=video_bytes, mime_type="video/mp4"),
-                (
-                    "You are a professional closed-captioning engine. "
-                    "Watch the video and output a transcript. "
-                    "EVERY SINGLE LINE MUST START WITH A TIMESTAMP FORMATTED EXACTLY "
-                    "LIKE THIS: [MM:SS.mmm] — to the millisecond, at the exact moment "
-                    "the first word of that line is spoken. Whole-second timestamps "
-                    "round every caption to the nearest second, which is visibly out "
-                    "of sync with the speech.\n"
-                    "Start a new line at each natural sentence or clause boundary, so "
-                    "a line is never left hanging mid-phrase.\n"
-                    "Example:\n[00:00.480] First sentence here.\n[00:04.920] Second sentence here."
-                )
-            ]
-        )
-        
-        transcript_text = response.text.strip() if response and response.text else ""
-        
+        duration = _duration_of(video_path)
+        if duration and duration > TRANSCRIBE_CHUNK_THRESHOLD_SEC:
+            transcript_text = _transcribe_in_chunks(
+                video_path, duration, client, transcribe_model)
+        else:
+            transcript_text = _transcribe_one(
+                Path(video_path).read_bytes(), client, transcribe_model)
+
         # Verify timestamps exist in output
         if transcript_text and "[" in transcript_text and ":" in transcript_text:
             path = _cache_path_for(video_path)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(transcript_text, encoding="utf-8")
-            logger.info(f"✨ Transcribed and cached to {path.name}.")
+            logger.info(f"\u2728 Transcribed and cached to {path.name}.")
             return transcript_text
         raise TranscriptionUnavailable(
             "The transcription response carried no timestamps, so it cannot be "
@@ -108,4 +134,77 @@ def get_or_create_transcript(video_path: str) -> str:
         # Deliberately not falling back to another video's transcript: a
         # wrong transcript produces a clip that renders perfectly and says
         # the wrong thing, which is worse than a visible failure.
-        raise TranscriptionUnavailable(f"Transcription failed for {video_path}: {e}") from e
+        raise TranscriptionUnavailable(
+            f"Transcription failed for {video_path}: {e}") from e
+
+
+def _duration_of(video_path: str) -> float:
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(video_path)],
+            capture_output=True, text=True, timeout=120).stdout.strip()
+        return float(out or 0.0)
+    except Exception:
+        return 0.0
+
+
+def _transcribe_in_chunks(video_path: str, duration: float, client, model) -> str:
+    """
+    Transcribe a long video as consecutive bounded segments.
+
+    A chunk that fails to cut or comes back empty is skipped with a warning
+    rather than aborting: losing seven minutes of captions is bad, losing
+    the whole transcript is worse, and the gap is visible in the output.
+    """
+    starts = []
+    t = 0.0
+    while t < duration:
+        starts.append(t)
+        t += TRANSCRIBE_CHUNK_SEC
+    logger.info(
+        f"Transcribing {duration:.0f}s in {len(starts)} chunks of "
+        f"{TRANSCRIBE_CHUNK_SEC:.0f}s — timestamps drift over a long video, "
+        f"so each chunk is timed from its own start.")
+
+    parts = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for i, start in enumerate(starts):
+            length = min(TRANSCRIBE_CHUNK_SEC, duration - start)
+            piece = Path(tmp) / f"chunk_{i:02d}.mp4"
+            if not _segment(video_path, start, length, piece):
+                continue
+            text = _transcribe_one(piece.read_bytes(), client, model)
+            if not text:
+                logger.warning(f"Chunk {i} ({start:.0f}s) returned nothing; skipping.")
+                continue
+            parts.append(_shift_timestamps(text, start))
+            logger.info(f"   chunk {i + 1}/{len(starts)} at {start:.0f}s ✓")
+    if not parts:
+        raise TranscriptionUnavailable(
+            f"No chunk of {video_path} could be transcribed.")
+    return "\n".join(parts)
+
+
+def _transcribe_one(video_bytes: bytes, client, model) -> str:
+    """One transcription call. Timestamps are relative to these bytes."""
+    response = client.models.generate_content(
+        model=model,
+        contents=[
+            types.Part.from_bytes(data=video_bytes, mime_type="video/mp4"),
+            (
+                "You are a professional closed-captioning engine. "
+                "Watch the video and output a transcript. "
+                "EVERY SINGLE LINE MUST START WITH A TIMESTAMP FORMATTED EXACTLY "
+                "LIKE THIS: [MM:SS.mmm] — to the millisecond, at the exact moment "
+                "the first word of that line is spoken. Whole-second timestamps "
+                "round every caption to the nearest second, which is visibly out "
+                "of sync with the speech.\n"
+                "Start a new line at each natural sentence or clause boundary, so "
+                "a line is never left hanging mid-phrase.\n"
+                "Example:\n[00:00.480] First sentence here.\n[00:04.920] Second sentence here."
+            )
+        ]
+    )
+    
+    return response.text.strip() if response and response.text else ""

@@ -1,435 +1,351 @@
-[00:06.880] And lift off of Artemis I.
-[00:10.280] Artemis I was incredible.
-[00:13.680] It was an iconic mission.
-[00:16.800] I was able to watch the launch of Artemis I,
-[00:18.960] and I'll never forget.
-[00:20.280] I just turned into a small child
-[00:21.840] and I just was screaming at the rocket for about 30 seconds.
-[00:24.080] That is our generation, the Artemis generation,
-[00:26.520] that defines the starting point of our exploration future.
-[00:31.080] The next thing is getting ready to fly the crew on Artemis II.
-[00:34.720] This mission paves the way for sustained missions
-[00:37.080] on the Moon and then Mars.
-[00:40.080] We've got spaceflight vehicles that are down at the Kennedy Space Center
-[00:43.080] that are being built and integrated.
-[00:45.000] We've got components of the rocket that are being assembled.
-[00:48.000] We have international partners,
-[00:49.600] we have commercial partners and industry partners.
-[00:52.480] We've got the designs ready to go.
-[00:53.960] How we're building up the operations.
-[00:55.840] It's real.
-[00:57.080] The team is ready to go.
-[00:58.760] Four names,
-[00:59.840] four explorers
-[01:01.080] answering the call to once more
-[01:03.440] rocket away from Earth
-[01:05.520] and chart a course around the Moon.
-[01:09.920] This is the mission of Artemis II.
-[01:23.760] Never before
-[01:25.760] had man traveled so far,
-[01:28.840] so fast,
-[01:30.400] or looked so closely upon another celestial body.
-[01:34.000] That's one small step for man,
-[01:36.880] one giant leap for mankind.
-[01:40.800] Apollo was so amazing
-[01:42.520] because we didn't know we could do it.
-[01:45.360] The Apollo generation showed what was possible.
-[01:49.640] For me personally, I think it's an important endeavor
-[01:52.280] to return to the Moon.
-[01:54.000] And as we look towards Mars,
-[01:55.880] the Moon is going to be an important staging area for us to learn quite a bit.
-[02:00.080] The longest we were ever on the Moon as humans was 72 hours.
-[02:04.880] We have a lot to learn yet.
-[02:06.680] And as we leave the Moon at Taurus-Littrow,
-[02:11.080] we leave as we came,
-[02:13.200] and God willing, as we shall return,
-[02:16.840] with peace
-[02:18.960] and hope
-[02:21.080] for all mankind.
-[02:25.080] The Artemis campaign is really a set of test flights.
-[02:29.840] We haven't been to the Moon in over 50 years,
-[02:32.880] and so there's a lot of new systems that we need to test out.
-[02:35.880] We're going to a new part of the Moon, the South Pole,
-[02:38.280] that we've never been to before with crew.
-[02:40.320] The Artemis II mission is going to take
-[02:42.520] the next step in our flight test campaign.
-[02:47.360] We're going to focus on what are the new systems
-[02:50.080] that we need to test out so that we can fly crew
-[02:52.280] to the Moon and safely bring them back home.
-[02:57.480] That really sets us up for our big goal,
-[02:59.960] which is the return of human crew
-[03:02.160] to the surface of the Moon.
-[03:05.560] It's so important what we learn in that mission to the Moon
-[03:08.560] because it instructs us on how we're going to get to Mars.
-[03:11.840] This is a generation-defining effort.
-[03:20.000] My name's Jeff Radigan, I'm the lead flight director for Artemis II.
-[03:23.760] Here in Mission Control, I direct the operations of the spacecraft
-[03:26.560] and communicate with the crew on board
-[03:28.920] in order to have a successful mission
-[03:30.800] of the first mission back to lunar space in over 50 years.
-[03:33.480] We want to get back out to lunar space stage,
-[03:35.320] we want to fly around the Moon,
-[03:36.760] and so to be a part of that is just very meaningful to me.
-[03:39.120] It's something I get excited about when I wake up in the morning.
-[03:41.240] It really is the next step in space exploration.
-[03:46.360] Guidance - go. FIDO - go. PROP - go. GNC - go.
-[03:50.000] This room has a lot of historical significance.
-[03:52.560] We originally flew the Space Shuttle out of here,
-[03:55.200] and we're looking forward to flying Artemis II out of this room here in the not-too-distant future.
-[04:00.640] Once the vehicle clears the tower,
-[04:02.320] control of the spacecraft is handed over to Mission Control Houston.
-[04:05.360] At that point, the team in Mission Control
-[04:07.720] led by the ascent flight director will take over.
-[04:09.520] It's a very distributed team. Think of it as a big pyramid.
-[04:11.720] At the top of it sits the flight director,
-[04:13.440] but around him are specialists
-[04:15.800] in every system on Orion.
-[04:18.840] They'll have teams in the front room that are working with the flight director,
-[04:21.000] they'll have teams in the back room that are supporting the front room operators
-[04:23.240] to make sure that they're specialists in all of their systems just in case
-[04:27.800] we have a problem that we haven't seen. And by the way,
-[04:30.360] in my 20 years of human spaceflight experience,
-[04:32.480] I guarantee you we're going to have a problem that we haven't seen.
-[04:37.000] My name is Natasha Peake.
-[04:38.200] I'm a Flight Dynamics Officer for Artemis II.
-[04:40.880] We are trajectory specialists when it comes to Orion.
-[04:44.400] Really, my job is to know where your spaceship is and where it's going,
-[04:46.880] and if we need to come home for some reason,
-[04:49.200] come home early, or we get off track,
-[04:50.800] our job is to figure out how to do that.
-[04:53.800] This mission is fundamentally different from a mission you might do in low Earth orbit
-[04:56.880] in a lot of ways, but one of them is that we're
-[04:59.200] looking to rendezvous with the Moon.
-[05:00.680] Every minute you wait to launch,
-[05:02.680] the Moon is moving.
-[05:04.280] So in order to rendezvous with it efficiently,
-[05:06.680] we have to change the inclination of our orbit to make sure we line up with the Moon.
-[05:09.760] In a month, you get about 14 days of a launch period.
-[05:13.720] Our team all hunkers down, and for every day,
-[05:16.120] we look at the open and close of the window
-[05:18.280] and come up with a trajectory end-to-end
-[05:20.120] from lift-off all the way through splashdown.
-[05:30.400] You know, I often talk about
-[05:32.480] that launch ops is like a team sport.
-[05:35.840] It's certainly, you have to produce on game day,
-[05:38.280] but that the preparation for a championship begins in the off season.
+[00:06.820] And liftoff of Artemis I!
+[00:09.992] Artemis I was incredible.
+[00:13.431] It was an iconic mission.
+[00:16.388] NASA's Artemis Moon rocket lifts off Earth
+[00:17.388] I was able to watch the launch of Artemis I, and I'll never forget,
+[00:19.467] I just turned into a small child,
+[00:20.612] and I just was screaming at the rocket for about 30 seconds.
+[00:23.774] That is our generation, the Artemis Generation,
+[00:27.027] that defines the starting point
+[00:28.918] of our exploration future.
+[00:31.250] Next thing is getting ready to fly the crew on Artemis II.
+[00:34.789] This mission paves the way for sustained missions on the Moon
+[00:38.318] and then Mars.
+[00:40.093] We've got spaceflight vehicles that are down at the Kennedy Space Center that are being built and integrated.
+[00:45.313] We've got components of the rocket that are being assembled.
+[00:48.337] We have international partners,
+[00:50.046] we have commercial partners, and industry partners.
+[00:52.548] We've got the designs ready to go, how we're building up the operations.
+[00:56.241] It's real. The team is ready to go.
+[00:59.390] Four names.
+[01:00.672] Four explorers,
+[01:02.045] answering the call to, once more,
+[01:04.606] rocket away from Earth
+[01:06.591] and chart a course around the Moon.
+[01:10.057] This is the mission of Artemis II.
+[01:13.238] MOONBOUND
+[01:14.394] THE ARTEMIS II MISSION
+[01:18.172] EPISODE 01:
+[01:19.349] CHARTING THE COURSE
+[01:23.957] Never before had man traveled so far,
+[01:27.810] so fast,
+[01:29.807] or looked so closely upon another celestial body.
+[01:34.428] That's one small step for man,
+[01:37.387] one giant leap for mankind.
+[01:40.407] Apollo was so amazing because
+[01:43.084] we didn't know we could do it.
+[01:45.378] The Apollo generation showed what was possible.
+[01:49.255] For me personally, I think it's an important endeavor to return to the Moon.
+[01:54.195] And as we look towards Mars, the Moon is going to be an important staging area
+[01:58.384] for us to learn quite a bit.
+[02:00.038] The longest we were ever on the Moon as humans was 72 hours.
+[02:04.707] We have a lot to learn yet.
+[02:06.666] And as we leave the Moon in Taurus-Littrow,
+[02:10.741] we leave as we came, and God willing, as we shall return,
+[02:15.938] with peace and hope
+[02:18.490] for all mankind.
+[02:25.590] The Artemis campaign is really a set of test flights.
+[02:29.897] We haven't been to the Moon in over 50 years,
+[02:32.610] and so there's a lot of new systems that we need to test out.
+[02:35.807] We're going to a new part of the Moon, the South Pole, that we've never been to before with crew.
+[02:40.046] The Artemis II mission is going to take the next step
+[02:43.834] in our flight test campaign.
+[02:47.888] We're going to focus on what are the new systems that we need to test out
+[02:51.624] so that we can fly crew to the Moon and safely bring them back home.
+[02:57.695] That really sets us up for our big goal, which is
+[03:01.378] the return of human crew to the surface of the Moon.
+[03:06.136] It's so important what we learn in that mission to the Moon,
+[03:09.117] because it instructs us on how we're going to get to Mars.
+[03:12.160] This is a generation-defining effort.
+[03:19.467] My name's Jeff Radigan. I'm the lead flight director for Artemis II.
+[03:23.707] Here in Mission Control, I direct the operations of the spacecraft
+[03:27.185] and communicate with the crew on board in order to have a successful mission
+[03:30.932] of the first mission back to lunar space in over 50 years.
+[03:33.829] We want to get back out to lunar space. We want to fly around the Moon.
+[03:37.046] And so to be a part of that is just very meaningful to me.
+[03:40.231] It's something I get excited about when I wake up in the morning.
+[03:43.080] It really is the next step in space exploration.
+[03:46.540] GC, go. Guidance, go. FDO, go. Prop, go. GNC, go.
+[03:49.774] This room has a lot of historical significance.
+[03:52.880] We originally flew the Space Shuttle out of here,
+[03:55.241] and we're looking forward to flying Artemis II out of this room here in the not-too-distant future.
+[04:00.672] Once the vehicle clears the tower, control of the spacecraft is handed over
+[04:04.288] to Mission Control Houston.
+[04:05.774] At that point, the team in Mission Control, led by the ascent flight director, will take over.
+[04:09.807] It's a very distributed team. Think of it as a big pyramid.
+[04:12.392] At the top of it sits the flight director,
+[04:14.331] but around him are specialists in every system on Orion.
+[04:18.732] They'll have teams in the front room that are working with the flight director,
+[04:21.849] they'll have teams in the back room that are supporting the front room operators
+[04:25.263] to make sure that their specialists in all of their systems,
+[04:27.765] just in case we have a problem that we haven't seen.
+[04:30.222] And by the way, in my 20 years of human spaceflight experience,
+[04:33.203] I guarantee you we're going to have a problem that we haven't seen.
+[04:36.561] My name is Natasha Peake.
+[04:38.077] I'm a Flight Dynamics Officer for Artemis II.
+[04:40.692] We are trajectory specialists when it comes to Orion.
+[04:44.707] Really, my job is to know where your spaceship is and where it's going.
+[04:47.741] And if we need to come home for some reason, come home early, or we get off track,
+[04:50.849] our job is to figure out how to do that.
+[04:53.606] This mission is fundamentally different from a mission you might do in Low Earth Orbit
+[04:57.066] in a lot of ways, but one of them is that we're looking to rendezvous with the Moon.
+[05:00.648] Every minute you wait to launch, the Moon is moving.
+[05:03.498] So in order to rendezvous with it efficiently, we have to change the inclination of our orbit to make sure we line up with the Moon.
+[05:09.680] In a month, you get about 14 days of a launch period.
+[05:13.238] Our team all hunkers down, and for every day,
+[05:16.690] we look at the open and close of the window,
+[05:19.467] and come up with a trajectory end-to-end, from liftoff all the way through splashdown.
+[05:30.407] You know, I often talk about that launch ops is like a team sport.
+[05:34.907] It certainly, you have to produce on game day,
+[05:37.407] but that the preparation for a championship
+[05:39.992] begins in the off-season.
 [05:41.800] We've made some significant upgrades since Artemis I,
-[05:44.200] and that includes not just the software that you see out here
-[05:47.480] running on the consoles, but it's also our model
-[05:49.600] and simulation environment.
-[05:51.640] The big difference between Artemis I and Artemis II
-[05:54.680] is, of course, the crew,
-[05:56.880] and it's the systems, the new systems
-[05:59.200] that are specifically in place to support a crew roll.
-[06:01.480] And so we have new launch commit criteria,
-[06:03.960] we have changes to our procedures, changes to our timelines,
-[06:06.120] and we want to make sure that we've gone through those
-[06:08.520] time and time again, so that when launch day rolls around, we're ready
-[06:12.720] for anything that the hardware may throw at us.
-[06:21.480] We woke up this morning, went through medical checks,
-[06:23.760] had breakfast as a crew, while Charlie and her team
-[06:26.160] were getting the simulated vehicle ready for launch day.
-[06:29.600] We got in our Crew Transfer Vehicles, our CTVs,
-[06:31.960] we came out to the pad,
-[06:33.400] we went up two elevators to the 274-foot level,
-[06:35.800] and we met there our white room closeout team.
-[06:38.560] So it was a great end-to-end run through of what we will do
-[06:41.240] when we get on this vehicle and head to the Moon.
-[06:43.760] There are no shortcuts. I mean, you have to do it all,
-[06:46.320] because on launch day,
-[06:48.880] that is game day, and it is all of our work
-[06:50.840] together that gets us to a successful T-0
-[06:53.360] and a safe and successful mission.
-[07:09.680] Hey, Sam.
-[07:11.200] How's it going?
-[07:12.440] Not much.
-[07:13.200] Long time no see.
+[05:44.331] and that includes not just the software that you see out here
+[05:48.241] running on the consoles, but it's also our model and simulation environment.
+[05:54.672] The big difference between Artemis I and Artemis II is, of course, the crew.
+[05:58.741] And it's the systems, the new systems that are specifically in place to support
+[06:03.203] a crewed flight.
+[06:04.606] And so we have new launch commit criteria, we have changes to our procedures, changes to our timelines,
+[06:09.774] and we want to make sure that we've gone through those
+[06:12.789] time and time again so that when launch day rolls around,
+[06:16.136] we're ready for anything that the hardware may throw at us.
+[06:20.732] We woke up this morning, went through medical checks, had breakfast as a crew,
+[06:26.046] while Charlie and her team were getting the simulated vehicle ready for launch day.
+[06:30.480] We got in our crew transfer vehicles, our CTVs, we came out to the pad.
+[06:34.606] We went up two elevators to the 274-foot level,
+[06:38.203] and we met there our white room closeout team.
+[06:40.800] So it was a great end-to-end run-through of what we will do
+[06:44.331] when we get on this vehicle and head to the Moon.
+[06:46.868] There are no shortcuts. I mean, you have to do it all,
+[06:50.046] because on launch day, that is game day,
+[06:53.791] and it is in all of our work together
+[06:56.591] that gets us to a successful T-0.
+[07:00.000] In a safe and successful mission,
+[07:06.320] Hey Sam, what's going on?
+[07:11.840] Not much, long time no see.
 [07:14.360] Long time no see.
-[07:15.520] The seriousness of what it takes
-[07:17.360] to take the risk with humans in and of itself
-[07:19.480] creates enough of a pressure
-[07:22.040] for the entire organization, enough of a concern,
-[07:23.880] enough of a sense of rigor. Everything goes up a notch.
-[07:27.160] We have to have an atmosphere to breathe, a temperature to be able to control,
-[07:29.600] to be able to take out the carbon dioxide, the humidity that's in the air,
-[07:33.400] feed the crew, deal with a small environment,
-[07:36.480] proving that we can fly by the Moon and come back and have a safe re-entry.
-[07:39.120] There's an extra element when you have humans on board.
-[07:42.200] The nuances by which the system operates,
-[07:44.200] the understanding of what it is to live in this crew module
-[07:47.880] that we have. Artemis II is also another flight test
-[07:50.080] of the other systems that are required to enable human space exploration.
-[07:52.480] That is life support systems, that is displays,
-[07:55.240] that is the controllers, the stick that you need to fly spacecraft.
-[07:58.320] All those pieces were not part of Artemis I,
-[08:01.000] but are really key for Artemis II. And the crew will need that capability
-[08:03.200] to go forward to do human space exploration.
-[08:06.680] When you go to the Moon, you're 250,000 miles away
-[08:09.800] and there's no choice. It takes time to get home.
-[08:12.640] Everything we check, everything we try visual,
-[08:15.000] we understand, we double, we triple, we quadruple check,
-[08:17.680] because we want to make sure we get it right.
-[08:19.400] The mission will prove the Orion spacecraft is ready
-[08:22.080] to keep astronauts alive in deep space,
-[08:24.400] and allow the crew and ground teams to practice operations
-[08:27.440] essential to the success of future missions.
-[08:30.400] This top portion is the crew module. It's the pressurized area
-[08:33.240] where the crew sits.
-[08:34.920] The bottom portion here with the solar arrays and the engines,
-[08:37.360] primary engines, is what's called the service module.
-[08:41.240] The European Service Module, or ESM,
-[08:44.200] will provide electricity, water, and air
-[08:47.360] to NASA's Orion crew capsule,
-[08:50.000] as well as maintaining temperature and life support.
-[08:53.040] It's been a fabulous partnership with our ESA partners.
-[08:55.200] The agency made a decision a long time ago that we want to do
-[08:57.480] a lunar exploration as a global partnership.
-[09:01.000] Now that we have in crew, that's the new elements
-[09:03.240] for Artemis II and onwards.
-[09:05.400] We will really go into the testing
-[09:07.400] of the life support systems and try to figure out,
-[09:09.520] how is that behaving with the astronaut in the loop?
-[09:12.320] How's the CO2 scrubbing working on the crew module side?
-[09:15.000] How are we providing the oxygen to the astronauts, and the water?
-[09:18.000] That environmental control system is so complicated.
-[09:20.240] It's a series of chemical and mechanical
-[09:22.440] and electrical engineering problems that all have to come together.
-[09:24.480] That spacecraft has to basically be a mini Earth,
-[09:27.440] and that Earth is basically driven by the elements of that life support system.
-[09:30.920] We also have crew interfaces with the crew piloting
-[09:33.280] the vehicle. Artemis I was uncrewed,
-[09:35.320] and so we're going to go do a checkout right at the beginning
-[09:37.400] of the mission while we're in an Earth orbit
-[09:39.400] to be able to ensure that the crew is able to successfully pilot the vehicle.
-[09:42.200] We're not just testing the systems in Orion.
-[09:45.320] One of the key things we really want to do is
-[09:48.040] we're going to do science.
-[09:49.680] When we think about Artemis II science,
-[09:52.280] there are really three big areas that we're studying.
-[09:54.680] One is understanding the space environment.
-[09:57.160] The second is understanding how that environment
-[09:59.680] interacts with life and humans and the systems.
-[10:02.120] And then the third is looking at the Moon itself
-[10:04.600] from a vantage point where humans haven't looked for over 50 years.
-[10:07.800] They're going to be describing what they see.
-[10:09.680] They'll see things that human beings have never seen before.
-[10:12.320] They'll be describing, observing, and documenting
-[10:14.680] what they see for the scientists back home.
-[10:16.800] They've done a significant amount of training in the field
-[10:19.400] here on Earth, learning about geology and
-[10:21.840] planetary scale processes. They'll be looking for
-[10:24.480] the evidence of those processes from orbit,
-[10:26.760] and describing to us anything unique that we
-[10:29.680] maybe haven't been able to really sense with orbiters
-[10:32.400] and robotic measurements.
-[10:34.200] We're also going to do human research
-[10:36.440] on the crew members themselves.
-[10:38.280] We haven't had data sets for over
-[10:40.400] 50 years on how the physiology
-[10:42.800] of the crew themselves adapt to the radiation environment,
-[10:45.360] to the microgravity environment, so far away from Earth.
-[10:48.360] When you think about Artemis II,
-[10:50.880] we've never had humans get on top of an SLS rocket.
-[10:53.880] And when that rocket launches, 8.8 million pounds of thrust
-[10:57.080] are going to defeat gravity for a 5.8 million pound vehicle.
-[10:59.880] So they're going to feel vibrations and hear sounds that no humans have ever experienced.
-[11:03.000] If you want to be an astronaut, that's the thing you've been waiting for
-[11:05.120] your whole life, riding the elevator up the rocket,
-[11:07.120] climbing in that capsule, very surreal.
-[11:09.120] I often say that the only reason anybody actually gets on a rocket
-[11:11.840] is because it'd be too embarrassing to turn around and run away from the rocket.
-[11:14.280] Once the fire starts coming and the rocket starts vibrating
-[11:16.840] and you lift off, it's a completely different experience.
-[11:19.480] When you put crew on a rocket, it's no longer a test flight.
-[11:21.800] This one needs to perform and will perform
-[11:23.960] as good or better than the first one did. No doubt about it.
-[11:32.480] Artemis II begins with a launch from Kennedy Space Center.
-[11:34.880] Getting them through that 8.5 minutes to get them to escape Earth
-[11:38.280] will be the first big milestone.
-[11:40.400] First, you'll do about two minutes of flight with the boosters.
-[11:42.800] The boosters will separate, leaving you
-[11:45.360] on just the core stage all the way through about 8 minutes into the mission.
-[11:48.040] At that point, the upper stage will separate from the core stage
-[11:51.120] and perform a perigee raise maneuver to keep you in a stable orbit.
-[11:54.680] The crew's going to be in a high Earth orbit checkout orbit.
-[11:57.480] So, this is a highly elliptical orbit that just
-[11:59.720] takes them up away from the Earth and then back down close to it.
-[12:02.040] From there, Orion backs away and separates from ICPS,
-[12:04.600] preparing us for manual piloting by the crew of the Orion vehicle,
-[12:07.600] imagining that they are approaching and docking with the upper stage of the rocket.
-[12:11.080] The crew will have their hands on, flying it for the first time,
-[12:13.160] and that'll allow them to see, do we have the pulse size correct?
-[12:15.360] When you make the pulse size smaller, do we have enough thrust?
-[12:17.360] Does it have enough control authority to give us the rates
-[12:20.080] and the movement that we need to in the vehicle when we need it?
-[12:22.480] We need to really understand how Orion's going to perform
-[12:26.560] in order such that we can dock it on future missions.
-[12:28.920] We're going to fly in formation for a good two hours
-[12:31.480] to ensure that we can do the checkouts to really understand
-[12:34.200] the way this vehicle is going to operate.
-[12:36.560] As we do ascent and as we go through our proximity ops demo,
-[12:39.360] it's going to be a long day for the crew, it's going to be a long day for us on the ground.
-[12:41.840] Once we convince ourselves that the systems are solid,
-[12:44.800] we will engage the Orion main engine and that
-[12:47.480] will commit us to what we call trans-lunar injection.
-[12:49.880] The trans-lunar injection burn is the big burn that puts us on the path to the Moon.
-[12:52.480] For that flyby out to the Moon, we're doing what we call
-[12:55.120] a free return trajectory. The idea there is that without doing
-[12:57.640] any more major burns, you can just coast,
-[13:00.080] and the gravity of the Moon will redirect Orion and bring it back to Earth safely.
-[13:02.680] We have done a free return only one time,
-[13:05.120] and that was during Apollo 13.
-[13:07.000] We have designed deliberately to do a free return on this particular mission
-[13:09.480] because, again, our risk tolerance, our willingness to take risk with the vehicle
-[13:12.040] with the crew on board is much, much lower for a crew test flight.
-[13:15.520] The next three days are spent in transit, and so the crew
-[13:18.000] has activities to, again, continue to check out the systems
-[13:20.400] on the Orion that we weren't able to get to in the first day.
-[13:22.440] We need to go through checking out the radiation shelter,
-[13:24.280] that all of our stowage is in the right spot.
-[13:27.240] We need to check out the cabin to ensure that we can depress it
-[13:29.600] to be able to dock with an HLS in the future.
-[13:31.960] Then we're going to fly around the Moon.
-[13:33.400] You'll fly by the Moon at about flight day 5.
-[13:35.880] You'll be between 3,300 and 9,000 miles from the lunar surface.
-[13:38.280] That'll be the first time we'll have four crew members
-[13:41.800] being able to share the experience of seeing the far side of the Moon together.
-[13:44.200] They'll be the most separated from Earth than any four humans could possibly be at that point.
-[13:47.160] We're going to turn the spacecraft so that you have the best view
-[13:49.680] of anybody of the Moon in 50 years.
-[13:51.960] We want to ensure that we're getting the videos
-[13:54.080] of the Moon that all of us back here on Earth want to see,
-[13:56.280] and ensuring that all of our systems work on the far side of the Moon as well
-[13:58.760] the way we expect.
-[14:00.600] Once the crew flies past the Moon, they'll begin the 3-day journey home,
-[14:03.240] where they'll again begin to do some checkouts,
-[14:05.640] including trying to take the cabin down to a lower pressure,
-[14:08.000] which is needed for future flights.
-[14:09.920] Finally, as they get closer to Earth, they're going to prepare for re-entry.
-[14:12.440] We have to configure the cockpit, do our final targeting,
-[14:14.640] final burns, get the crew in their suits,
-[14:17.320] get them in their seats, and then they'll get into the re-entry sequence.
-[14:19.880] The back half of the crew module has the heat shield,
-[14:22.480] which is covered right up until just before
-[14:25.120] what we call entry interface, when you're re-entering the atmosphere,
-[14:27.440] at which point the crew module separates from the service module,
-[14:29.800] puts the heat shield towards the Earth, and then begins its entry.
-[14:32.440] The way Orion enters the Earth's atmosphere,
-[14:35.080] it's a capsule shape, and when that capsule engages
-[14:37.400] with the atmosphere, it hits at a tremendous speed.
-[14:39.600] The speeds that we're enduring produce
-[14:41.880] temperatures as hot as 5,000 degrees Fahrenheit,
-[14:44.200] which is close to the surface of the sun.
-[14:46.040] The way we protect and absorb that energy is we build a heat shield.
-[14:48.360] That heat shield serves as a function to transfer
-[14:50.840] and absorb that energy so that, ultimately,
-[14:53.360] we can come down gently under shoots.
-[14:55.200] That 19-ish minutes is the most critical of the flight.
-[14:58.280] That heat shield has to work, the guidance has to put them in the right spot,
-[15:00.600] and if we're anywhere as close as we were on Artemis I,
-[15:03.040] we're going to drop that capsule within a couple miles of the landing ship.
-[15:05.480] Splashdown.
-[15:06.600] We're going to land off the coast of San Diego in the Pacific Ocean,
-[15:09.120] and we're going to test out in real,
-[15:11.840] real space and real time the recovery
-[15:13.880] of crew from the capsule. So all of these are new things
-[15:16.080] that we haven't had to do before in a long time.
-[15:18.000] They'll be recovered by our recovery forces,
-[15:19.800] and we'll see their smiling faces.
-[15:22.040] That's the mission.
-[15:23.280] That's Artemis II.
-[15:28.160] We learned a ton on Artemis I.
-[15:29.800] A lot of just how the vehicle works
-[15:32.400] and how to fly it, especially from our perspective.
-[15:34.640] When SLS cleared the tower at Pad B,
-[15:37.080] it put Orion exactly where it needed to be.
-[15:39.120] The upper stage conducted a perfect burn.
-[15:41.080] Orion spent an incredible distant
-[15:43.120] retrograde orbit around the Moon, achieving a distance
-[15:45.360] further than any spacecraft designed to carry humans had ever been.
-[15:47.880] And when it came back to Earth, it performed the first-ever
-[15:50.040] skip re-entry of a vehicle.
-[15:52.480] For Artemis I, the number one priority
-[15:54.680] mission objective was a test of the heat shield
-[15:56.840] on Orion for lunar return.
-[15:58.760] One of the biggest learnings we had from Artemis I was how the thermal protection
-[16:01.880] system was able to perform during re-entry.
-[16:03.960] We looked at the heat shield, and there were little chunks
-[16:06.120] of that char that were missing.
-[16:08.080] And we didn't really understand that,
-[16:10.080] and we thought that wasn't predicted.
-[16:12.320] What happened is some of the heat shield material
-[16:14.360] started to break off. And that, we think it happened a little bit,
-[16:16.840] but you don't want it to happen too much.
-[16:18.960] Our decision has been made
-[16:21.840] first around safety on the heat shield,
-[16:24.520] as we understand and mitigate the risks that come
-[16:27.480] with spaceflight.
-[16:29.680] Sometimes in space, delays are agonizing,
-[16:32.400] and slowing down is agonizing, and it's not what we like to do.
-[16:35.320] But from the crew perspective, the thing that we most asked
-[16:37.640] our leadership for after Artemis I was root cause
-[16:40.400] of the ablation of the heat shield.
-[16:42.520] We had an independent review team
-[16:44.200] with a lot of outside experts and internal experts
-[16:46.400] to look at this. So we really appreciate the willingness
-[16:48.360] to take the risk to actually slow down and understand root cause,
-[16:50.840] determine the path forward, corrective action
-[16:53.080] for Artemis II and Artemis III,
-[16:55.080] so that when Victor, Christina, Jeremy, and I launch
-[16:57.160] and land after a successful Artemis II,
-[16:59.600] we will look to Artemis III to carry the torch forward
-[17:02.040] and to put humans back on the Moon, and that is really our ultimate objective.
-[17:04.280] Had the crew been on Artemis I in the Orion heat shield,
-[17:07.440] they would have been safe. This was certainly an area
-[17:09.480] that we knew we wanted to test out, one reason why,
-[17:11.840] of course, there were no crew on Artemis I, so we could test out
-[17:13.920] that heat shield. But we wanted to make sure we understood that problem,
-[17:15.800] and we did an enormous number of tests to confirm
-[17:18.080] that under specific conditions, yes, we can fly it safely.
-[17:20.400] But in the future, we want to take this learning
-[17:22.800] and not only apply it to safely flying Artemis II,
-[17:25.040] but to changing how we design and build
-[17:27.440] the heat shield for Artemis III and beyond.
-[17:29.800] This is what we do. We are ready for it.
-[17:31.840] This is how we work, this is how we learn.
-[17:34.320] It will be a 10-day journey
-[17:36.280] going half a million miles,
-[17:38.080] continuing to test out every bit of Orion,
-[17:40.880] going around the far side of the Moon,
-[17:42.880] heading home through the Earth's atmosphere
-[17:45.000] at over 25,000 miles per hour,
-[17:47.880] and splashing down in the Pacific.
-[17:49.880] The crew's going to have a horizon, they're going to have a Moon.
-[17:52.080] So I feel pretty good about pressing into this opportunity.
-[17:55.200] I think NASA's at its best when it has big ideas
-[17:58.280] and bold exploration. That's when the finest comes out
-[18:00.680] of NASA, that's when the finest comes out of America.
-[18:02.880] Their story is made up of the success
-[18:05.480] of this institution that makes this country so proud.
-[18:08.320] For Orion, success means: First, we bring the crew home.
-[18:11.200] Second, we demonstrate what we know already is a robust
-[18:14.280] spacecraft that's ready for these Artemis missions.
-[18:17.360] We want to continue to explore, we want to continue to learn,
-[18:19.480] we want to go beyond, we want to go even further.
-[18:22.040] And through the success of this particular mission of Artemis II,
-[18:24.480] will help spur us on for the additional exploration
-[18:26.880] and discoveries that are out there for us to find.
-[18:29.680] Our destiny is always to go and see what's further
-[18:32.480] and what's next.
-[18:33.800] It's our generation's opportunity to have our own literal moonshot.
-[18:36.480] When we focus on one thing and we focus on it together,
-[18:39.120] we can achieve anything.
-[18:41.000] It's the lesson that we can do more together
-[18:43.080] than we can as individuals.
-[18:45.000] It's a new beginning.
-[18:46.480] It's a rebirth of human exploration.
-[18:48.880] The question is no longer if we're going to return to the Moon
-[18:51.680] or reach Mars. It's a matter of when.
-[18:53.680] It starts with one flight, one crew:
-[18:56.080] Artemis II.
-[18:58.200] We all have batons, relay race batons,
-[19:00.680] and they're there as a symbol of coming back from Artemis II
-[19:03.200] and handing those batons to Artemis III and saying,
-[19:05.480] "It's your turn to go." That's what we live for.
-[19:07.880] We are ready.
+[07:16.080] The seriousness of what it takes to take the risk with humans in and of itself
+[07:20.120] creates enough of a pressure for the entire organization,
+[07:23.760] enough of a concern, enough of a sense of rigor,
+[07:26.560] everything goes up a notch.
+[07:28.000] We have to have an atmosphere to breathe, a temperature to be able to control,
+[07:31.280] to be able to take out the carbon dioxide, the humidity that's in the air,
+[07:34.200] feed the crew, deal with a small environment,
+[07:36.440] proving that we can fly by the moon and come back and have a safe reentry.
+[07:39.920] There's an extra element when you have humans on board,
+[07:43.320] the nuances by which the system operates,
+[07:46.400] the understanding of what it is to live in this crew module that we have.
+[07:50.840] Artemis II is almost like another flight test of the other systems that are required
+[07:55.320] to enable human space exploration.
+[07:57.760] That is life support system, that is displays,
+[08:00.680] that is the controllers, the stick that you need to fly spacecraft.
+[08:04.600] All those pieces were not part of Artemis I, but are really key for Artemis II,
+[08:08.880] and the crew will need that capability to go forward to do human space exploration.
+[08:14.280] When you go to the Moon, you're 250,000 miles away
+[08:17.880] and there's no choice. It takes time to get home.
+[08:21.000] Everything we check, everything we try and make sure we understand,
+[08:24.400] we double, we triple, we quadruple check, because we want to make sure we get it right.
+[08:27.440] The mission will prove the Orion spacecraft is ready to keep astronauts alive in deep space
+[08:32.960] and allow the crew and ground teams to practice operations essential to the success of future missions.
+[08:39.240] This top portion is the crew module. It's the pressurized area where the crew sits.
+[08:44.200] The bottom portion here with solar arrays and the engines, primary engines,
+[08:48.360] is what's called the service module.
+[08:50.560] The European Service Module, or ESM,
+[08:53.480] will provide electricity, water, and air to NASA's Orion crew capsule,
+[08:58.320] as well as maintaining temperature for life support.
+[09:01.880] It's been a fabulous partnership with our ESA partners.
+[09:04.680] The agency made a decision a long time ago that we want to do lunar exploration
+[09:08.760] as a global partnership.
+[09:11.160] Now that we're having crew, that's the new element for Artemis II onwards.
+[09:15.280] We will really go into the testing of the life support systems
+[09:19.400] and try to figure out how is that behaving with the astronaut in the loop,
+[09:23.240] how's the CO2 scrubbing working on the crew module side,
+[09:26.360] how are we providing the oxygen to the astronauts, and the water.
+[09:30.800] That environmental control system is so complicated.
+[09:33.280] It's a series of chemical and mechanical and electrical engineering problems
+[09:36.720] that all have to come together.
+[09:38.200] That spacecraft has to basically be a mini Earth,
+[09:40.880] and that Earth is basically driven by the elements of that life support system.
+[09:44.800] We also have crew interfaces with the crew piloting the vehicle.
+[09:48.040] Artemis I was uncrewed,
+[09:49.760] and so we're going to go do a checkout right at the beginning of the mission
+[09:52.480] while we're in an Earth orbit to be able to ensure
+[09:55.200] that the crew is able to successfully pilot the vehicle.
+[09:58.200] We're not just testing the systems in Orion.
+[10:01.800] One of the key things we really want to do is, we're going to do science.
+[10:07.440] When we think about Artemis II science,
+[10:09.680] there are really three big areas that we're studying.
+[10:12.320] One is understanding the space environment.
+[10:15.080] The second is understanding how that environment interacts with life
+[10:18.440] and humans and the systems.
+[10:20.640] And then the third is looking at the Moon itself
+[10:22.920] from a vantage point where humans haven't looked for over 50 years.
+[10:27.200] They're going to be describing what they see.
+[10:28.840] They'll see things that human beings have never seen before.
+[10:31.800] They'll be describing, observing, and documenting what they see
+[10:34.960] for the scientists back home.
+[10:36.680] They've done a significant amount of training in the field here on Earth,
+[10:40.640] learning about geology and planetary scale processes.
+[10:45.320] They'll be looking for the evidence of those processes from orbit
+[10:49.000] and describing to us anything unique
+[10:51.240] that we maybe haven't been able to really sense with orbiters
+[10:54.680] and robotic measurements.
+[10:57.080] We're also going to do human research on the crew members themselves.
+[11:01.800] We haven't had datasets for over 50 years on how the physiology of the crew
+[11:07.480] themselves adapt to the radiation environment,
+[11:11.160] to the microgravity environment, so far away from Earth.
+[11:18.840] When you think about Artemis II,
+[11:21.080] we've never had humans get on top of an SLS rocket.
+[11:25.120] And when that rocket launches, 8.8 million pounds of thrust
+[11:29.800] are going to defeat gravity for a 5.8 million pound vehicle.
+[11:34.200] So they're going to feel vibrations and hear sounds that no humans have ever experienced.
+[11:38.840] If you want to be an astronaut, that's something you've been waiting for your whole life.
+[11:41.800] Riding the elevator up the rocket, climbing in that capsule,
+[11:45.040] very surreal.
+[11:46.400] I often say that the only reason anybody actually gets on a rocket
+[11:49.040] is because it'd be too embarrassing to turn around and run away from the rocket.
+[11:52.440] Once the fire starts coming and the rocket starts vibrating and you lift off,
+[11:55.880] it's a completely different experience.
+[11:57.960] When you put crew on a rocket, it's no longer a test flight.
+[12:01.320] This one needs to perform and will perform
+[12:04.160] as good or better than the first one did, no doubt about it.
+[12:13.200] Artemis II begins with launch from Kennedy Space Center.
+[12:18.040] Getting them through that eight and a half minutes to get them to escape Earth
+[12:21.600] will be first big milestone.
+[12:24.400] First, you'll do about two minutes of flight with the boosters.
+[12:27.440] The boosters will separate, leaving you on just the core stage
+[12:30.840] all the way through about eight minutes into the mission.
+[12:33.840] At that point, the upper stage will separate from the core stage
+[12:37.400] and perform a perigee raise maneuver to keep you in a stable orbit.
+[12:41.920] The crew is going to be in a high Earth orbit checkout orbit.
+[12:44.800] So this is a highly elliptical orbit that just takes them up away from the Earth
+[12:49.200] and then back down close to it.
+[12:51.280] From there, Orion backs away and separates from ICPS,
+[12:54.800] preparing us for manual piloting by the crew of the Orion vehicle,
+[12:58.720] imagining that they are approaching and docking with the upper stage of the rocket.
+[13:03.960] They'll have their hands on flying it for the first time,
+[13:07.400] and that'll allow them to see: do we have the pulse size correct?
+[13:10.840] When you make the pulse size smaller, do we have enough thrust?
+[13:13.680] Does it have enough control authority to give us the rates and the movement that we need to in the vehicle
+[13:18.440] when we need it?
+[13:19.840] We need to really understand how Orion's going to perform
+[13:22.840] in order such that we can dock it on future missions.
+[13:26.440] We're going to fly in formation for a good two hours
+[13:29.800] to ensure that we can do the checkouts,
+[13:31.960] to really understand the way this vehicle is going to operate.
+[13:36.080] As we do ascend and as we go through our prox ops demo,
+[13:39.400] it's going to be a long day for crew, it's going to be a long day for us in the ground.
+[13:44.720] Once we convince ourselves that the systems are solid,
+[13:47.880] we will engage the Orion main engine,
+[13:49.960] and that will commit us to what we call translunar injection.
+[13:53.040] The translunar injection burn is the big burn that puts us on the path to the Moon.
+[13:57.240] For that flyby out to the Moon, we're doing what we call...
+[14:00.000] call a free return trajectory. The idea there is that without doing any more major burns,
+[14:04.280] you can just coast, and the gravity of the moon will redirect Orion and bring it back to Earth safely.
+[14:09.120] Apollo 13 Houston, you have a go for...
+[14:12.440] We have done a free return only one time, and that was during Apollo 13.
+[14:16.480] We have designed deliberately to do a free return on this particular mission, because again,
+[14:20.240] our risk tolerance, our willingness to take risks with the vehicle,
+[14:23.240] with the crew on board is much, much lower for a crew test flight.
+[14:27.240] The next three days are spent in transit, and so the crew has activities to again continue to check out
+[14:32.720] the systems on the Orion that we weren't able to get to in the first day.
+[14:35.880] We need to go through checking out the radiation shelter, that all of our stowage is in the right spot.
+[14:41.240] We need to check out the cabin to ensure that we can depress it to be able to dock with HLS in the future.
+[14:46.240] Then we're going to fly around the Moon.
+[14:49.880] You'll fly by the Moon at about flight day five.
+[14:52.920] You'll be between 2,900 and 7,900 nautical miles from the lunar surface.
+[14:58.200] That'll be the first time we'll have four crew members being able to share the experience of seeing the far side of the Moon together.
+[15:04.880] They'll be the most separated from Earth than any four humans could possibly be at that point.
+[15:09.760] We're going to turn the spacecraft so that you can have the best view of anybody of the Moon in 50 years.
+[15:15.360] We want to ensure that we're getting the videos of the Moon that all of us back here on Earth want to see,
+[15:21.000] and ensuring that all of our systems work on the far side of the Moon as well, the way we expect.
+[15:26.560] Once the crew flies past the Moon, they'll begin the three-day journey home,
+[15:30.800] where they'll again begin to do some checkouts, including trying to take the cabin down to a lower pressure,
+[15:35.720] which is needed for future flights.
+[15:38.240] Finally, as they get closer to Earth, they're going to prepare for reentry.
+[15:41.800] We have to configure the cockpit, do our final targeting, final burns,
+[15:45.360] get the crew in their suits, get them in their seats, and then they'll get into the reentry sequence.
+[15:52.280] The back half of the crew module has the heat shield, which is covered right up until just before what we call entry interface,
+[15:59.600] when you're re-entering the atmosphere, at which point the crew module separates from the service module,
+[16:04.840] puts the heat shield towards the Earth, and then begins its entry.
+[16:08.520] The way Orion enters the Earth's atmosphere, it's a capsule shape, and when that capsule engages with the atmosphere,
+[16:14.640] it hits it at a tremendous speed.
+[16:18.640] The speeds that we're enduring produce temperatures as hot as 5,000 degrees Fahrenheit, which is close to the surface of the sun.
+[16:26.040] The way we protect and absorb that energy is we build a heat shield. That heat shield serves as a function
+[16:31.040] to transfer and absorb that energy so that, ultimately, we can come down gently under chutes.
+[16:37.640] That 19-ish minutes is the most critical of the flight.
+[16:41.560] That heat shield has to work, the guidance has to put them in the right spot,
+[16:45.000] and if we're anywhere as close as we were on Artemis I,
+[16:48.080] we're going to drop that capsule within a couple miles of the landing ship.
+[16:51.840] Splashdown.
+[16:53.280] We're going to land off the coast of San Diego in the Pacific Ocean,
+[16:57.160] and we're going to test out in real space and real time the recovery of crew from the capsule.
+[17:03.920] So all of these are new things that we haven't had to do before in a long time.
+[17:07.400] They'll be recovered by our recovery forces, and we'll see their smiling faces.
+[17:13.880] That's the mission. That's Artemis II.
+[17:27.640] We learned a ton on Artemis I, a lot of just how the vehicle works and how to fly it, especially from our perspective.
+[17:34.920] When SLS cleared the tower at Pad 39B, it put Orion exactly where it needed to be.
+[17:39.120] The upper stage conducted a perfect burn.
+[17:41.680] Orion spent an incredible retrograde orbit around the Moon, achieving a distance further than any spacecraft
+[17:46.960] designed to carry humans had ever been.
+[17:49.440] And when it came back to Earth, it performed the first-ever skip reentry of a vehicle.
+[17:56.240] For Artemis I, the number one priority mission objective was a test of the heat shield on Orion for lunar return.
+[18:02.480] Orion conducted the final major maneuver of its mission, a return trajectory correction burn of its thrusters,
+[18:08.880] to further fine tune its path toward its splashdown site in the Pacific.
+[18:14.600] One of the biggest learnings we had from Artemis I was how the thermal protection system was able to perform during reentry.
+[18:22.000] We looked at the heat shield, and there were little chunks of that char that were missing.
+[18:26.560] And we didn't really understand that, and we thought that wasn't predicted.
+[18:30.360] What happened is some of the heat shield material started to break off.
+[18:35.320] And that, we think it happened a little bit, but you don't want it to happen too much.
+[18:39.080] A decision has been made, first around safety on the heat shield,
+[18:45.000] as we understand and mitigate the risks that come with spaceflight.
+[18:49.800] Sometimes in space, delays are agonizing, and slowing down is agonizing, and it's not what we like to do.
+[18:57.280] But from the crew perspective, the thing that we most asked our leadership for after Artemis I
+[19:03.440] was root cause of the ablation of the heat shield.
+[19:06.080] We had an independent review team with a lot of outside experts and internal experts to look at this.
+[19:11.840] So we really appreciate the willingness to take the risk to actually slow down and understand root cause,
+[19:17.280] determine the path forward, corrective action for Artemis II and Artemis III,
+[19:22.280] so that when Victor, Christina, Jeremy, and I launch and land after a successful Artemis II,
+[19:27.720] we will look to Artemis III to carry the torch forward and to put humans back on the Moon, and that is really our ultimate objective.
+[19:34.800] Had the crew been on Artemis I in the Orion heat shield, they would have been safe.
+[19:39.480] This was certainly an area that we knew we wanted to test out, one reason why of course there were no crew on Artemis I, so we could test out that heat shield.
+[19:47.280] But we wanted to make sure we understood that problem. And we did an enormous number of tests to confirm that under specific conditions,
+[19:54.320] yes, we can fly it safely.
+[19:55.720] But in the future, we want to take this learning and not only apply it to safely flying Artemis II,
+[20:00.800] but to changing how we design and build the heat shield for Artemis III and beyond.
+[20:06.840] This is what we do. We are ready for it. This is how we work. This is how we learn.
+[20:12.680] It will be a 10-day journey going half a million miles,
+[20:17.320] continuing to test out every bit of Orion,
+[20:21.000] going around the far side of the Moon,
+[20:23.000] heading home through the Earth's atmosphere at over 25,000 miles per hour and splashing down in the Pacific.
+[20:30.880] The crew's going to have a horizon, they have a Moon, so I feel pretty good about pressing into this opportunity.
+[20:36.880] I think NASA is at its best when it has big ideas and bold exploration.
+[20:42.840] That's when the finest comes out of NASA, that's when the finest comes out of America.
+[20:46.320] Their story is made up of the success of this institution that makes this country so proud.
+[20:52.200] For Orion, success means first we bring the crew home, second we demonstrate what we know already is a...
+[21:00.000] ...robust spacecraft that's ready for these Artemis missions.
+[21:03.520] We want to continue to explore.
+[21:05.320] We want to continue to learn.
+[21:06.960] We want to go beyond.
+[21:08.520] We want to go even further.
+[21:10.120] And through the success of this particular mission of Artemis II,
+[21:13.680] will help spur us on for the additional exploration and discoveries
+[21:17.640] that are out there for us to find.
+[21:19.400] Our destiny is always to go and see what's further and what's next.
+[21:23.760] It's our generation's opportunity to have our own literal moonshot.
+[21:27.760] When we focus on one thing and we focus on it together,
+[21:30.560] we can achieve anything.
+[21:31.960] It's the lesson that we can do more together than we can as individuals.
+[21:36.560] It's a new beginning.
+[21:37.760] It's a rebirth of human exploration.
+[21:40.280] The question is no longer if we're going to return to the Moon or reach Mars.
+[21:44.200] It's a matter of when.
+[21:46.000] It starts with one flight,
+[21:47.480] one crew,
+[21:48.800] Artemis II.
+[21:50.080] We all have batons,
+[21:51.840] relay race batons,
+[21:53.080] and they are there as a symbol of coming back from Artemis II
+[21:56.240] and handing those batons to Artemis III and saying, "It's your turn to go."
+[21:59.440] That is what we live for.
+[22:00.320] We are ready.
