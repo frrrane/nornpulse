@@ -41,6 +41,30 @@ logger = logging.getLogger("nornpulse.orchestrator")
 # machinery) the video/audio Gemini has to actually attend to.
 AUTO_WINDOW_MAX_SEC = 600.0  # 10 minutes
 
+
+def auto_window_start(video_duration_sec: float, mode: str = "random",
+                      peak_sec: Optional[float] = None) -> float:
+    """
+    Where to open the analysis window on a video too long to reason over whole.
+
+    Centred on the most re-watched moment when there is one. Picking at
+    random and *then* telling the model to prefer cutting near the
+    re-watched moments is incoherent: on a 22-minute source a random
+    10-minute window discards over half the peaks before the model ever
+    sees them. If the measured evidence is good enough to put in the
+    prompt, it is good enough to choose the window with.
+
+    Clamped so the window always lies inside the video, which also means a
+    peak in the first or last five minutes still ends up inside it rather
+    than being centred off the end.
+    """
+    latest = max(0.0, video_duration_sec - AUTO_WINDOW_MAX_SEC)
+    if mode == "start":
+        return 0.0
+    if peak_sec is not None:
+        return min(max(peak_sec - AUTO_WINDOW_MAX_SEC / 2, 0.0), latest)
+    return random.uniform(0.0, latest)
+
 # Batch/channel mode caps at this many videos per run, with no UI control
 # to raise it — each one is a full generation run (Gemini + Lyria + image
 # + TTS calls), so an uncapped "whole channel" run could mean dozens of
@@ -1000,6 +1024,7 @@ class VerdandiOrchestrator:
         channel_profile: Optional[Any] = None,
         opener_sec: float = 0.0,
         rewatch_evidence: str = "",
+        rewatch_peak_sec: Optional[float] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -1038,10 +1063,8 @@ class VerdandiOrchestrator:
         # runtime in a single call. Only kicks in when the caller hasn't
         # already narrowed things down themselves.
         if transcript_window is None and video_duration_sec > AUTO_WINDOW_MAX_SEC:
-            if auto_window_mode == "start":
-                window_start = 0.0
-            else:
-                window_start = random.uniform(0.0, video_duration_sec - AUTO_WINDOW_MAX_SEC)
+            window_start = auto_window_start(
+                video_duration_sec, auto_window_mode, rewatch_peak_sec)
             window_end = window_start + AUTO_WINDOW_MAX_SEC
             transcript_window = (window_start, window_end)
             logger.info(
@@ -1205,6 +1228,7 @@ class VerdandiOrchestrator:
         channel_profile: Optional[Any] = None,
         opener_sec: float = 0.0,
         rewatch_evidence: str = "",
+        rewatch_peak_sec: Optional[float] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -1272,15 +1296,19 @@ class VerdandiOrchestrator:
                 # Measured, about this exact video, and free -- it comes
                 # from the same metadata probe the download already makes.
                 rewatch_evidence = ""
+                rewatch_peak_sec = None
                 try:
                     from agent import heatmap as hm
                     moments = hm.fetch(url)
                     rewatch_evidence = hm.describe(
                         moments, duration_sec=probed_duration or None)
+                    found = hm.peaks(moments)
                     if rewatch_evidence:
                         logger.info(
                             f"Most-replayed graph: {len(moments)} buckets, "
-                            f"{len(hm.peaks(moments))} peaks worth naming.")
+                            f"{len(found)} peaks worth naming.")
+                    if found:
+                        rewatch_peak_sec = found[0].mid_sec
                 except Exception as e:
                     logger.info(f"No re-watch evidence for {url}: {str(e)[:100]}")
 
@@ -1309,6 +1337,7 @@ class VerdandiOrchestrator:
                     channel_profile=channel_profile,
                     opener_sec=opener_sec,
                     rewatch_evidence=rewatch_evidence,
+                    rewatch_peak_sec=rewatch_peak_sec,
                     progress_callback=_relay,
                 )
                 all_clips.extend(clips)

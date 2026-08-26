@@ -71,11 +71,37 @@ def stage_clips(source: str, transcript_path: str | None, target_count: int,
 
     video, transcript_text = _resolve_source(source, transcript_path)
 
+    # The most-replayed graph, when the source is a URL that has one.
+    #
+    # This runner downloads first and then hands a local path to the
+    # orchestrator, which is how it lost the evidence: only the batch path
+    # fetched the heatmap, so staging a URL from here cut a long video at a
+    # random offset while the README advertised cuts grounded in what
+    # viewers of the source actually re-watched.
+    rewatch_evidence, rewatch_peak_sec = "", None
+    if source.startswith(("http://", "https://")):
+        from agent import heatmap as hm
+        try:
+            moments = hm.fetch(source)
+            rewatch_evidence = hm.describe(moments)
+            found = hm.peaks(moments)
+            if found:
+                rewatch_peak_sec = found[0].mid_sec
+                print(f"📈 most-replayed: {len(found)} peak(s), strongest at "
+                      f"{found[0].as_timestamp()} — the window will centre there")
+            else:
+                print("📈 no usable most-replayed graph; window will be picked at random")
+        except Exception as e:
+            print(f"📈 could not read the most-replayed graph: {str(e)[:80]}")
+
     print(f"🚀 Staging {target_count} clip(s) from {video.name}...")
     clips = VerdandiOrchestrator().orchestrate_generation(
         transcript_text=transcript_text,
         video_path=str(video),
         target_count=target_count,
+        source_ref=source,
+        rewatch_evidence=rewatch_evidence,
+        rewatch_peak_sec=rewatch_peak_sec,
         # The hook ranking is only meaningful within a channel-size band.
         channel_subscribers=subscribers,
         progress_callback=lambda stage, message: print(f"   [{stage}] {message}"),

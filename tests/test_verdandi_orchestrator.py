@@ -18,6 +18,7 @@ from agent.verdandi_orchestrator import (
     _clean_transcript_window_text,
     filter_transcript_by_window,
 )
+from agent import verdandi_orchestrator as vo
 from agent.skuld_renderer import parse_time_to_seconds
 
 
@@ -816,3 +817,42 @@ def test_an_unparseable_line_is_skipped_not_fatal():
     from agent.verdandi_orchestrator import parse_cues
     mixed = "not a cue at all\n" + REAL_FORMAT + "\n[broken] also not"
     assert len(parse_cues(mixed)) == 3
+
+
+# --- picking the analysis window on a long source --------------------------
+#
+# A 22-minute NASA source was cut at a random 10-minute offset while the
+# prompt told the model to prefer the moments viewers re-watched. Two of the
+# four measured peaks fell outside the window before the model saw anything,
+# and the README advertised the grounding either way.
+
+def test_the_window_centres_on_the_re_watched_moment():
+    start = vo.auto_window_start(1336.0, "random", peak_sec=748.0)
+    assert start <= 748.0 <= start + vo.AUTO_WINDOW_MAX_SEC
+    assert start == pytest.approx(748.0 - vo.AUTO_WINDOW_MAX_SEC / 2)
+
+
+@pytest.mark.parametrize("duration,peak", [
+    (1336.0, 20.0),      # peak in the opening minute
+    (1336.0, 1330.0),    # peak in the closing seconds
+    (700.0, 650.0),      # barely longer than the window itself
+    (601.0, 300.0),      # one second longer than the window
+])
+def test_the_peak_is_always_inside_the_window(duration, peak):
+    """Centring a peak near either end would otherwise run off the video."""
+    start = vo.auto_window_start(duration, "random", peak_sec=peak)
+    assert 0.0 <= start
+    assert start + vo.AUTO_WINDOW_MAX_SEC <= duration + 1.0
+    assert start <= peak <= start + vo.AUTO_WINDOW_MAX_SEC
+
+
+def test_start_mode_ignores_the_peak():
+    """An explicit 'start' is a caller's decision and outranks the evidence."""
+    assert vo.auto_window_start(1336.0, "start", peak_sec=748.0) == 0.0
+
+
+def test_without_a_peak_the_window_is_still_random():
+    """No heatmap is normal — YouTube only computes one after enough views."""
+    seen = {vo.auto_window_start(1336.0, "random", None) for _ in range(40)}
+    assert len(seen) > 1
+    assert all(0.0 <= s <= 1336.0 - vo.AUTO_WINDOW_MAX_SEC for s in seen)
