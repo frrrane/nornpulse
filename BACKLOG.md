@@ -18,7 +18,7 @@ submission is **Wed 9 September 2026, 2pm PDT**.
   against 10,000/day). Views need days to mature, so elapsed time is the
   binding constraint — every day without publishing is outcome data that will
   not exist by the deadline. `publish_file.py` handles externally-made video;
-  `test_hitl.py` → `check_approvals.py` handles pipeline-generated clips.
+  `scripts/stage_for_review.py` → `check_approvals.py` handles pipeline-generated clips.
 
 ## Engagement ideas, proposed and parked
 
@@ -114,18 +114,6 @@ of work, judged against what the clips actually looked like.
 
 ## Housekeeping
 
-- [ ] **GitHub sync and repo clean-up.** Several root scripts predate the
-  current structure and are either dead or misleadingly named:
-  `approve_and_publish.py` (a one-off with a hardcoded title, superseded by
-  `check_approvals.py`), `probe_clickhouse_mcp.py`, `generate_test_assets.py`,
-  `daemon.py`, and `test_pipeline.py` / `test_hitl.py`, which sit at the root
-  looking like pytest files while being manual end-to-end runners that spend
-  real API credit. Decide what stays, move the runners out of the way of
-  `pytest`, and keep the README's structure block honest afterwards.
-
-  Also check what is committed that should not be, and what is ignored that
-  should be tracked.
-
 ## Known problems worth fixing
 
 - [ ] **DEMO_SCRIPT.md and demo_beats.py have drifted.** The prose script
@@ -171,6 +159,15 @@ of work, judged against what the clips actually looked like.
   published unverified, which is sufficient.
 
 ## Done
+
+- [x] Repo clean-up. Removed four dead root scripts: `test_pipeline.py` and
+      `daemon.py` could not import at all, `approve_and_publish.py` was a
+      one-off superseded by `check_approvals.py`, and `probe_clickhouse_mcp.py`
+      was a throwaway written to discover the MCP response shape before
+      UrdrAnalytics could parse it. The two working manual runners moved to
+      `scripts/`, so nothing outside `tests/` looks like a pytest file — which
+      is how a root-level `test_pipeline.py` sat broken for weeks without
+      anything noticing.
 
 - [x] First clip published through the full pipeline —
       `youtube.com/shorts/ncSGySusHUg`, public, forecast attached and

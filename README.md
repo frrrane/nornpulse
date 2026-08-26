@@ -228,7 +228,10 @@ nornpulse/
 ├── channels.json                # Publishing destinations and their profiles
 │
 │   # Generation and publishing
-├── test_hitl.py                 # Generate clips from a source, stage them by email
+├── scripts/                     # Manual runners, kept out of pytest's way
+│   ├── stage_for_review.py      # Generate clips from a source, stage them by email
+│   ├── fetch_fonts.py           # Pull the bundled display typefaces
+│   └── generate_test_assets.py  # Synthetic 16:9 fixtures via FFmpeg filter graphs
 ├── check_approvals.py           # Read email replies, upload what was approved
 ├── publish_staged.py            # Publish already-staged clips
 ├── publish_file.py              # Publish an existing video with grounded tags
@@ -530,7 +533,7 @@ minute.
 
 Several cases are regression guards for bugs found by live testing: caption overlap, the crop-before-blur ordering in `blurred_background`, the `split=2` rule for named filter pads, `ORDER BY` binding to only the last `SELECT` of a `UNION ALL`, a clamp that could emit an end timestamp *before* its start when the model requested a range outside the user's Cut Range, and metadata reconciliation silently dropping every render field it didn't list by name.
 
-`test_pipeline.py` and `test_hitl.py` at the repo root are separate — they are manual end-to-end runners that call the real Gemini / ClickHouse / Gmail APIs, and are excluded from the `pytest` suite.
+`scripts/stage_for_review.py` is a manual end-to-end runner that calls the real Gemini / ClickHouse / Gmail APIs. It lives in `scripts/` rather than the repo root precisely so that nothing outside `tests/` looks like a pytest file — an earlier `test_pipeline.py` sat at the root, was excluded from the suite, and had been unable to import for weeks without anything noticing.
 
 ## 📧 Human-in-the-loop staging
 
@@ -538,14 +541,14 @@ Nothing reaches YouTube without a human approving it, on any path into the syste
 
 | Path | Entry point |
 |---|---|
-| Cut from a source video | `test_hitl.py` |
+| Cut from a source video | `scripts/stage_for_review.py` |
 | An existing finished video | `publish_file.py` |
 | Generated from a trend | `trend_publish.py --stage` |
 
-`test_hitl.py` runs the full pipeline and emails each rendered short for review:
+`scripts/stage_for_review.py` runs the full pipeline and emails each rendered short for review:
 
 ```bash
-python test_hitl.py [video_path] [transcript_path] [count]
+python scripts/stage_for_review.py [video_path] [transcript_path] [count]
 # defaults: sample_data/yt_input.mp4, sample_data/raw_transcript.txt, 3
 ```
 

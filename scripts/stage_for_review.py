@@ -14,7 +14,7 @@ is one command. A local path skips both and needs its transcript passed
 alongside (or generated on the fly if omitted).
 
 Nothing is uploaded to YouTube here. Approving a staged clip is a
-separate, deliberate step (approve_and_publish.py or the dashboard).
+separate, deliberate step (check_approvals.py or the dashboard).
 """
 
 import json
