@@ -1,10 +1,30 @@
 # agent/norn_cron.py
 """
-⚡ NornPulse: Autonomous Cron & Daemon Orchestrator (norn_cron.py)
+⚡ NornPulse: Scheduled staging (norn_cron.py)
 Norn Labs (nornlabs.ai)
 
 Manages automated ingestion, AI segment selection via Gemini, Skuld rendering,
 metadata generation, and Gmail/HITL staging dispatch.
+
+Status: kept deliberately, not yet wired
+------------------------------------------
+Nothing imports this today. It was written against `daemon.py`, which has
+since been deleted, and an over-engineering audit flagged the whole module
+as dead — correctly, on the evidence. It survives because scheduled
+*staging* is still wanted: the piece worth automating is putting a clip in
+front of a human on a timer, not publishing on one.
+
+The distinction matters and is the reason this is unwired rather than
+running. Everything here stops at `send_gmail_staged_approval`; nothing in
+it uploads. A scheduler that stages is a scheduler that fills a review
+queue, which is safe to be wrong. A scheduler that publishes is not, and
+this project's rule is that a pipeline stage gets automated only once its
+output is being approved consistently in human review — which the trend
+loop's output is not yet.
+
+The class name still says Daemon and the old flow it orchestrates predates
+the trend loop, so wiring this up means rewriting the body against
+`trend_publish.py --stage`, not calling it as it stands.
 """
 
 import os

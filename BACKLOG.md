@@ -18,6 +18,13 @@ submission is **Wed 9 September 2026, 2pm PDT**.
 
 ## Next
 
+- [ ] **Scheduled staging.** `agent/norn_cron.py` exists but nothing imports it,
+  and its body predates the trend loop — wiring it up means rewriting it against
+  `trend_publish.py --stage`. Deliberately staging-only: a timer that fills a
+  review queue is safe to be wrong, a timer that publishes is not. Kept through
+  an over-engineering audit for this reason; the module now says so in its own
+  docstring so it does not read as dead code.
+
 - [ ] **One more UI overhaul before the deadline.** Wanted explicitly. Worth
   doing *before* the demo footage is captured, not after — `demo_capture.py`
   re-records the whole deck in one command, but only the driveable beats, and

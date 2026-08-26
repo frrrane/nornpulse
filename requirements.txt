@@ -34,7 +34,10 @@ google-auth-oauthlib>=1.4.0
 # on the thumbnail call used to lose the whole cover. See agent/api_retry.py.
 tenacity>=9.1.4
 
-# Scheduling for the autonomous daemon (agent/norn_cron.py, daemon.py).
+# Scheduling. Not imported yet: agent/norn_cron.py is kept for scheduled
+# *staging* (a timer that fills a review queue, never one that publishes) and
+# still has to be rewritten against trend_publish.py --stage. daemon.py, the
+# original consumer named here, was deleted.
 apscheduler>=3.11.3
 google-cloud-storage>=2.14.0
 
