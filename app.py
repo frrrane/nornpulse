@@ -637,12 +637,12 @@ def _cached_scoreboard(size_band: str):
             sb.scoreboard_frame(size_band, facts=facts))
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner="Comparing the benchmark against our own channels…")
 def _cached_reality_gap(size_band: str):
     return cal.reality_gap(size_band, facts=_cached_global_facts())
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner="Reading hook benchmarks…")
 def _cached_hook_benchmarks(_urdr):
     return _urdr.get_hook_type_benchmarks()
 
@@ -669,7 +669,7 @@ def _cached_visual_benchmarks(_urdr):
     return _urdr.get_all_visual_benchmarks()
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=15, show_spinner="Reading published outcomes…")
 def _cached_published_outcomes(_urdr):
     return _urdr.get_published_outcomes()
 
@@ -682,7 +682,7 @@ def _cached_topic_categories(_urdr):
 # The global layer is materialised, not live — these are cheap local reads,
 # but they're still ClickHouse round-trips inside a tab body that Streamlit
 # executes on every rerun, so they cache like the rest.
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner="Reading the 4.56-billion-row public dataset…")
 def _cached_global_facts():
     """
     The entire materialised facts table in one round-trip. It is a few
