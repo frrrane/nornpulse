@@ -149,3 +149,40 @@ def test_the_query_is_scoped_to_the_video(monkeypatch):
     ya.retention_curve(None, "abc123", "2026-08-01", "2026-08-25")
     assert client.reports().params["filters"] == "video==abc123"
     assert client.reports().params["dimensions"] == ya.RETENTION_DIMENSION
+
+
+# --- a row of zeros is not a measurement ------------------------------------
+
+def test_zero_views_is_not_reported_as_a_measurement(monkeypatch):
+    """
+    YouTube returns a populated row of zeros for a video too new to have
+    been processed -- its analytics lag publication by a day or more. Read
+    literally that becomes "the average viewer watched 0% of it" about a
+    video nobody has had the chance to watch, which is the fabricated
+    finding this whole module exists to refuse. Observed on a clip an hour
+    after publishing.
+    """
+    _install(monkeypatch, {
+        "columnHeaders": [{"name": "views"}, {"name": "averageViewPercentage"}],
+        "rows": [[0, 0]],
+    })
+    assert ya.summary(None, "2026-08-25", "2026-08-26", "vid") is None
+
+
+def test_a_real_row_still_comes_back(monkeypatch):
+    _install(monkeypatch, {
+        "columnHeaders": [{"name": "views"}, {"name": "averageViewPercentage"}],
+        "rows": [[48, 69.08]],
+    })
+    assert ya.summary(None, "2026-08-19", "2026-08-26")["views"] == 48
+
+
+def test_diagnose_says_it_may_simply_be_too_soon(monkeypatch):
+    """
+    "Too few viewers" and "published an hour ago" are different situations
+    with the same empty result, and the message should not pick one.
+    """
+    _install(monkeypatch, {"rows": []})
+    findings = " ".join(ya.diagnose(None, "vid", "2026-08-25", "2026-08-26")["findings"])
+    assert "too recently published" in findings
+    assert "measurement of zero" in findings

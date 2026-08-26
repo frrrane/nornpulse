@@ -138,7 +138,23 @@ def summary(credentials, start_date: str, end_date: str,
         return None
 
     headers = [h["name"] for h in response.get("columnHeaders", [])]
-    return dict(zip(headers, rows[0]))
+    report = dict(zip(headers, rows[0]))
+
+    # A row of zeros is absent data wearing the shape of an answer. YouTube
+    # returns one for a video too new to have been processed -- analytics
+    # lag reporting by a day or more -- and treating it as a measurement
+    # produces "the average viewer watched 0% of it" about a video nobody
+    # has had the chance to watch. That is precisely the fabricated finding
+    # this module exists to refuse.
+    if not report.get("views"):
+        logger.info(
+            f"{video_id or 'the channel'} reports zero views for "
+            f"{start_date}..{end_date}. Treating as not yet reported rather "
+            f"than as measured zeros; analytics lag publication by a day or "
+            f"more.")
+        return None
+
+    return report
 
 
 def retention_curve(credentials, video_id: str,
@@ -215,8 +231,9 @@ def diagnose(credentials, video_id: str, start_date: str,
 
     if not overview and not curve:
         result["findings"].append(
-            "too few viewers for YouTube to report on — this is expected "
-            "below roughly a thousand views and is not a zero")
+            "nothing reported yet — either too few viewers for YouTube to "
+            "report on, or too recently published for it to have processed "
+            "them. Neither is a measurement of zero.")
         return result
 
     result["reportable"] = True
