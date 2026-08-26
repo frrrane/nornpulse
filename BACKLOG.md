@@ -7,14 +7,22 @@ submission is **Wed 9 September 2026, 2pm PDT**.
 
 ## Hard requirements (cannot ship without)
 
-- [ ] **Demo video, ≤3 minutes.** Script and beats are written, timed at 2:53
-  and drift-tested; the footage is not shot. Two shots are manual (the trend
+- [ ] **Demo video, ≤3 minutes.** Script, beats, capture and assembly all
+  exist — `demo_capture.py` records the seven driveable beats, `demo_assemble.py`
+  narrates and cuts, and a silent dry run comes out at 2:41. What is missing is
+  the two hand-shot beats, which currently render as slates. Two shots are manual (the trend
   loop in a terminal, the approval email) and are the ones that show the
   product doing what the competition is about — film those first.
 - [x] **Written description** for the Devpost entry — `DESCRIPTION.md`. Numbers
   read live on 26 Aug 2026; re-check before submitting.
 
 ## Next
+
+- [ ] **One more UI overhaul before the deadline.** Wanted explicitly. Worth
+  doing *before* the demo footage is captured, not after — `demo_capture.py`
+  re-records the whole deck in one command, but only the driveable beats, and
+  the two hand-shot ones would have to be filmed again by hand if the UI moves
+  under them. Sequence: overhaul, then capture.
 
 - [ ] **Upload cadence.** Six uploads/day maximum (1,600 quota units each
   against 10,000/day). Views need days to mature, so elapsed time is the

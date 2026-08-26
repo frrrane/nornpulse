@@ -76,6 +76,51 @@ def find_content_start(video: Path, fps_probe: float = 4.0,
     return 0.0
 
 
+def write_slate(out: Path, beat, duration: float) -> bool:
+    """
+    A placeholder card for a beat that has to be filmed by hand.
+
+    Deliberately ugly and legible: it names the beat and the shot, so a
+    rough cut assembled from captures shows exactly what is still missing
+    and for how long, instead of a gap someone has to remember.
+    """
+    from agent import text_fit
+
+    font = text_fit.font_file()
+    face = f"fontfile={font}:" if font else ""
+
+    def line(text, y, size, colour="white"):
+        safe = (text.replace("\\", "").replace(":", "\\:")
+                    .replace("'", "’").replace("%", "\\%"))
+        return (f"drawtext={face}text='{safe}':fontcolor={colour}:fontsize={size}"
+                f":x=(w-text_w)/2:y={y}")
+
+    # Wrapped on word boundaries. A fixed-width slice splits "full-frame"
+    # into "full-fr" and "ame", which makes the one card whose whole job is
+    # to be read at a glance the hardest thing in the cut to read.
+    import textwrap
+    wrapped = textwrap.wrap(beat.manual, 58)[:3]
+    filters = [
+        line("SHOOT THIS BY HAND", 380, 64, "0xE85D4A"),
+        line(beat.key.upper(), 480, 96),
+    ] + [line(w, 640 + n * 52, 38, "0xBBBBBB") for n, w in enumerate(wrapped)]
+
+    out.unlink(missing_ok=True)
+    try:
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-f", "lavfi",
+             "-i", f"color=c=0x14161C:s={VIEWPORT['width']}x{VIEWPORT['height']}"
+                   f":d={duration:.2f}:r=25",
+             "-vf", ",".join(filters),
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+             "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-y", str(out)],
+            check=True, capture_output=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"     ❌ slate failed: {e.stderr.decode('utf-8', 'replace')[:120]}")
+        return False
+
+
 def run_actions(page, actions, verbose=False):
     for verb, arg in actions:
         if verb == "wait":
@@ -114,6 +159,23 @@ def capture(url: str, out_dir: Path, only: str | None = None,
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="chrome", headless=not headed)
         for i, beat in enumerate(beats, 1):
+            if beat.manual:
+                # A manual beat is a terminal, an inbox, or a Short playing —
+                # nothing a browser can film. Recording it anyway would
+                # produce half a minute of a static page that looks like a
+                # successful capture, so a slate is written instead: the
+                # assembler gets a placeholder of the right length, and the
+                # gap is visible in the rough cut rather than discovered on
+                # the last day.
+                final = out_dir / f"{beat.key}.mp4"
+                dur = max(beat.min_seconds, len(beat.narration.split()) / 2.5)
+                print(f"  [{i}/{len(beats)}] {beat.key:12} MANUAL — {beat.manual[:52]}")
+                if not write_slate(final, beat, dur):
+                    failures += 1
+                    continue
+                print(f"     🎬 {final.name}  ({dur:.0f}s slate — film this by hand)")
+                continue
+
             target = url.rstrip("/") + beat.page
             print(f"  [{i}/{len(beats)}] {beat.key:12} {target}")
             raw_dir = out_dir / f".raw_{beat.key}"
