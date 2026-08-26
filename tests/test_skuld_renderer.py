@@ -723,3 +723,47 @@ def test_word_chunking_stays_off_until_word_timings_exist():
     on needs real per-word times from transcription.
     """
     assert sr.WORD_CHUNK_CAPTIONS is False
+
+
+# --- emoji live in metadata, never in pixels or speech ---------------------
+#
+# Every video that has actually travelled on these channels has emoji in its
+# title, and the pipeline produced none. They can go in the YouTube title,
+# which is plain metadata — but the same string is burned into the banner,
+# where drawtext draws a hollow box, and handed to TTS, which reads them out
+# by name. So they are stripped at the points where text becomes pixels or
+# sound, and kept everywhere else.
+
+@pytest.mark.parametrize("raw,expected", [
+    ("Opera Hippo! \U0001F602\U0001F99B (Loop)", "Opera Hippo! (Loop)"),
+    ("\U0001F525 Hot take", "Hot take"),
+    ("no emoji here", "no emoji here"),
+    ("", ""),
+])
+def test_emoji_are_stripped_for_drawing(raw, expected):
+    from agent import text_fit
+    assert text_fit.strip_emoji(raw) == expected
+
+
+def test_accented_latin_survives_the_strip():
+    """The cut is at U+2190; accents and dashes sit below it."""
+    from agent import text_fit
+    assert text_fit.strip_emoji("Café naïve — résumé") == "Café naïve — résumé"
+
+
+def test_the_banner_never_draws_an_emoji(tmp_path):
+    filt = sr.SkuldRenderer()._build_banner_filter("Thrust \U0001F680\U0001F525")
+    assert "\U0001F680" not in filt and "\U0001F525" not in filt
+    assert "Thrust" in filt
+
+
+def test_clip_length_matches_what_has_travelled():
+    """
+    6-10s, from the channels' own history: all 37 published Shorts are 6-9s.
+    The old 8-15s default produced 13.6s clips with a median of 13 views
+    against 343 for the short ones.
+    """
+    from agent import verdandi_orchestrator as vo
+    assert vo.CLIP_MIN_SEC == 6.0
+    assert vo.CLIP_MAX_SEC == 10.0
+    assert vo.CLIP_MAX_SEC <= 12.0, "longer than anything that has worked here"

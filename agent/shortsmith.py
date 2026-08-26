@@ -93,8 +93,7 @@ def hook_text(brief_title: str) -> str:
     in constantly. Left in, they render as hollow boxes on the one frame
     that has to work.
     """
-    stripped = "".join(c for c in brief_title if ord(c) < 0x2190).strip()
-    stripped = " ".join(stripped.split())
+    stripped = text_fit.strip_emoji(brief_title)
     if len(stripped) > HOOK_MAX_CHARS:
         stripped = stripped[:HOOK_MAX_CHARS].rsplit(" ", 1)[0] + "\u2026"
     return stripped

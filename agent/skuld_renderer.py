@@ -827,8 +827,14 @@ class SkuldRenderer:
         # one face and filled with another.
         font = text_fit.font_file(banner_font)
 
+        # Emoji come off before the box is measured, not after: drawtext
+        # renders them as hollow squares, and a box sized around glyphs
+        # that will not draw is the wrong size for the text that does.
+        # They stay in the YouTube title, which is metadata rather than
+        # pixels — that is where every video that has actually travelled
+        # on these channels carries them.
         lines, font_px = text_fit.fit_text(
-            hook_banner_text,
+            text_fit.strip_emoji(hook_banner_text),
             max_width_px=BANNER_WIDTH - 2 * BANNER_PADDING,
             font_px=BANNER_FONT_PX,
             font_path=font,

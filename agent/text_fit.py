@@ -65,6 +65,23 @@ FONT_CANDIDATES = tuple(
 )
 
 
+def strip_emoji(text: str) -> str:
+    """
+    Drop characters no burned-in text path can draw.
+
+    Neither libass nor ffmpeg's drawtext renders colour emoji — libass
+    cannot read CBDT tables and drawtext draws a hollow box — and the same
+    strings are handed to TTS, which reads them out as their names.
+
+    So emoji live in the YouTube title, which is plain metadata and where
+    every video that has actually travelled on these channels has them,
+    and are removed at the three places text becomes pixels or speech.
+    The cut is at U+2190 because everything above it in practice is arrows,
+    dingbats and emoji, while accented Latin and punctuation sit below.
+    """
+    return " ".join("".join(c for c in (text or "") if ord(c) < 0x2190).split())
+
+
 def font_file(preferred: Optional[str] = None) -> Optional[str]:
     """
     A concrete font file that exists on this machine, or None.

@@ -386,7 +386,10 @@ brands.>",
       "negative_prompt": "<what the generator should avoid, comma separated>",
       "title": "<YouTube title under 80 characters, naming what is literally \
 visible and leading with the thing from the 5-8s beat. No outcome words the \
-footage does not show.>",
+footage does not show. End with one or two emoji that match what is on screen \
+-- every video that has actually travelled on this channel has them, and they \
+are stripped automatically from the burned-in banner and the spoken line, so \
+they cost nothing on screen.>",
       "caption": "<one-line description>",
       "hook_type": "<one of: shock_stat, curiosity_gap, contrarian_claim, \
 problem_agitation, direct_question, visual_disruption, metaphor_analogy, \

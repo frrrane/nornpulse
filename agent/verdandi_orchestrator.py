@@ -18,6 +18,8 @@ from google.genai import types
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from agent import text_fit
+
 from agent.skuld_renderer import (
     SkuldRenderer, parse_time_to_seconds, format_seconds_to_mmss, get_video_duration_seconds,
     measure_audio_mean_volume, NARRATION_FALLBACK_VOLUME_THRESHOLD_DB,
@@ -40,6 +42,21 @@ logger = logging.getLogger("nornpulse.orchestrator")
 # out of a very long transcript, and (via the existing transcript_window
 # machinery) the video/audio Gemini has to actually attend to.
 AUTO_WINDOW_MAX_SEC = 600.0  # 10 minutes
+
+# How long a cut clip should be.
+#
+# Was 8-15s, which produced clips averaging 13.6 seconds. Measured against
+# what has actually travelled on these channels: every one of the 37
+# published Shorts is 6-9 seconds, averaging 7.1, with a median of 343
+# views. The 13.6-second clips have a median of 13. Average view percentage
+# tracks it -- 93% on the short channel against 69% on the long one, and
+# completion is what buys distribution on a small channel.
+#
+# Not a claim that short causes views. It is the range the audience these
+# channels actually reach has watched to the end, and the old default sat
+# at twice it for no measured reason.
+CLIP_MIN_SEC = 6.0
+CLIP_MAX_SEC = 10.0
 
 
 def auto_window_start(video_duration_sec: float, mode: str = "random",
@@ -621,7 +638,9 @@ class VerdandiOrchestrator:
             if vision_mode:
                 _emit("mimir", f"🗣️ Mímir (narration) is narrating the hook line (clip {clip_counter[0]})...")
                 narration_path = self.mimir.narrate(
-                    clip_id=clip_id, script_text=hook_banner_text, energy_level=energy_level,
+                    clip_id=clip_id,
+                    script_text=text_fit.strip_emoji(hook_banner_text),
+                    energy_level=energy_level,
                     output_dir=self.skuld.output_dir,
                 )
             elif resolved_transcript:
@@ -921,6 +940,12 @@ class VerdandiOrchestrator:
             f"never be a placeholder. "
             f"Return a strict JSON list response with fields: clip_id, hook_type, hook_title, social_caption, "
             f"virality_score, start_time, end_time. "
+            f"End hook_title with one or two emoji that match what is on screen. Every video that has "
+            f"actually travelled on these channels carries them, and they are stripped automatically from "
+            f"the burned-in banner and the spoken line, so they cost nothing on screen. "
+            f"Keep each clip between {CLIP_MIN_SEC:.0f} and {CLIP_MAX_SEC:.0f} seconds: every one of the 37 "
+            f"Shorts published on these channels is 6-9 seconds long, and the longer clips this pipeline "
+            f"produced have a median of 13 views against 343 for the short ones. "
             f"The clip_id values in your JSON response MUST exactly match the clip_id values you passed to tool_execute_skuld_render."
         )
 
@@ -1022,8 +1047,8 @@ class VerdandiOrchestrator:
         warmth: float = 0.5,
         crazy: float = 0.3,
         topic_focus: Optional[str] = None,
-        min_duration_sec: float = 8.0,
-        max_duration_sec: float = 15.0,
+        min_duration_sec: float = CLIP_MIN_SEC,
+        max_duration_sec: float = CLIP_MAX_SEC,
         cut_energy: float = 0.5,
         transcript_window: Optional[Tuple[float, float]] = None,
         auto_window_mode: str = "random",
@@ -1230,8 +1255,8 @@ class VerdandiOrchestrator:
         warmth: float = 0.5,
         crazy: float = 0.3,
         topic_focus: Optional[str] = None,
-        min_duration_sec: float = 8.0,
-        max_duration_sec: float = 15.0,
+        min_duration_sec: float = CLIP_MIN_SEC,
+        max_duration_sec: float = CLIP_MAX_SEC,
         cut_energy: float = 0.5,
         auto_window_mode: str = "random",
         content_hint: Optional[str] = None,
