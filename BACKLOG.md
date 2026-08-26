@@ -7,10 +7,12 @@ submission is **Wed 9 September 2026, 2pm PDT**.
 
 ## Hard requirements (cannot ship without)
 
-- [ ] **Demo video, ≤3 minutes.** The single most compressible-looking item
-  that is actually the least compressible: a good three minutes takes about
-  two days once re-takes are counted. Protect its slot ahead of any feature.
-- [ ] **Written description** for the Devpost entry.
+- [ ] **Demo video, ≤3 minutes.** Script and beats are written, timed at 2:53
+  and drift-tested; the footage is not shot. Two shots are manual (the trend
+  loop in a terminal, the approval email) and are the ones that show the
+  product doing what the competition is about — film those first.
+- [x] **Written description** for the Devpost entry — `DESCRIPTION.md`. Numbers
+  read live on 26 Aug 2026; re-check before submitting.
 
 ## Next
 
@@ -116,10 +118,10 @@ of work, judged against what the clips actually looked like.
 
 ## Known problems worth fixing
 
-- [ ] **DEMO_SCRIPT.md and demo_beats.py have drifted.** The prose script
-  predates the scoreboard and the trend loop; the machine-readable beats
-  include the scoreboard. They are supposed to say the same thing, and the
-  capture is driven by the latter.
+- [x] **DEMO_SCRIPT.md and demo_beats.py have drifted.** Fixed: the prose is
+  now rendered from the beats and `tests/test_demo_beats.py` fails in both
+  directions if they diverge again. The beats gained the generation and
+  human-gate sections the prose was missing.
 
 - [ ] **SlopTokDaily's existing tags are malformed.** 36 of 57 tag entries
   across the 37 published videos are a single space- or newline-separated

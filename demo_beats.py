@@ -29,6 +29,11 @@ class Beat:
     # Seconds of video to keep. Narration length wins if it is longer, so
     # this is a floor rather than a cap — a beat is never cut mid-sentence.
     min_seconds: float = 4.0
+    # A shot Playwright cannot take: a terminal, a finished Short playing,
+    # an inbox. Declared rather than omitted, so the capture leaves a gap of
+    # the right length and the shot list below stays honest about what still
+    # has to be filmed by hand.
+    manual: str = ""
 
 
 # Verbs:
@@ -52,82 +57,110 @@ BEATS: List[Beat] = [
     Beat(
         key="problem",
         narration=(
-            "Almost every piece of short-form advice you have been given was "
-            "measured on channels that already have an audience. Then it gets sold "
-            "to channels that don't. At the wrong scale it isn't just weaker. It "
-            "reverses, because the thing that made it work, a subscriber base "
-            "feeding browse traffic, doesn't exist yet."
+            "Nearly every piece of short-form advice was measured on channels "
+            "that already have an audience, then sold to channels that don't. At "
+            "the wrong scale it doesn't just weaken. It reverses. Four and a half "
+            "billion videos, banded by channel size."
         ),
         page="/",
         actions=[("wait", 1.0), ("scroll", 420), ("wait", 2.0), ("scroll", 420),
                  ("wait", 2.0)],
-        min_seconds=18.0,
+        min_seconds=14.0,
+    ),
+    Beat(
+        key="generation",
+        narration=(
+            "So it makes videos on that basis. Urðr asks ClickHouse what is "
+            "travelling and returns a topic with a denominator: unboxing, three "
+            "trending videos, median nine point seven million views. Verðandi "
+            "writes the brief, three beats in eight seconds, and picks one premise "
+            "over two others. A rights check runs before a frame exists. Veo "
+            "generates, Mímir narrates, the hook burns into the first three "
+            "seconds. That clip is live, and nobody typed a word of it."
+        ),
+        page="/",
+        manual=("Terminal: trend_publish.py --generate, showing topic, brief, "
+                "rights verdict. Then the finished Short playing full-frame, "
+                "sound on."),
+        min_seconds=30.0,
     ),
     Beat(
         key="provenance",
         narration=(
-            "So every decision is labelled. Three measured, four assumed, one "
+            "And every decision is labelled. Three measured, four assumed, one "
             "model judgement. The hook is measured, with a sample size attached. "
             "The framing is a seeded prior, because the public dataset has no "
-            "visual features and there is nothing to ground it against. It says so "
-            "rather than pretending."
+            "visual features to ground it against, and it says so."
         ),
         page="/",
         actions=[("scroll", 1100), ("wait", 1.5),
                  ("click", "[data-testid='stExpander'] summary"), ("wait", 3.0)],
-        min_seconds=18.0,
+        min_seconds=16.0,
     ),
     Beat(
         key="inward",
         narration=(
-            "A tool that only audits other people's advice is doing half the job. "
-            "So we pointed it at ourselves. The benchmark says a channel this size "
-            "gets two and a half thousand views. Our real channels get thirteen, "
-            "and three hundred and forty-three. The population median is roughly "
-            "our best ever video, not a typical one."
+            "A tool that only audits other people's advice is doing half the job, "
+            "so we pointed it at ourselves. The benchmark says a channel this size "
+            "gets two and a half thousand views. Our two real channels get "
+            "thirteen, and three hundred and forty-three."
         ),
         page="/page_intelligence",
         actions=[("settle", "[data-testid='stMetric']"), ("wait", 2.0),
                  ("scroll", 260), ("wait", 3.0)],
-        min_seconds=20.0,
+        min_seconds=17.0,
     ),
     Beat(
         key="why",
         narration=(
-            "Here is why. The public dataset is a crawl. It only contains videos "
-            "that were discoverable enough to be crawled. A channel posting into "
-            "the void isn't in it. So banding by size doesn't remove survivorship "
-            "bias, because the population inside the band is filtered too. "
-            "Forecasts are calibrated against the channel's own history instead."
+            "Here is why. The public dataset is a crawl, so it only contains "
+            "videos discoverable enough to be crawled. A channel posting into the "
+            "void isn't in it. Banding by size doesn't remove survivorship bias, "
+            "because the population inside the band is filtered too."
         ),
         page="/page_intelligence",
         actions=[("wait", 1.0), ("scroll", 300), ("wait", 3.0)],
-        min_seconds=20.0,
+        min_seconds=16.0,
     ),
     Beat(
         key="scoreboard",
         narration=(
-            "And the forecast is written down before the clip publishes, then "
-            "graded against what actually happened. Right now it says zero of "
-            "thirteen are gradeable, and names every reason why. It would rather "
-            "show you an empty panel than a percentage built on two clips."
+            "So forecasts are calibrated against the channel's own history. "
+            "Uncalibrated, two thousand four hundred. Calibrated, three hundred "
+            "and five. Actual median, three hundred and forty-three. And the "
+            "scoreboard says how many of its own forecasts are gradeable so far, "
+            "instead of averaging something comforting."
         ),
         page="/page_intelligence",
         actions=[("wait", 1.0), ("scroll", 420), ("wait", 3.0)],
-        min_seconds=16.0,
+        min_seconds=18.0,
+    ),
+    Beat(
+        key="gate",
+        narration=(
+            "Nothing publishes itself. Every clip goes to a human by email, with "
+            "a comment that goes back into the record. This one was approved with "
+            "the note, could be funnier. The forecast is written down before "
+            "publication, then graded against what happened. It can be wrong in "
+            "public, which is the point."
+        ),
+        page="/page_review",
+        actions=[("settle", "h1"), ("wait", 3.0)],
+        manual="Cut to the approval email in a real inbox, reply comment visible.",
+        min_seconds=18.0,
     ),
     Beat(
         key="close",
         narration=(
             "Most AI tools present everything they output with identical "
             "confidence. This one tells you which parts it measured, which it "
-            "assumed, and which it guessed. And when the sample is too thin, it "
-            "refuses to answer. NornPulse. It's live, and every chart on it is "
-            "running against the real warehouse."
+            "assumed, and which it guessed, and when the sample is too thin it "
+            "refuses to answer. NornPulse. Every chart is running against the "
+            "real warehouse right now."
         ),
         page="/",
         actions=[("settle", "h1"), ("wait", 3.0)],
-        min_seconds=17.0,
+        min_seconds=16.0,
     ),
 ]
 
