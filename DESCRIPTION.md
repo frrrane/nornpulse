@@ -20,14 +20,19 @@ that do not. Applied at the wrong scale some of it is not merely weaker: it
 reverses, because the mechanism that made it work (a subscriber base feeding
 browse traffic) does not exist yet.
 
-We wanted an agent that makes short films and can say *why* it made each
-choice — and can tell the difference between a thing it measured and a thing
-it assumed.
+We wanted an agent that makes short films for the filmmaker who doesn't have a
+studio's back catalogue of audience data behind them — the solo creator who is
+simultaneously the filmmaker, the crew and the fan — and can say *why* it made
+each choice, and can tell the difference between a thing it measured and a
+thing it assumed.
 
 ## What it does
 
-NornPulse generates and publishes short-form video, grounding every creative
-decision in the size band of the channel actually publishing it.
+NornPulse is a filmmaker's agent: given a topic or a source video, it writes
+the premise, generates or cuts the footage, and publishes a short film — and
+it grounds every creative decision in the size band of the channel actually
+publishing it. The two real channels behind the numbers on this page have 2
+and 14 subscribers, not 100,000; nothing here assumes a studio audience.
 
 Given nothing but a channel, it will:
 
@@ -124,13 +129,22 @@ rather than averaging something comforting over two clips.
 
 ## What's next
 
-- Word-level captions, and emoji in the burned-in hook (neither libass nor
-  FFmpeg's `drawtext` can render colour emoji today, so they are stripped).
+- Word-level captions — timing currently follows transcript-line cues rather
+  than per-word timestamps, so the kinetic reveal stays off
+  (`WORD_CHUNK_CAPTIONS = False`) until a transcription source supplies
+  per-word timing honestly. Emoji already render in titles; they're still
+  stripped from the burned-in banner and narration, since neither libass nor
+  FFmpeg's `drawtext` can render colour emoji.
 - Weaving generated B-roll under narration where the transcript says something
   the source footage does not show.
-- A critic agent that reviews a clip before a human sees it.
 - Automating ingestion — but only once its output is being approved
   consistently in human review, not before.
+
+## What's done since the last read
+
+- **A critic agent.** `agent/preflight.py` checks a clip against faults a
+  human reviewer has actually rejected before — not a taste judge, a
+  deterministic checklist built from real rejection comments.
 
 ## Try it
 
