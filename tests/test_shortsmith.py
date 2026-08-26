@@ -170,3 +170,39 @@ def test_unmeasurable_font_falls_back_to_a_narrow_wrap():
 
 def test_missing_video_size_does_not_raise():
     assert shortsmith.video_size("/nonexistent/file.mp4") is None
+
+
+# --- what the first published clip off this path got wrong -----------------
+#
+# All three shipped in one eight-second clip: the hook sat over the punchline
+# for the full duration, its three lines hung against the left edge, and
+# Mímir read the caption's hashtags aloud. None of them raised, and the suite
+# was green -- they were only visible in the finished video.
+
+def test_narration_does_not_read_hashtags_aloud():
+    """A caption is written to be read under a Short, not spoken."""
+    b = _brief(caption="Unboxing the gadget hit different #aislop #comedy")
+    assert shortsmith.narration_line(b) == "Unboxing the gadget hit different"
+
+
+def test_narration_drops_emoji_rather_than_naming_them():
+    b = _brief(caption="A box \U0001F4E6 of legs \U0001F9B6")
+    assert shortsmith.narration_line(b) == "A box of legs"
+
+
+def test_an_emoji_glued_to_a_hashtag_takes_the_hashtag_with_it():
+    """
+    Captions arrive as "...different 📦🦶#aislop" with no space, so the
+    emoji strip has to run first or the hashtag survives as a bare word.
+    """
+    b = _brief(caption="hit different \U0001F4E6\U0001F9B6#aislop")
+    assert shortsmith.narration_line(b) == "hit different"
+
+
+def test_the_hook_clears_before_the_clip_ends():
+    """
+    An eight-second Short is setup / turn / escalation. A hook with no time
+    limit covers the payoff it was written to sell.
+    """
+    assert 0 < shortsmith.HOOK_HOLD_SEC < 8
+    assert 0 < shortsmith.HOOK_FADE_SEC < shortsmith.HOOK_HOLD_SEC

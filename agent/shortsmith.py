@@ -58,6 +58,16 @@ HOOK_WIDTH_FRACTION = 0.88
 # better to have a slightly cramped line than an unreadable one.
 HOOK_MIN_FONT_PX = 34
 
+# How long the hook stays up, and how long it takes to go.
+#
+# It used to stay up for the whole clip, because the filter had no `enable`
+# clause at all. On an eight-second Short built as setup / turn / escalation
+# that means three lines of text sitting over the punchline -- the hook's job
+# is to buy the first seconds, and after that it is covering the thing it
+# sold. Clearing at the turn hands the frame back to the joke.
+HOOK_HOLD_SEC = 3.0
+HOOK_FADE_SEC = 0.4
+
 # Generator audio is usually ambience rather than content, so it sits under
 # the narration rather than competing with it.
 FOOTAGE_AUDIO_LEVEL = 0.25
@@ -133,9 +143,15 @@ def narration_line(brief) -> str:
     generator, and reading it aloud describes the joke instead of telling
     it. Eight seconds is roughly twenty words, so anything longer would be
     cut off mid-sentence.
+
+    Hashtags and emoji are stripped before the line is spoken. A caption is
+    written to be *read* under a Short, so it ends in "#aislop #comedy
+    #unboxing" — and a TTS model handed that says the words out loud. The
+    first clip off this path narrated its own hashtags over the punchline.
     """
     line = (brief.caption or brief.title or "").strip()
-    words = line.split()
+    line = "".join(c for c in line if ord(c) < 0x2190)
+    words = [w for w in line.split() if not w.startswith("#")]
     return " ".join(words[:22])
 
 
@@ -199,13 +215,29 @@ def finish(
         # edges.
         size = video_size(video_path) or (1080, 1920)
         lines, font_px = fit_hook(hook, size[0], size[1], font)
-        wrapped = "\n".join(lines)
-        filters.append(
-            f"drawtext=fontfile={font}:text='{_escape(wrapped)}'"
-            f":fontcolor=white:fontsize={font_px}:line_spacing=10"
-            f":borderw=6:bordercolor=black@0.85"
-            f":x=(w-text_w)/2:y=h*{HOOK_Y_FRACTION}"
-        )
+
+        # One drawtext per line, each centred on its own width.
+        #
+        # A single drawtext holding embedded newlines centres the *block*
+        # and left-aligns every line inside it, so a three-line hook hangs
+        # its shorter lines against the left edge and reads as a layout
+        # fault. Skuld's banner hit this and fixed it the same way; this
+        # path kept the old shape and shipped the ragged version.
+        line_height = font_px + 10
+        # Held, then faded out rather than cut: an instant disappearance
+        # mid-shot reads as a glitch, and 0.4s is short enough not to
+        # linger over the turn.
+        alpha = (f"if(lt(t,{HOOK_HOLD_SEC - HOOK_FADE_SEC:.2f}),1,"
+                 f"({HOOK_HOLD_SEC:.2f}-t)/{HOOK_FADE_SEC:.2f})")
+        for i, line in enumerate(lines):
+            filters.append(
+                f"drawtext=fontfile={font}:text='{_escape(line)}'"
+                f":fontcolor=white:fontsize={font_px}"
+                f":borderw=6:bordercolor=black@0.85"
+                f":alpha='{alpha}'"
+                f":enable='lt(t,{HOOK_HOLD_SEC:.2f})'"
+                f":x=(w-text_w)/2:y=h*{HOOK_Y_FRACTION}+{i * line_height}"
+            )
     if filters:
         cmd += ["-vf", ",".join(filters)]
 
