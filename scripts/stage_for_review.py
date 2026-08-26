@@ -25,6 +25,12 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+# Running a file in scripts/ puts scripts/ on sys.path, not the repo root, so
+# `import agent` fails with ModuleNotFoundError. pytest.ini sets pythonpath for
+# the suite, which is why nothing caught this when the runner moved here — the
+# tests kept passing and the script stopped working.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 load_dotenv()
 
 DEFAULT_VIDEO = "sample_data/yt_input.mp4"
