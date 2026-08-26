@@ -50,7 +50,39 @@ SERVICE=nornpulse
 # earlier today, when the live site turned out to be thirteen commits
 # behind and the symptoms were mistaken twice for a broken warehouse.
 
-DIRTY="$(git status --porcelain 2>/dev/null || true)"
+# Only changes that would actually reach the image count as dirty. An
+# untracked file that .gcloudignore excludes cannot affect the build, and
+# blocking on one teaches people to reach for ALLOW_DIRTY by reflex --
+# which turns the guard off exactly when it would have mattered. Modified
+# TRACKED files always count: they ship.
+DIRTY="$(git status --porcelain 2>/dev/null | python3 -c '
+import fnmatch, sys, pathlib
+
+pats = []
+p = pathlib.Path(".gcloudignore")
+if p.exists():
+    pats = [l.strip() for l in p.read_text().splitlines()
+            if l.strip() and not l.startswith("#")]
+
+def uploaded(path):
+    """False when .gcloudignore keeps this file out of the build context."""
+    for pat in pats:
+        bare = pat.rstrip("/")
+        if fnmatch.fnmatch(path, pat) or fnmatch.fnmatch(path, bare):
+            return False
+        if path.startswith(bare + "/"):
+            return False
+    return True
+
+for line in sys.stdin:
+    line = line.rstrip("\n")
+    if not line:
+        continue
+    status, _, name = line[:2], line[2], line[3:].strip().strip(chr(34))
+    if status == "??" and not uploaded(name):
+        continue
+    print(line)
+' || true)"
 if [ -n "$DIRTY" ] && [ "${ALLOW_DIRTY:-}" != "1" ]; then
   echo "❌ Working tree is dirty — refusing to deploy." >&2
   echo >&2
