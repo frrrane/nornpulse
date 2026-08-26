@@ -856,3 +856,45 @@ def test_without_a_peak_the_window_is_still_random():
     seen = {vo.auto_window_start(1336.0, "random", None) for _ in range(40)}
     assert len(seen) > 1
     assert all(0.0 <= s <= 1336.0 - vo.AUTO_WINDOW_MAX_SEC for s in seen)
+
+
+# --- clip ids must not be reused across the archives -----------------------
+#
+# A decided clip is *moved* into rejected/ or published/, so checking only the
+# top-level directory freed its id the moment someone reviewed it. A new NASA
+# clip was handed clip_001_2 -- the id of a clip rejected three days earlier,
+# whose files and ledger entry were both still sitting in rejected/.
+
+def _touch_clip(directory, clip_id):
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{clip_id}_9x16.mp4").write_bytes(b"")
+
+
+def test_a_free_id_is_left_alone(tmp_path):
+    assert vo.unique_clip_id("clip_001", tmp_path) == "clip_001"
+
+
+def test_an_id_in_the_output_dir_is_taken(tmp_path):
+    _touch_clip(tmp_path, "clip_001")
+    assert vo.unique_clip_id("clip_001", tmp_path) == "clip_001_2"
+
+
+@pytest.mark.parametrize("archive", ["rejected", "published"])
+def test_an_archived_id_is_still_taken(tmp_path, archive):
+    """Reviewing a clip must not release its id back into the pool."""
+    _touch_clip(tmp_path / archive, "clip_001")
+    assert vo.unique_clip_id("clip_001", tmp_path) == "clip_001_2"
+
+
+def test_it_keeps_counting_past_several_archived_collisions(tmp_path):
+    _touch_clip(tmp_path, "clip_001")
+    _touch_clip(tmp_path / "rejected", "clip_001_2")
+    _touch_clip(tmp_path / "published", "clip_001_3")
+    assert vo.unique_clip_id("clip_001", tmp_path) == "clip_001_4"
+
+
+def test_a_metadata_sidecar_alone_reserves_the_id(tmp_path):
+    """The render can be deleted while the record it belongs to remains."""
+    (tmp_path / "rejected").mkdir(parents=True)
+    (tmp_path / "rejected" / "clip_001_metadata.json").write_text("{}")
+    assert vo.unique_clip_id("clip_001", tmp_path) == "clip_001_2"

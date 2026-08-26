@@ -1,4 +1,4 @@
-# test_hitl.py
+# scripts/stage_for_review.py
 """
 Manual HITL staging runner: generate N clips through the real pipeline
 (Urðr -> Verðandi -> Bragi/Heimdall/Mímir -> Skuld) and email each one
@@ -7,7 +7,11 @@ for human review before anything is published.
 This is NOT part of the pytest suite (see pytest.ini) — it calls the
 real Gemini, ClickHouse and Gmail APIs and costs money. Run it directly:
 
-    python test_hitl.py <url|video_path> [transcript_path] [count]
+    python scripts/stage_for_review.py <url|video_path> [transcript_path] [count]
+
+NORNPULSE_CHANNEL selects the channel whose profile applies (caption
+font, music mood, forbidden crops and motions); NORNPULSE_CHANNEL_SUBS
+sets the size band the hook ranking is read within.
 
 A URL is downloaded and transcribed first, so staging from a fresh source
 is one command. A local path skips both and needs its transcript passed
@@ -65,9 +69,25 @@ def _resolve_source(source: str, transcript_path: str | None):
 
 
 def stage_clips(source: str, transcript_path: str | None, target_count: int,
-                subscribers: int = 0) -> int:
+                subscribers: int = 0, channel_slug: str | None = None) -> int:
+    from agent import channels as chans
     from agent.verdandi_orchestrator import VerdandiOrchestrator
     from agent.norn_publisher import NornPublisher
+
+    # The channel's own editorial constraints.
+    #
+    # This runner used to call the orchestrator with no profile at all, so
+    # every avoid_crop, avoid_motion, caption_font and music_mood in
+    # channels.json was silently ignored on this path -- a NASA clip came
+    # back cropped blurred_background, which nornpulse explicitly forbids,
+    # and captioned in the default face rather than the channel's.
+    channel = chans.get_channel(channel_slug)
+    profile = getattr(channel, "profile", None)
+    print(f"\U0001F4FA {channel.slug} ({channel.title})")
+    if profile:
+        print(f"   font={getattr(profile, 'caption_font', None)!r} "
+              f"music={getattr(profile, 'music_mood', None)!r} "
+              f"avoid_crop={list(getattr(profile, 'avoid_crop', []) or [])}")
 
     video, transcript_text = _resolve_source(source, transcript_path)
 
@@ -102,6 +122,8 @@ def stage_clips(source: str, transcript_path: str | None, target_count: int,
         source_ref=source,
         rewatch_evidence=rewatch_evidence,
         rewatch_peak_sec=rewatch_peak_sec,
+        channel_profile=profile,
+        caption_font=getattr(profile, "caption_font", None) if profile else None,
         # The hook ranking is only meaningful within a channel-size band.
         channel_subscribers=subscribers,
         progress_callback=lambda stage, message: print(f"   [{stage}] {message}"),
@@ -111,7 +133,7 @@ def stage_clips(source: str, transcript_path: str | None, target_count: int,
         print("❌ Pipeline rendered no clips.")
         return 1
 
-    publisher = NornPublisher()
+    publisher = NornPublisher(channel)
     failures = 0
     for clip in clips:
         rendered = clip.get("output_video_path")
@@ -156,4 +178,5 @@ if __name__ == "__main__":
         source, transcript,
         int(args[2]) if len(args) > 2 else DEFAULT_COUNT,
         int(os.getenv("NORNPULSE_CHANNEL_SUBS", "0")),
+        os.getenv("NORNPULSE_CHANNEL") or None,
     ))

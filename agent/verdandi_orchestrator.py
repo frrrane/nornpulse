@@ -289,11 +289,23 @@ def unique_clip_id(clip_id: str, output_dir: str | Path) -> str:
 
     Existing ids are left alone so readable names survive; only a genuine
     collision gets a suffix.
+
+    The archives count as taken. Checking only the top-level directory was
+    not enough: a decided clip is *moved* into rejected/ or published/, so
+    its id frees up the moment someone reviews it, and the next run reuses
+    it. That happened -- a new NASA clip was handed clip_001_2, the id of a
+    clip rejected three days earlier, whose files and ledger entry were
+    both still sitting in rejected/ under that name.
     """
     output_dir = Path(output_dir)
+    searched = [output_dir, output_dir / "rejected", output_dir / "published"]
+
+    def taken(name: str) -> bool:
+        return any((d / f"{name}_9x16.mp4").exists() or
+                   (d / f"{name}_metadata.json").exists() for d in searched)
+
     candidate, n = clip_id, 2
-    while (output_dir / f"{candidate}_9x16.mp4").exists() or \
-          (output_dir / f"{candidate}_metadata.json").exists():
+    while taken(candidate):
         candidate = f"{clip_id}_{n}"
         n += 1
     return candidate
