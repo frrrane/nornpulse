@@ -96,7 +96,7 @@ def test_ingestion_is_gated_by_demo_mode():
     press. It is also impossible on Cloud Run — YouTube bot-blocks
     datacenter IPs — so the field could only ever take money and fail.
     """
-    block = SOURCE[SOURCE.index("1️⃣ Source"):]
+    block = SOURCE[SOURCE.index("a link, or a file from anywhere"):]
     block = block[:block.index("Batch Mode")]
     assert "if DEMO_MODE:" in block, "the source field is reachable on the public demo"
     assert "yt_url_locked" in block
@@ -110,7 +110,7 @@ def test_upload_is_available_on_the_demo():
     YouTube bot-blocks datacenter IPs, so link ingestion cannot work there
     at all. The uploader must therefore not sit behind the demo gate.
     """
-    block = SOURCE[SOURCE.index("1️⃣ Source"):]
+    block = SOURCE[SOURCE.index("a link, or a file from anywhere"):]
     block = block[:block.index("Batch Mode")]
     assert "st.file_uploader(" in block
     assert block.index("st.file_uploader(") < block.index("if DEMO_MODE:"), (
@@ -127,7 +127,7 @@ def test_generation_needs_an_upload_on_the_demo():
 
 
 def test_link_ingestion_stays_blocked_on_the_demo():
-    block = SOURCE[SOURCE.index("1️⃣ Source"):]
+    block = SOURCE[SOURCE.index("a link, or a file from anywhere"):]
     block = block[:block.index("Batch Mode")]
     assert "yt_url_locked" in block
     assert block.index("if DEMO_MODE:") < block.index('key="yt_url"')

@@ -283,6 +283,19 @@ def _material_icon(name: str, size: str = "1.05rem") -> str:
             f"line-height:1;\">{name}</span>")
 
 
+# The keycap emoji (1️⃣2️⃣3️⃣) Create's three stages used to number themselves
+# render as a coloured sticker on most platforms -- blue box, white glyph --
+# which is exactly the kind of colour the rule above CHART_COLORS says
+# nothing but copper/thread/warn/error is allowed to be. The steps are a
+# real sequence (source -> transcript -> output), so the number itself
+# stays; only the rendering moves onto the app's own tokens.
+def _step_badge(n: int) -> str:
+    return (f"<span style=\"display:inline-flex;align-items:center;justify-content:center;"
+            f"width:1.3em;height:1.3em;border-radius:3px;background:var(--well-2);"
+            f"border:1px solid var(--well-3);color:var(--thread);font-family:var(--data);"
+            f"font-size:0.8em;font-weight:600;vertical-align:-0.05em;\">{n}</span>")
+
+
 # Hand-drawn, not traced from the brand-board JPEGs someone dropped in the
 # repo -- those are AI moodboard exports (grid, fake nav links, "ITERATION
 # 7" labels, file-format badges baked into the raster), not an isolated
@@ -295,15 +308,19 @@ def _material_icon(name: str, size: str = "1.05rem") -> str:
 # fixed aspect ratio, so callers can size them to match a text line
 # without the two marks drifting out of proportion with each other.
 def _nornpulse_mark(width: int) -> str:
-    h = round(width * 30 / 60)
-    return (f"<svg width='{width}' height='{h}' viewBox='0 0 60 30'>"
-            "<path d='M2,15 C12,2 18,28 30,15 C42,2 48,28 58,15' fill='none' "
+    # One crossing, not two: the original spanned a 2:1 viewBox, which
+    # meant "bigger" and "narrower" pulled against each other -- scaling
+    # it up always meant scaling it wide. Square-ish now, so it can go
+    # bigger without also going wider, and it sits closer to NornLabs'
+    # own footprint when the two are paired.
+    h = round(width * 30 / 32)
+    return (f"<svg width='{width}' height='{h}' viewBox='0 0 32 30'>"
+            "<path d='M2,15 C11,2 17,28 28,15' fill='none' "
             "stroke='var(--thread)' stroke-width='3' stroke-linecap='round'/>"
-            "<path d='M2,15 C12,28 18,2 30,15 C42,28 48,2 58,15' fill='none' "
+            "<path d='M2,15 C11,28 17,2 28,15' fill='none' "
             "stroke='var(--copper)' stroke-width='3' stroke-linecap='round'/>"
             "<circle cx='2' cy='15' r='3' fill='var(--bone)'/>"
-            "<circle cx='30' cy='15' r='3' fill='var(--bone)'/>"
-            "<circle cx='58' cy='15' r='3' fill='var(--bone)'/>"
+            "<circle cx='28' cy='15' r='3' fill='var(--bone)'/>"
             "</svg>")
 
 
@@ -333,9 +350,13 @@ def fate_thread(p10: float, p50: float, p90: float,
     """
     import math
 
+    # No padding beyond p10/p90: it used to be lo*0.6/hi*1.7 so the end
+    # ticks had breathing room, but that pushed x10 to ~17% and left the
+    # whole bar looking indented rather than flush with everything else
+    # on the page. The 4-96% margin in x() below is enough on its own to
+    # keep the tick strokes and end labels from clipping at the true edge.
     lo = max(min([v for v in (p10, p50, p90, actual or p50) if v and v > 0] or [1]), 1)
     hi = max([v for v in (p10, p50, p90, actual or p50) if v] or [10])
-    lo, hi = lo * 0.6, hi * 1.7
 
     def x(value: float) -> float:
         if not value or value <= 0:
@@ -722,11 +743,11 @@ with st.sidebar:
     st.markdown(
         "<div style='padding:.35rem 0 .9rem 0;'>"
         "<div style='display:flex;align-items:center;gap:.5rem;'>"
-        f"<span style='display:inline-flex;width:28px;flex-shrink:0;'>{_nornpulse_mark(28)}</span>"
+        f"<span style='display:inline-flex;width:26px;flex-shrink:0;'>{_nornpulse_mark(26)}</span>"
         "<span style='font-family:var(--display);font-weight:800;font-size:1.22rem;"
         "letter-spacing:-.02em;'>NornPulse</span></div>"
         "<div style='display:flex;align-items:center;gap:.5rem;margin-top:.3rem;'>"
-        f"<span style='display:inline-flex;width:28px;flex-shrink:0;'>{_nornlabs_mark(26)}</span>"
+        f"<span style='display:inline-flex;width:26px;flex-shrink:0;'>{_nornlabs_mark(26)}</span>"
         "<span class='eyebrow'>Norn Labs</span></div>"
         "</div>", unsafe_allow_html=True)
 
@@ -803,7 +824,7 @@ def page_home():
         "<div style='position:relative;z-index:1;'>"
         "<div class='eyebrow'>Norn Labs · autonomous short-form engine</div>"
         "<div style='display:flex;align-items:center;gap:.7rem;margin:.15rem 0 .1rem 0;'>"
-        f"{_nornpulse_mark(64)}"
+        f"{_nornpulse_mark(52)}"
         "<h1 style='margin:0;font-size:2.5rem;line-height:1.03;'>NornPulse</h1></div>"
         f"<p style='color:var(--bone-dim);max-width:56ch;margin:0 0 1.4rem 0;'>"
         f"Every cut, caption and cover is chosen against "
@@ -976,7 +997,8 @@ def page_create():
 
     # --- 1. Source ---
     with st.container():
-        st.markdown("<div class='workflow-header'>1️⃣ Source<span class='eyebrow'>a link, or a file from anywhere</span></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='workflow-header'>{_step_badge(1)} Source"
+                    "<span class='eyebrow'>a link, or a file from anywhere</span></div>", unsafe_allow_html=True)
         # Ingestion is a spend path in its own right: pasting a link starts a
         # download and then a Gemini transcription immediately, before the
         # Execute button is ever pressed. The demo gate covered generation
@@ -1139,14 +1161,15 @@ def page_create():
                             st.error(f"Batch run failed: {e}")
 
         if st.session_state.recently_published:
-            st.markdown("<div class='workflow-header'>📤 Recently Published</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='workflow-header'>{_material_icon('publish')} "
+                        "Recently Published</div>", unsafe_allow_html=True)
             for pub in reversed(st.session_state.recently_published[-5:]):
                 st.markdown(f"🔗 [{pub['title']}]({pub['url']}) · `{pub['privacy_status']}`")
 
     # --- 2. Transcript and controls ---
     st.divider()
     with st.container():
-        st.markdown("<div class='workflow-header'>2️⃣ Transcript &amp; controls</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='workflow-header'>{_step_badge(2)} Transcript &amp; controls</div>", unsafe_allow_html=True)
 
         if active_video_path and os.path.exists(active_video_path):
             @st.cache_data(show_spinner=True)
@@ -1362,7 +1385,7 @@ def page_create():
     # generated, and every decision made, lives on the Review page.
     st.divider()
     with st.container():
-        st.markdown("<div class='workflow-header'>3️⃣ This run's output"
+        st.markdown(f"<div class='workflow-header'>{_step_badge(3)} This run's output"
                     "<span class='eyebrow'>every clip and decision lives on the Review page</span>"
                     "</div>", unsafe_allow_html=True)
 
@@ -1599,7 +1622,8 @@ def page_create():
 def page_review():
     """The durable queue: every clip and the decision against it."""
     demo_banner()
-    st.markdown("<div class='workflow-header'>📚 Review Queue & Library</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='workflow-header'>{_material_icon('video_library')} "
+                "Review Queue &amp; Library</div>", unsafe_allow_html=True)
 
     # One view over three directories plus the decision ledger. The old
     # version globbed output_clips/*_9x16.mp4 non-recursively, which stopped
@@ -1825,14 +1849,19 @@ def page_intelligence():
         )
 
     if not benchmarks_df.empty:
+        # Horizontal, not vertical: eight category labels ("Story in
+        # medias res", "Metaphor analogy", ...) rotated 45deg to fit
+        # under vertical bars read as skewed rather than legible. A
+        # horizontal bar lets every label sit flat, and it's the
+        # orientation the hook-pattern chart further down already uses.
         fig = px.bar(
-            benchmarks_df,
-            x="hook_label",
-            y=["avg_3s_retention", "avg_completion_rate"],
-            barmode="group",
+            benchmarks_df.sort_values("avg_3s_retention"),
+            y="hook_label",
+            x=["avg_3s_retention", "avg_completion_rate"],
+            barmode="group", orientation="h",
             template="plotly_dark", color_discrete_sequence=CHART_COLORS,
             title="Seeded hook benchmarks · the prior the pipeline chooses from",
-            labels={"value": "Percent", "hook_label": "Hook type", "variable": "Metric"},
+            labels={"value": "Percent", "hook_label": "", "variable": "Metric"},
         )
         st.plotly_chart(styled(fig), width='stretch')
 
