@@ -108,10 +108,27 @@ def compare(captions, heard) -> list[str]:
         want = _words(phrase)
         if not want:
             continue
+        # Strictly on screen, or within TOLERANCE_SEC of being so.
+        #
+        # Captions sit shoulder to shoulder with small gaps between them, and
+        # the two transcriptions are independent, so a phrase whose heard
+        # time lands in a gap is normal rather than missing. Without this,
+        # correct captions were reported as absent: measured at 0.12s and
+        # 0.63s from their audio, well inside anything a viewer would notice.
         showing = next((c for c in captions if c[0] - 0.01 <= at < c[1] + 0.01), None)
         if showing is None:
-            problems.append(f"  {at:6.2f}s  heard {phrase[:44]!r} — no caption on screen")
-            continue
+            near = [c for c in captions
+                    if c[0] - TOLERANCE_SEC <= at <= c[1] + TOLERANCE_SEC]
+            showing = next((c for c in near if want & _words(c[2])), None)
+            if showing is not None:
+                continue
+            if near:
+                showing = near[0]
+            else:
+                problems.append(
+                    f"  {at:6.2f}s  heard {phrase[:44]!r} — no caption within "
+                    f"{TOLERANCE_SEC:.2f}s")
+                continue
         if want & _words(showing[2]):
             continue
         # Wrong caption showing. Say where the right one actually is, since
