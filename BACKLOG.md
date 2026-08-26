@@ -12,14 +12,6 @@ submission is **Wed 9 September 2026, 2pm PDT**.
   two days once re-takes are counted. Protect its slot ahead of any feature.
 - [ ] **Written description** for the Devpost entry.
 
-## In progress
-
-- [ ] **Pitch rewrite.** Reposition everything around advice asymmetry —
-  short-form advice is measured on channels that already have an audience, so
-  applied to a channel that doesn't, some of it reverses. Second act: the same
-  bias turned up in our own grounding layer at 10×, and we corrected it.
-  Touches `README.md`, the Home page hero, and the demo script.
-
 ## Next
 
 - [ ] **Upload cadence.** Six uploads/day maximum (1,600 quota units each
@@ -79,19 +71,6 @@ of work, judged against what the clips actually looked like.
   title, because both are visible in the text. Neither would have caught
   "not funny at all", because the same taste wrote the joke. Craft defects,
   not taste — which is still most of what has been rejected.
-
-- [ ] **A wider choice of typeface, from Google Fonts.** The banner and the
-  captions are limited to whatever happens to be installed, which is a
-  handful of system faces plus whatever the Dockerfile adds. Roboto Black
-  is the heaviest option currently guaranteed in both environments.
-
-  The constraint that shapes this: drawtext cannot resolve family names and
-  needs a concrete file path, and libass substitutes silently when a name
-  does not resolve — so a face has to exist as a file in *both* the
-  workstation and the container, or a render looks one way locally and
-  another way deployed. Arial Black was rejected as the default for exactly
-  this reason. Most Google Fonts are OFL licensed and may be redistributed,
-  so bundling a curated set is viable.
 
 - [ ] **Tags are weak, and in four distinct ways.** The clip published as
   `ncSGySusHUg` went out with:
@@ -161,10 +140,6 @@ of work, judged against what the clips actually looked like.
   fixed by `agent/tag_selector.py`; the existing 37 would need editing in
   Studio to recover.
 
-- [ ] **Cold start ~62s.** Cloud Run scales to zero. `--min-instances=1` is
-  about $12/month and removes it. Fine to leave until the demo is recorded,
-  but do not let a judge meet a 62-second blank page.
-
 - [ ] **Emoji in the banner and captions.** Neither libass nor ffmpeg's
   drawtext can render colour emoji — libass cannot read CBDT tables, and
   drawtext draws a hollow box. `shortsmith.hook_text` strips them for that
@@ -196,6 +171,26 @@ of work, judged against what the clips actually looked like.
   published unverified, which is sufficient.
 
 ## Done
+
+- [x] First clip published through the full pipeline —
+      `youtube.com/shorts/ncSGySusHUg`, public, forecast attached and
+      gradeable from ~28 Aug. The calibration clock is running.
+- [x] Pitch repositioned around the ClickHouse partner track, which is the
+      track the entry is judged in. Eight tables and four layers stated
+      directly under the pitch.
+- [x] Cold start removed — `--min-instances=1`, measured at 0.15s against
+      the ~62s it was.
+- [x] Display typefaces bundled from Google Fonts (Anton, Archivo Black,
+      Bebas Neue, Oswald Bold), preferred over system faces so a render
+      looks the same locally and in the container.
+- [x] Vertex AI routing, so Google Cloud credit can pay for model calls
+      that AI Studio's separate prepay wallet cannot.
+- [x] Owner-only YouTube Analytics — average view duration and the
+      retention curve, the numbers that say *why* rather than *how many*.
+- [x] Source segments grounded in YouTube's own most-replayed graph.
+- [x] Query guardrails on agent-written SQL, failing loudly rather than
+      truncating silently.
+- [x] Secret Manager for the four real secrets.
 
 - [x] Grounded tags, validated against the live trending snapshot
 - [x] Channels as first-class objects, with per-channel OAuth tokens
