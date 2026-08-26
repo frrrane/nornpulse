@@ -10,6 +10,7 @@ import dataclasses
 import json
 import logging
 import random
+import re
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -271,6 +272,34 @@ def _humanize_hook_type(slug: str) -> str:
     if not slug:
         return slug
     return slug.replace("_", " ").capitalize()
+
+
+_CLIP_ID_PREFIXES = ("gen_trend_", "batch0_clip_", "batch1_clip_", "batch2_clip_", "clip_")
+_CLIP_ID_TIMESTAMP = re.compile(r"_?\d{8}-\d{6}_?")
+
+
+def _humanize_clip_id(clip_id: str) -> str:
+    """
+    Best-effort display title for a published clip that has no real title
+    to show: "gen_trend_sloptokdaily_20260826-103204_finished" ->
+    "Sloptokdaily". Worse than the actual hook_title, better than the raw
+    slug -- and the only option here, because hook_title lives only in a
+    local sidecar JSON that .gcloudignore and .dockerignore both keep out
+    of the deployed image (verified, not assumed: neither file nor a real
+    output_clips/ copy reaches Cloud Build). A filesystem lookup would
+    silently return nothing on every deployed clip, not just old ones.
+    """
+    if not clip_id:
+        return clip_id
+    cleaned = clip_id
+    for prefix in _CLIP_ID_PREFIXES:
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix):]
+            break
+    cleaned = cleaned.removesuffix("_finished")
+    cleaned = _CLIP_ID_TIMESTAMP.sub("", cleaned)
+    cleaned = cleaned.strip("_-").replace("_", " ").replace("-", " ").strip()
+    return cleaned.capitalize() if cleaned else clip_id
 
 
 # One `:material/` icon is enough to make Streamlit load "Material Symbols
@@ -969,7 +998,7 @@ def page_home():
                 if vid:
                     st.image(f"https://img.youtube.com/vi/{vid}/hqdefault.jpg", width=110)
             with c2:
-                st.markdown(f"**{row.get('clip_id') or vid}**")
+                st.markdown(f"**{_humanize_clip_id(row.get('clip_id')) or vid}**")
                 bits = []
                 if row.get("hook_type"):
                     bits.append(f"`{_humanize_hook_type(row['hook_type'])}`")
@@ -1029,7 +1058,7 @@ def page_home():
                 if clip["thumbnail_path"]:
                     st.image(clip["thumbnail_path"], width=110)
             with c2:
-                st.markdown(f"**{meta.get('hook_title') or clip['clip_id']}**")
+                st.markdown(f"**{meta.get('hook_title') or _humanize_clip_id(clip['clip_id'])}**")
                 bits = [clip["state"]]
                 if meta.get("hook_type"):
                     bits.append(f"`{_humanize_hook_type(meta['hook_type'])}`")

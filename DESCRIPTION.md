@@ -92,12 +92,13 @@ published outcomes; and its own forecasts, graded later.
 ## Challenges we ran into
 
 **The benchmark was wrong about us, and finding out why was the best thing
-that happened.** Pointed at our own channels, the size-band benchmark
-predicted ~2,500 views. Our two real channels sit at medians of **13** and
-**343** — individually, not pooled; the live dashboard's own "overstated by"
-tile reports the pooled figure across every 0-100-subscriber channel we have
-history for, which lands between these two and moves as more channels join.
-The population median was roughly our best-ever video, not a typical one.
+that happened.** Pooled across every 0-100-subscriber channel we have history
+for, the size-band benchmark says **2,570** views; real channels get **256** —
+overstated by **10×**, and that figure is live on the dashboard, not quoted
+from a point in time. Individually, not pooled, our two channels sit further
+apart still: medians of **13** and **343**, against the same 2,570 benchmark
+each. The population median was roughly our best-ever video, not a typical
+one.
 
 The reason: the public dataset is a *crawl*. It only contains videos that were
 discoverable enough to be crawled. A channel posting into the void is not in
