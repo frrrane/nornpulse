@@ -943,10 +943,66 @@ def page_home():
     st.markdown("<div class='workflow-header'>Your clips</div>", unsafe_allow_html=True)
     counts = rq.state_counts()
     clips = rq.list_clips()
-    if not clips:
+    outcomes_home = _cached_published_outcomes(st.session_state.verdandi_adk.urdr)
+    published_home = (
+        outcomes_home[~outcomes_home["video_unavailable"].astype(bool)]
+        if not outcomes_home.empty and "video_unavailable" in outcomes_home.columns
+        else outcomes_home)
+
+    if not clips and not published_home.empty:
+        # This session's local review queue is empty -- nothing was
+        # generated here, which is the normal state on the read-only demo
+        # -- but the warehouse holds real published output. Showing that
+        # instead of an empty state is what makes the banner above ("the
+        # clips below were produced by this pipeline before deployment")
+        # actually true rather than a promise the page doesn't keep.
+        # video_unavailable rows are filtered out for the same reason: a
+        # dead YouTube link here would be the identical failure, on the
+        # same page, for the same cause.
         st.markdown(
-            "<p style='color:var(--bone-dim);'>Nothing made yet. Start with any 16:9 video — "
-            "a file you upload or a link.</p>", unsafe_allow_html=True)
+            f"<p style='color:var(--bone-dim);'>{len(published_home)} real clip(s) "
+            "published by this pipeline.</p>", unsafe_allow_html=True)
+        for _, row in published_home.sort_values("published_at", ascending=False).head(3).iterrows():
+            vid = row.get("youtube_video_id")
+            c1, c2 = st.columns([1, 3], gap="medium", vertical_alignment="center")
+            with c1:
+                if vid:
+                    st.image(f"https://img.youtube.com/vi/{vid}/hqdefault.jpg", width=110)
+            with c2:
+                st.markdown(f"**{row.get('clip_id') or vid}**")
+                bits = []
+                if row.get("hook_type"):
+                    bits.append(f"`{_humanize_hook_type(row['hook_type'])}`")
+                views = row.get("actual_view_count")
+                if views and views > 0:
+                    bits.append(f"{int(views):,} views")
+                else:
+                    # A bare "0 views" reads as a failed clip rather than
+                    # one too young to have views yet -- the same
+                    # distinction the Intelligence scoreboard already
+                    # makes for the same data.
+                    age_days = None
+                    if row.get("published_at") is not None:
+                        try:
+                            age_days = (pd.Timestamp.utcnow().tz_localize(None)
+                                        - pd.to_datetime(row["published_at"])).total_seconds() / 86400
+                        except Exception:
+                            age_days = None
+                    if age_days is not None and gb.too_early_to_judge(float(age_days), band, facts):
+                        bits.append("too young to have views yet")
+                    else:
+                        bits.append("not yet synced")
+                if row.get("youtube_url"):
+                    bits.append(f"[watch]({row['youtube_url']})")
+                st.caption(" · ".join(bits))
+    elif not clips:
+        # No local queue AND no real published output (e.g. warehouse
+        # unreachable) -- the honest empty state, without a call to
+        # action a read-only visitor cannot take. "Make another" below
+        # already carries that invitation for anyone who can act on it.
+        st.markdown(
+            "<p style='color:var(--bone-dim);'>Nothing published yet.</p>",
+            unsafe_allow_html=True)
     else:
         m1, m2, m3 = st.columns(3)
         m1.metric("Approved", counts.get(rq.APPROVED, 0))
