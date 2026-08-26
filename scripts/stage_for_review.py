@@ -71,6 +71,7 @@ def _resolve_source(source: str, transcript_path: str | None):
 def stage_clips(source: str, transcript_path: str | None, target_count: int,
                 subscribers: int = 0, channel_slug: str | None = None) -> int:
     from agent import channels as chans
+    from agent.verdandi_orchestrator import CLIP_MIN_SEC, CLIP_MAX_SEC
     from agent.verdandi_orchestrator import VerdandiOrchestrator
     from agent.norn_publisher import NornPublisher
 
@@ -141,6 +142,16 @@ def stage_clips(source: str, transcript_path: str | None, target_count: int,
         # dashboard and the publisher agree on what was staged.
         Path(rendered).with_name(f"{clip['clip_id']}_metadata.json").write_text(
             json.dumps(clip, indent=2, default=str), encoding="utf-8")
+
+        # Checked before it costs a human any attention. Reported, not
+        # enforced: every fault on the list came from a real rejection, but
+        # a clip with one is still the reviewer's call to make.
+        from agent import preflight
+        report = preflight.check_clip(
+            clip, transcript_text=transcript_text, profile=profile,
+            min_sec=CLIP_MIN_SEC, max_sec=CLIP_MAX_SEC)
+        if not report.clean:
+            print(report.describe())
 
         print(f"📧 Staging {clip['clip_id']} — {clip.get('hook_title')}...")
         # Passing the whole clip record is what fills the review table in
