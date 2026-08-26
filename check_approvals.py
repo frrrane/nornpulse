@@ -31,6 +31,7 @@ import re
 import sys
 from email.header import decode_header, make_header
 from pathlib import Path
+from typing import Any, List, Tuple
 
 from dotenv import load_dotenv
 
@@ -105,6 +106,39 @@ def _mark_processed(message_id: str) -> None:
     PROCESSED_PATH.write_text(json.dumps(sorted(seen), indent=2), encoding="utf-8")
 
 
+def _fetch_headers(imap, uids: List[bytes]) -> List[Tuple[bytes, Any]]:
+    """
+    Subject and Message-ID for every uid, in one round trip.
+
+    The reason this exists: deciding whether a message matters needs two
+    headers, and the old loop pulled the entire message — every quoted
+    thread and every attached video — once per uid, over a separate
+    round trip each time, to read them. On a mailbox with two months of
+    staging mail that took upwards of ten minutes and timed out.
+
+    A multi-uid FETCH returns a flat list where each message is a tuple
+    and the stray b')' entries between them are not, so the non-tuples
+    are skipped rather than parsed.
+    """
+    if not uids:
+        return []
+    status, data = imap.fetch(
+        b",".join(uids), "(BODY.PEEK[HEADER.FIELDS (SUBJECT MESSAGE-ID)])")
+    if status != "OK" or not data:
+        return []
+
+    out = []
+    for item in data:
+        if not isinstance(item, tuple) or len(item) < 2:
+            continue
+        # The prefix looks like b'12 (BODY[HEADER.FIELDS ...] {84}'. The
+        # leading number is the sequence number, which is what search
+        # returned and what a later body FETCH needs.
+        seq = item[0].split(b" ", 1)[0].strip(b"* ")
+        out.append((seq, email.message_from_bytes(item[1])))
+    return out
+
+
 def fetch_decisions(marker: str):
     """Yield (message_id, decision, clip_id, comment, imap) for unhandled replies."""
     user, password = os.getenv("GMAIL_USER"), os.getenv("GMAIL_APP_PASSWORD")
@@ -123,17 +157,27 @@ def fetch_decisions(marker: str):
             return
 
         processed = _load_processed()
-        for uid in data[0].split():
-            status, raw = imap.fetch(uid, "(BODY.PEEK[])")   # PEEK: don't mark read yet
+
+        # Headers for everything first, then bodies only for the few
+        # messages that turn out to be unhandled decisions. Most of what
+        # the search returns is NornPulse's own outgoing staging mail,
+        # which carries the video as an attachment and is exactly what
+        # must not be downloaded to discover it is irrelevant.
+        wanted = []
+        for seq, head in _fetch_headers(imap, data[0].split()):
+            match = SUBJECT_RE.search(_decode(head.get("Subject", "")))
+            if not match:
+                continue                       # the outgoing staging mail
+            message_id = (head.get("Message-ID") or f"uid:{seq.decode()}").strip()
+            if message_id in processed:
+                continue
+            wanted.append((seq, message_id, match))
+
+        for seq, message_id, match in wanted:
+            status, raw = imap.fetch(seq, "(BODY.PEEK[])")  # PEEK: don't mark read yet
             if status != "OK" or not raw or not raw[0]:
                 continue
             msg = email.message_from_bytes(raw[0][1])
-            match = SUBJECT_RE.search(_decode(msg.get("Subject", "")))
-            if not match:
-                continue                       # the outgoing staging mail
-            message_id = (msg.get("Message-ID") or f"uid:{uid.decode()}").strip()
-            if message_id in processed:
-                continue
             decision, clip_id = match.group(1).lower(), match.group(2).strip()
             yield message_id, decision, clip_id, extract_comment(_body_text(msg), marker), imap
     finally:
@@ -248,6 +292,10 @@ def main() -> int:
             rq.record_decision(clip_id, rq.APPROVED, comment, source="email",
                                extra={"youtube_url": res["url"], "youtube_video_id": res["video_id"]})
             rq.archive_published(clip_id)
+            # This path never wrote published_urls.json at all, so a clip
+            # approved by email was live and logged everywhere except the
+            # file named after published URLs.
+            rq.write_published_urls()
 
         # Only now is the reply consumed — a crash above leaves it
         # unrecorded, so the decision is picked up next run instead of lost.

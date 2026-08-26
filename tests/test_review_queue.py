@@ -367,3 +367,108 @@ def test_delete_targets_the_right_directory(library):
     assert not (library / "rejected" / "clip_gone_9x16.mp4").exists()
     # The staged clip is untouched.
     assert (library / "clip_pending_9x16.mp4").exists()
+
+
+# --- the published-URL ledger ----------------------------------------------
+#
+# published_urls.json used to be written independently by two runners.
+# publish_staged.py truncated it to its own batch and check_approvals.py never
+# wrote it at all, so a file named after published URLs held one clip while the
+# ledger held six. It is derived now, so the two cannot disagree.
+
+def test_published_urls_lists_every_published_clip(tmp_path):
+    ledger = tmp_path / "ledger.json"
+    rq.record_decision("a", rq.APPROVED, source="cli", path=ledger,
+                       extra={"youtube_url": "https://y/1", "youtube_video_id": "1"},
+                       mirror_to_clickhouse=False)
+    rq.record_decision("b", rq.APPROVED, source="email", path=ledger,
+                       extra={"youtube_url": "https://y/2", "youtube_video_id": "2"},
+                       mirror_to_clickhouse=False)
+    rows = rq.published_urls(ledger)
+    assert [r["clip_id"] for r in rows] == ["a", "b"]
+    assert [r["url"] for r in rows] == ["https://y/1", "https://y/2"]
+
+
+def test_approved_but_never_uploaded_is_not_a_publication(tmp_path):
+    """An approval with no URL means the upload failed; it is not published."""
+    ledger = tmp_path / "ledger.json"
+    rq.record_decision("approved_only", rq.APPROVED, path=ledger,
+                       mirror_to_clickhouse=False)
+    assert rq.published_urls(ledger) == []
+
+
+def test_rejected_clips_never_appear(tmp_path):
+    ledger = tmp_path / "ledger.json"
+    rq.record_decision("nope", rq.REJECTED, path=ledger, mirror_to_clickhouse=False)
+    assert rq.published_urls(ledger) == []
+
+
+def test_writing_is_a_rewrite_not_an_append(tmp_path):
+    """
+    The whole point: regenerating from the ledger must not accumulate
+    duplicates, or the derived file drifts the way the hand-written one did.
+    """
+    ledger = tmp_path / "ledger.json"
+    out = tmp_path / "published_urls.json"
+    rq.record_decision("a", rq.APPROVED, path=ledger,
+                       extra={"youtube_url": "https://y/1", "youtube_video_id": "1"},
+                       mirror_to_clickhouse=False)
+    rq.write_published_urls(ledger, out)
+    rq.write_published_urls(ledger, out)
+    assert len(json.loads(out.read_text())) == 1
+
+
+# --- the IMAP header sweep -------------------------------------------------
+#
+# Deciding whether a message matters needs two headers, and the old loop
+# pulled every full message -- quoted threads and attached videos included --
+# over one round trip each to read them. 47 messages took over ten minutes and
+# blew a 900s timeout; the header sweep does the same work in two seconds.
+
+class _FakeIMAP:
+    """Records what was fetched, so the test can assert on the traffic."""
+
+    def __init__(self, headers):
+        self._headers = headers          # seq -> raw header bytes
+        self.fetched = []
+
+    def fetch(self, target, spec):
+        self.fetched.append((target, spec))
+        data = []
+        for seq in target.split(b","):
+            data.append((b"%s (BODY[HEADER.FIELDS (SUBJECT MESSAGE-ID)] {n}" % seq,
+                         self._headers[seq]))
+            data.append(b")")
+        return "OK", data
+
+
+def _hdr(subject, mid):
+    return f"Subject: {subject}\r\nMessage-ID: {mid}\r\n\r\n".encode()
+
+
+def test_headers_come_back_in_one_round_trip():
+    import check_approvals as ca
+    imap = _FakeIMAP({
+        b"1": _hdr("[NornPulse] APPROVE clip_a", "<a@x>"),
+        b"2": _hdr("[NornPulse] Staged for review", "<b@x>"),
+        b"3": _hdr("[NornPulse] REJECT clip_c", "<c@x>"),
+    })
+    got = ca._fetch_headers(imap, [b"1", b"2", b"3"])
+    assert len(imap.fetched) == 1, "one FETCH, not one per message"
+    assert b"HEADER.FIELDS" in imap.fetched[0][1].encode()
+    assert [seq for seq, _ in got] == [b"1", b"2", b"3"]
+    assert got[0][1]["Message-ID"] == "<a@x>"
+
+
+def test_the_closing_paren_entries_are_not_parsed_as_messages():
+    """A multi-uid FETCH interleaves b')' between the tuples."""
+    import check_approvals as ca
+    imap = _FakeIMAP({b"1": _hdr("[NornPulse] APPROVE clip_a", "<a@x>")})
+    assert len(ca._fetch_headers(imap, [b"1"])) == 1
+
+
+def test_no_uids_fetches_nothing():
+    import check_approvals as ca
+    imap = _FakeIMAP({})
+    assert ca._fetch_headers(imap, []) == []
+    assert imap.fetched == []

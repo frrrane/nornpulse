@@ -182,8 +182,10 @@ def main() -> int:
         )
         published.append({**res, "clip_id": c["clip_id"], "logged": logged})
 
-    Path("output_clips/published_urls.json").write_text(
-        json.dumps(published, indent=2), encoding="utf-8")
+    # Derived from the ledger, not from `published` — this run's batch is a
+    # subset, and writing it directly used to truncate the file to whatever
+    # was published last.
+    rq.write_published_urls()
     print(f"\n✨ Published {len(published)}/{len(clips)}."
           + (f" Failed: {', '.join(failed)}" if failed else ""))
     return 1 if failed else 0

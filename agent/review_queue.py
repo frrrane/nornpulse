@@ -32,6 +32,7 @@ logger = logging.getLogger("nornpulse.review")
 
 OUTPUT_DIR = Path("output_clips")
 LEDGER_PATH = OUTPUT_DIR / "review_decisions.json"
+PUBLISHED_URLS_PATH = OUTPUT_DIR / "published_urls.json"
 REJECTED_DIR = OUTPUT_DIR / "rejected"
 PUBLISHED_DIR = OUTPUT_DIR / "published"
 
@@ -187,6 +188,39 @@ def archive_published(clip_id: str, output_dir: Path = OUTPUT_DIR) -> List[str]:
     with no way to re-check what was actually published.
     """
     return _move_artifacts(clip_id, output_dir / PUBLISHED_DIR.name, output_dir)
+
+
+def published_urls(path: Path = LEDGER_PATH) -> List[Dict[str, Any]]:
+    """Every clip in the ledger that reached YouTube, oldest first."""
+    rows = [e for e in load_ledger(path).values()
+            if e.get("status") == APPROVED and e.get("youtube_url")]
+    rows.sort(key=lambda e: e.get("decided_at") or "")
+    return [{
+        "clip_id": e["clip_id"],
+        "video_id": e.get("youtube_video_id", ""),
+        "url": e["youtube_url"],
+        "published_at": e.get("decided_at", ""),
+        "source": e.get("source", ""),
+    } for e in rows]
+
+
+def write_published_urls(path: Path = LEDGER_PATH,
+                         out_path: Path = PUBLISHED_URLS_PATH) -> List[Dict[str, Any]]:
+    """
+    Rewrite published_urls.json from the ledger.
+
+    Derived, not accumulated. Two different runners used to append to this
+    file independently and publish_staged.py truncated it to just its own
+    batch, so a file named like a permanent record of everything published
+    in fact held whichever subset wrote last — it listed one clip while the
+    ledger held several. Regenerating it from the ledger means the two
+    cannot disagree, and that a runner which forgets to call this leaves
+    the file stale rather than wrong.
+    """
+    rows = published_urls(path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+    return rows
 
 
 # ---------------------------------------------------------------------------
