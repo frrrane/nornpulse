@@ -1798,6 +1798,14 @@ def page_review():
     # already makes for published_home: show the real thing instead of an
     # empty state that contradicts the rest of the page.
     history = [] if all_clips else rq.review_history(limit=20)
+    # Pending has no meaning in the warehouse view -- clip_review_decisions
+    # only ever stores an already-decided row, so it's correct for that
+    # count to be 0, not a bug. But the filter TABS below still need to
+    # read from history's own counts in that mode, not the local (also
+    # zero) rq.state_counts() -- otherwise the tabs contradict the summary
+    # line, which was exactly the failure Intelligence had already fixed.
+    h_approved = sum(1 for r in history if r.get("status") == rq.APPROVED)
+    h_rejected = sum(1 for r in history if r.get("status") == rq.REJECTED)
 
     if all_clips:
         st.caption(
@@ -1808,8 +1816,6 @@ def page_review():
             "is the same either way."
         )
     elif history:
-        h_approved = sum(1 for r in history if r.get("status") == rq.APPROVED)
-        h_rejected = sum(1 for r in history if r.get("status") == rq.REJECTED)
         st.caption(
             f"**{h_approved}** approved · **{h_rejected}** rejected — read from ClickHouse. "
             "This session's local queue is empty, which is the normal state on the read-only "
@@ -1822,20 +1828,31 @@ def page_review():
     # button on this page now use -- st.radio renders it in option labels
     # too, so the filter row doesn't have to fall back to raw emoji just
     # because it isn't a button.
+    tab_counts = counts if all_clips else {rq.PENDING: 0, rq.APPROVED: h_approved, rq.REJECTED: h_rejected}
     filter_labels = {
-        f":material/hourglass_empty: Pending ({counts.get(rq.PENDING, 0)})": rq.PENDING,
-        f":material/check_circle: Approved ({counts.get(rq.APPROVED, 0)})": rq.APPROVED,
-        f":material/close: Rejected ({counts.get(rq.REJECTED, 0)})": rq.REJECTED,
+        f":material/hourglass_empty: Pending ({tab_counts.get(rq.PENDING, 0)})": rq.PENDING,
+        f":material/check_circle: Approved ({tab_counts.get(rq.APPROVED, 0)})": rq.APPROVED,
+        f":material/close: Rejected ({tab_counts.get(rq.REJECTED, 0)})": rq.REJECTED,
         "All": None,
     }
-    chosen = st.radio("Show", list(filter_labels), horizontal=True,
+    # Pending is a sensible default when there's a local queue to triage —
+    # it's the actual to-do list. On the warehouse fallback it's always
+    # empty by definition, so defaulting to it there lands a judge on a
+    # blank panel with the real content one click away. Default to "All"
+    # in that mode instead; Streamlit only honours `index` on the first
+    # render of a keyed widget, so this doesn't fight anyone who's already
+    # picked a filter.
+    default_index = 3 if (not all_clips and history) else 0
+    chosen = st.radio("Show", list(filter_labels), horizontal=True, index=default_index,
                       label_visibility="collapsed", key="library_filter")
     state_filter = filter_labels[chosen]
 
     if not all_clips and history:
         shown = [r for r in history if state_filter is None or r.get("status") == state_filter]
         if not shown:
-            st.info(f"No {chosen.split('(')[0].strip().lower()} decisions in the warehouse sample.")
+            status_name = {rq.PENDING: "pending", rq.APPROVED: "approved",
+                           rq.REJECTED: "rejected"}.get(state_filter, "")
+            st.info(f"No {status_name} decisions in the warehouse sample.".replace("  ", " "))
         for row in shown:
             vid = row.get("youtube_video_id")
             available = vid and not row.get("video_unavailable")
