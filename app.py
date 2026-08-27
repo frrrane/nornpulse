@@ -274,6 +274,28 @@ def _humanize_hook_type(slug: str) -> str:
     return slug.replace("_", " ").capitalize()
 
 
+# ClickHouse column names, not chart copy: "avg_3s_retention" is legible
+# to whoever wrote the query, not to whoever is reading the legend it
+# ends up in when several such columns get passed to px.bar's x=/y= as a
+# list (Plotly then uses the column name itself as each trace's name).
+# Renamed on the trace after the fact rather than in the dataframe, since
+# the raw names are still load-bearing everywhere else they're used as
+# column keys.
+_METRIC_LABELS = {
+    "avg_3s_retention": "3-second retention",
+    "avg_15s_retention": "15-second retention",
+    "avg_30s_retention": "30-second retention",
+    "avg_completion_rate": "Completion rate",
+    "avg_virality_score": "Virality score",
+}
+
+
+def _relabel_metric_traces(fig):
+    """Swap raw column-name trace labels for _METRIC_LABELS, in place."""
+    fig.for_each_trace(lambda t: t.update(name=_METRIC_LABELS.get(t.name, t.name)))
+    return fig
+
+
 _CLIP_ID_PREFIXES = ("gen_trend_", "batch0_clip_", "batch1_clip_", "batch2_clip_", "clip_")
 _CLIP_ID_TIMESTAMP = re.compile(r"_?\d{8}-\d{6}_?")
 
@@ -1966,7 +1988,7 @@ def page_intelligence():
             title="Seeded hook benchmarks · the prior the pipeline chooses from",
             labels={"value": "Percent", "hook_label": "", "variable": "Metric"},
         )
-        st.plotly_chart(styled(fig), width='stretch')
+        st.plotly_chart(styled(_relabel_metric_traces(fig)), width='stretch')
 
         # Retention drop-off curve: the README describes Urðr tracking
         # 3s/15s/30s drop-off curves per hook type — this is the first
@@ -2121,12 +2143,18 @@ def page_intelligence():
             if not score_df.empty:
                 show = score_df[["clip_id", "status", "age_days", "forecast_p50",
                                  "actual_views", "hook_type"]].copy()
+                # Display-only, same rule _humanize_hook_type documents:
+                # the underlying score_df keeps its raw values, only this
+                # rendered copy reads "no forecast" / "Curiosity gap"
+                # instead of "no_forecast" / "curiosity_gap".
+                show["status"] = show["status"].str.replace("_", " ")
+                show["hook_type"] = show["hook_type"].apply(_humanize_hook_type)
                 st.dataframe(
                     show, width='stretch', hide_index=True,
                     column_config={
                         "clip_id": st.column_config.TextColumn("Clip"),
                         "status": st.column_config.TextColumn(
-                            "Status", help="graded · pending · no_forecast · unavailable"),
+                            "Status", help="graded · pending · no forecast · unavailable"),
                         "age_days": st.column_config.NumberColumn("Age (days)", format="%d"),
                         "forecast_p50": st.column_config.NumberColumn(
                             "Forecast p50", format="%d"),
@@ -2294,7 +2322,8 @@ def page_intelligence():
             "is how you tell whether the grounded choice is paying off."
         )
         _visual_frames = _cached_visual_benchmarks(urdr)
-        _dim_tabs = st.tabs(["✂️ Crop Mode", "🎥 Camera Motion", "🎨 Color Grade"])
+        _dim_tabs = st.tabs([":material/crop: Crop Mode", ":material/videocam: Camera Motion",
+                             ":material/palette: Color Grade"])
         for _tab, (_dim, _label) in zip(
             _dim_tabs,
             [("crop_mode", "Crop Mode"), ("motion_effect", "Camera Motion"), ("color_grade", "Color Grade")],
@@ -2304,14 +2333,19 @@ def page_intelligence():
                 if _df.empty:
                     st.caption(f"No {_label.lower()} data recorded yet.")
                 elif len(_df) > 1:
+                    # Same display-only humanizing as hook_type: the
+                    # dataframe keeps "top_anchored_crop", only the axis
+                    # reads "Top anchored crop".
+                    _plot_df = _df.copy()
+                    _plot_df[_dim] = _plot_df[_dim].apply(_humanize_hook_type)
                     st.plotly_chart(
-                        styled(px.bar(
-                            _df, x=_dim,
+                        _relabel_metric_traces(styled(px.bar(
+                            _plot_df, x=_dim,
                             y=["avg_3s_retention", "avg_completion_rate", "avg_virality_score"],
                             barmode="group", template="plotly_dark",
                             color_discrete_sequence=CHART_COLORS,
                             labels={"value": "Score / Percent", _dim: _label, "variable": "Metric"},
-                        )),
+                        ))),
                         width='stretch',
                     )
                 else:
@@ -2463,6 +2497,8 @@ def page_intelligence():
         display_df = outcomes_df.copy()
         if "video_unavailable" in display_df.columns:
             display_df["measurable"] = ~display_df["video_unavailable"].astype(bool)
+        if "hook_type" in display_df.columns:
+            display_df["hook_type"] = display_df["hook_type"].apply(_humanize_hook_type)
         st.dataframe(
             display_df[[
                 c for c in [
