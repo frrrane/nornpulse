@@ -150,20 +150,20 @@ In Norse mythology, the three Norns weave the threads of fate at the Well of Ur�
                          ⚡ High-Converting 9:16 Short
 ```
 
-### 1. `agent/urdr_analytics.py` (ᚢ Urðr — The Past)
+### 1. `agent/urdr_analytics.py` (ᚢ Urðr — Analytics)
 - Talks to **ClickHouse** exclusively through the official **ClickHouse MCP server** (`mcp-clickhouse`), bridged via `agent/clickhouse_mcp_client.py` — no direct DB client library in the runtime path, per the Agentic Cinema ClickHouse track requirement.
 - Manages `video_hook_retention` and historical engagement telemetry.
 - Calculates retention decay curves across hook types (`shock_stat`, `curiosity_gap`, `contrarian_claim`, `problem_agitation`, etc.).
 - Also manages `music_virality_benchmarks` (Bragi's genre/mood/bpm grounding) and `visual_style_benchmarks` (Skuld's crop/motion/color-grade grounding) — the same hook_type taxonomy correlated with historical virality per creative dimension.
 - Supplies real-time statistical priors to Gemini 3.6 Flash.
 
-### 2. `agent/verdandi_orchestrator.py` (ᚹ Verðandi — The Present)
+### 2. `agent/verdandi_orchestrator.py` (ᚹ Verðandi — Orchestration)
 - Powered by the **Google GenAI SDK** using **Gemini** (`gemini-3.6-flash`).
 - Ingests timestamped video transcripts and retrieves Urðr's historical benchmarks.
 - The source video is always uploaded and attached too, transcript or not — Verðandi weighs the actual vocal delivery/energy it observes, not just transcript word content, when a hook_type implies a particular tone (a punchy `shock_stat` pick needs a delivery that actually lands as punchy).
 - Decides optimal start/end timestamps, hook titles, predicted 3s hold rates, completion rates, and social copy.
 
-### 3. `agent/skuld_renderer.py` (ᛋ Skuld — The Future)
+### 3. `agent/skuld_renderer.py` (ᛋ Skuld — Rendering)
 - Slices source video with millisecond accuracy using **FFmpeg**.
 - Converts 16:9 horizontal video into 1080x1920 9:16 vertical format.
 - Offers multiple crop modes:

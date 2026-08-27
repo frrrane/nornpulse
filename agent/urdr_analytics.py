@@ -280,18 +280,18 @@ class UrdrAnalytics:
             if problem is None:
                 self._connected = True
                 self.connection_error = None
-                logger.info(f"⚡ Urðr successfully connected to ClickHouse via mcp-clickhouse ({time.perf_counter() - _t0:.1f}s — this is a one-time cold-start cost per app process, includes MCP subprocess spawn and any ClickHouse Cloud idle-resume delay).")
+                logger.info(f"⚡ Analytics (Urðr) connected to ClickHouse via mcp-clickhouse ({time.perf_counter() - _t0:.1f}s — this is a one-time cold-start cost per app process, includes MCP subprocess spawn and any ClickHouse Cloud idle-resume delay).")
                 self.init_schema()
                 logger.info(f"⏱️ Total connect() + init_schema() took {time.perf_counter() - _t0:.1f}s")
                 return True
             self._connected = False
             self.connection_error = problem
-            logger.warning(f"⚠️ Urðr ClickHouse MCP unavailable. Operating in resilient fallback mode. Reason: {problem}")
+            logger.warning(f"⚠️ Analytics (Urðr) ClickHouse MCP unavailable. Operating in resilient fallback mode. Reason: {problem}")
             return False
         except Exception as e:
             self._connected = False
             self.connection_error = str(e)
-            logger.warning(f"⚠️ Urðr ClickHouse MCP connection unavailable ({e}). Operating in resilient fallback mode.")
+            logger.warning(f"⚠️ Analytics (Urðr) ClickHouse MCP connection unavailable ({e}). Operating in resilient fallback mode.")
             return False
 
     def is_connected(self) -> bool:

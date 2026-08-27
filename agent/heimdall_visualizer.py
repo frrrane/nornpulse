@@ -97,7 +97,7 @@ class HeimdallVisualizer:
         prompt = self._build_prompt(hook_title, genre, mood, energy_level)
 
         try:
-            logger.info(f"👁️ Heimdall composing thumbnail for {clip_id} ({genre}/{mood})...")
+            logger.info(f"👁️ Cover image (Heimdall) composing for {clip_id} ({genre}/{mood})...")
             response = self._generate(prompt)
             parts = response.candidates[0].content.parts if response.candidates else []
             image_part = next((p for p in parts if getattr(p, "inline_data", None)), None)
@@ -108,7 +108,7 @@ class HeimdallVisualizer:
             output_path = Path(output_dir) / f"{clip_id}_thumb.jpg"
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_bytes(image_part.inline_data.data)
-            logger.info(f"✨ Heimdall composed thumbnail: {output_path.name} ({len(image_part.inline_data.data)} bytes)")
+            logger.info(f"✨ Cover image (Heimdall) composed: {output_path.name} ({len(image_part.inline_data.data)} bytes)")
             return str(output_path)
         except Exception as e:
             logger.error(f"Heimdall thumbnail composition failed for clip_id '{clip_id}': {e}")

@@ -451,7 +451,7 @@ class NornPublisher:
                         media_body=MediaFileUpload(str(thumbnail_path), mimetype="image/jpeg"),
                     ).execute()
                     thumbnail_set = True
-                    logger.info(f"👁️ Set Heimdall-composed custom thumbnail for {video_id}.")
+                    logger.info(f"👁️ Set cover image (Heimdall) as custom thumbnail for {video_id}.")
                 except Exception as e:
                     logger.warning(
                         f"Could not set custom thumbnail for {video_id} (channel may not be phone-verified "

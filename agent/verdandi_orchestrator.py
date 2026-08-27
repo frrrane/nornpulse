@@ -545,7 +545,7 @@ class VerdandiOrchestrator:
             # whatever plain clip_id it chose.
             clip_id = unique_clip_id(f"{clip_id_prefix}{clip_id}", self.skuld.output_dir)
             clip_counter[0] += 1
-            logger.info(f"Executing Skuld render for clip_id: {clip_id} ({start_time} to {end_time})")
+            logger.info(f"Executing rendering (Skuld) for clip_id: {clip_id} ({start_time} to {end_time})")
             # Align to sentence boundaries first, then clamp. Reviewers
             # rejected clips for starting mid-thought and stopping
             # mid-sentence; the clamp knows about duration and the source

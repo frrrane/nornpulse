@@ -99,19 +99,19 @@ class BragiComposer:
         cache_key = self._cache_key(genre, mood, bpm)
         cache_path = self.cache_dir / f"{cache_key}.mp3"
         if cache_path.exists() and not force_regenerate:
-            logger.info(f"🎵 Bragi cache hit for {hook_type} ({genre}/{mood}/{bpm}bpm) -> {cache_path.name}")
+            logger.info(f"🎵 Music (Bragi) cache hit for {hook_type} ({genre}/{mood}/{bpm}bpm) -> {cache_path.name}")
             return str(cache_path)
 
         prompt = self._build_prompt(genre, mood, bpm, energy_level)
         try:
-            logger.info(f"🎵 Bragi composing new track for {hook_type} ({genre}/{mood}/{bpm}bpm) via Lyria...")
+            logger.info(f"🎵 Music (Bragi) composing new track for {hook_type} ({genre}/{mood}/{bpm}bpm) via Lyria...")
             interaction = self._compose(prompt)
             if not interaction.output_audio or not interaction.output_audio.data:
                 logger.warning(f"Lyria returned no audio for hook_type '{hook_type}'.")
                 return None
             audio_bytes = base64.b64decode(interaction.output_audio.data)
             cache_path.write_bytes(audio_bytes)
-            logger.info(f"✨ Bragi composed and cached track: {cache_path.name} ({len(audio_bytes)} bytes)")
+            logger.info(f"✨ Music (Bragi) composed and cached track: {cache_path.name} ({len(audio_bytes)} bytes)")
             return str(cache_path)
         except Exception as e:
             logger.error(f"Bragi/Lyria composition failed for hook_type '{hook_type}': {e}")

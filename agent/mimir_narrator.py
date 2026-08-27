@@ -100,7 +100,7 @@ class MimirNarrator:
 
         voice_name = self._pick_voice(energy_level)
         try:
-            logger.info(f"🗣️ Mímir narrating clip_id '{clip_id}' (voice={voice_name}): \"{script_text[:80]}\"")
+            logger.info(f"🗣️ Narration (Mímir) generating for clip_id '{clip_id}' (voice={voice_name}): \"{script_text[:80]}\"")
             response = self._synthesize(script_text, voice_name)
             parts = response.candidates[0].content.parts if response.candidates else []
             audio_part = next((p for p in parts if getattr(p, "inline_data", None)), None)
@@ -128,7 +128,7 @@ class MimirNarrator:
                 logger.error(f"Failed to wrap Mímir's raw PCM into a WAV for '{clip_id}': {result.stderr}")
                 return None
 
-            logger.info(f"✨ Mímir composed narration: {wav_path.name}")
+            logger.info(f"✨ Narration (Mímir) composed: {wav_path.name}")
             return str(wav_path)
         except Exception as e:
             logger.error(f"Mímir narration failed for clip_id '{clip_id}': {e}")
