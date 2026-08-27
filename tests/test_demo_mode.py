@@ -24,12 +24,12 @@ FLAT = " ".join(SOURCE.split())
 # Buttons that cost money, write to ClickHouse, or publish. Keyed by the
 # label as it appears in the source.
 GUARDED_ACTIONS = [
-    "🗂️ Run Batch",           # the same, several times over
-    "🚀 Publish",              # uploads to a real YouTube channel
-    "🗑️ Reject",               # writes a decision to ClickHouse
-    "✅ Approve",              # writes a decision to ClickHouse
+    "Run Batch",           # the same, several times over
+    "Publish",              # uploads to a real YouTube channel
+    "Reject",               # writes a decision to ClickHouse
+    "Approve",              # writes a decision to ClickHouse
     "Delete forever",          # irreversible local deletion
-    "🔄 Sync Actual Performance",   # YouTube Data API quota
+    "Sync Actual Performance",   # YouTube Data API quota
 ]
 
 

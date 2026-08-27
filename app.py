@@ -439,18 +439,20 @@ def fate_thread(p10: float, p50: float, p90: float,
 DEMO_MODE = os.getenv("NORNPULSE_DEMO_MODE", "0").lower() in ("1", "true", "yes")
 
 
-def demo_locked(label: str, explanation: str, key: str) -> bool:
+def demo_locked(label: str, explanation: str, key: str, icon: Optional[str] = None) -> bool:
     """
     Render a disabled action that explains itself, or the real control.
 
     Returns True only when the action should proceed, so call sites read
     `if demo_locked(...)` in place of `if st.button(...)` and cannot
-    accidentally run the body.
+    accidentally run the body. `icon` must match the real st.button()'s own
+    icon= (test_guarded_labels_match_their_real_buttons only compares the
+    label) so the disabled control still looks like the one it replaces.
     """
     if not DEMO_MODE:
         return False
-    st.button(label, key=key, disabled=True, help=explanation)
-    st.caption(f"🔒 {explanation}")
+    st.button(label, key=key, disabled=True, help=explanation, icon=icon)
+    st.caption(f"{_material_icon('lock', '0.85rem')} {explanation}", unsafe_allow_html=True)
     return True
 
 
@@ -462,7 +464,7 @@ def demo_banner() -> None:
         "real ClickHouse warehouse and the 4.56-billion-row public dataset. Actions that "
         "would write to the database, spend model credit or publish to YouTube are "
         "disabled — the clips below were produced by this pipeline before deployment.",
-        icon="🔒",
+        icon=":material/lock:",
     )
 
 
@@ -799,12 +801,12 @@ with st.sidebar:
 _urdr_health = st.session_state.verdandi_adk.urdr
 if not _urdr_health.is_connected():
     st.error(
-        "🔴 **ClickHouse is NOT connected** — Urðr is serving in-memory fallback "
+        "**ClickHouse is NOT connected** — Urðr is serving in-memory fallback "
         "benchmarks, so nothing you generate is grounded in (or logged to) real "
         "ClickHouse data.\n\n"
         f"**Reason:** {_urdr_health.connection_error or 'unknown'}"
     )
-    if st.button("🔄 Retry ClickHouse Connection", key="retry_clickhouse"):
+    if st.button("Retry ClickHouse Connection", key="retry_clickhouse", icon=":material/sync:"):
         with st.spinner("Reconnecting to ClickHouse via mcp-clickhouse..."):
             reconnected = _urdr_health.connect()
         if reconnected:
@@ -1182,7 +1184,8 @@ def page_create():
                 except Exception as e:
                     st.error(f"Download failed: {e}")
 
-        with st.expander(f"🗂️ Batch Mode (channel/playlist, up to {BATCH_MAX_VIDEOS} videos)"):
+        with st.expander(f"Batch Mode (channel/playlist, up to {BATCH_MAX_VIDEOS} videos)",
+                         icon=":material/folder_copy:"):
             st.caption(
                 f"Runs the full pipeline once per video (capped at {BATCH_MAX_VIDEOS} — each is a real "
                 "Gemini + Lyria + image + TTS generation), then ranks every resulting clip by predicted "
@@ -1191,16 +1194,18 @@ def page_create():
             )
             batch_url = st.text_input("YouTube channel or playlist URL:", key="batch_url")
             batch_content_hint = st.text_input(
-                "🎬 Creative Direction (optional)", key="batch_content_hint",
+                "Creative Direction (optional)", key="batch_content_hint",
                 placeholder="e.g. a romantic moment, a tense confrontation...",
+                icon=":material/movie:",
             ).strip() or None
             batch_caption_language = st.text_input(
-                "🌐 Translate Captions (optional)", key="batch_caption_language",
+                "Translate Captions (optional)", key="batch_caption_language",
                 placeholder="e.g. English — leave blank to keep the source language",
+                icon=":material/translate:",
             ).strip() or None
-            if demo_locked("🗂️ Run Batch", 'Runs the real pipeline against paid Gemini, Lyria and Imagen APIs — disabled on the public demo.', "run_batch_locked"):
+            if demo_locked("Run Batch", 'Runs the real pipeline against paid Gemini, Lyria and Imagen APIs — disabled on the public demo.', "run_batch_locked", icon=":material/folder_copy:"):
                 pass
-            elif st.button("🗂️ Run Batch", key="run_batch"):
+            elif st.button("Run Batch", key="run_batch", icon=":material/folder_copy:"):
                 if not batch_url:
                     st.error("Enter a channel or playlist URL first.")
                 else:
@@ -1298,7 +1303,7 @@ def page_create():
         # always-visible controls above stay scannable at a glance.
         transcript_window = None
         auto_window_mode = "random"
-        with st.expander("⚙️ Advanced Settings"):
+        with st.expander("Advanced Settings", icon=":material/tune:"):
             # Every face here is installed in the image and checked at build
             # time. libass substitutes silently for anything it cannot
             # resolve, so an unlisted name would change the look of the
@@ -1312,7 +1317,7 @@ def page_create():
                 help="Cool blue/white captions at 0.0 → warm gold/orange color grade at 1.0",
             )
             crazy = st.slider(
-                "⚡ Crazy", min_value=0.0, max_value=1.0, value=0.3, step=0.05,
+                "Crazy", min_value=0.0, max_value=1.0, value=0.3, step=0.05,
                 help="Controls both the reveal pace and the pop: ~5-word phrases with a gentle "
                      "bounce at 0.0 → rapid single-word pops with scale overshoot and wobble at 1.0.",
             )
@@ -1364,16 +1369,18 @@ def page_create():
             topic_focus = None if topic_choice == topic_options[0] else topic_choice
 
             content_hint = st.text_input(
-                "🎬 Creative Direction (optional)",
+                "Creative Direction (optional)",
                 key="content_hint",
                 placeholder="e.g. a romantic moment, a tense confrontation, a funny reaction...",
                 help="Free-text steer for WHICH moment gets picked. Verðandi prioritizes a genuine match "
                      "over a marginally higher virality score — leave blank to let it pick freely.",
+                icon=":material/movie:",
             ).strip() or None
 
             caption_language = st.text_input(
-                "🌐 Translate Captions (optional)",
+                "Translate Captions (optional)",
                 key="caption_language",
+                icon=":material/translate:",
                 placeholder="e.g. English, Spanish — leave blank to keep the source language",
                 help="Burns in captions translated into this language instead of the source transcript's "
                      "own language. Timing is unaffected — only the on-screen words change. Verðandi's "
@@ -1381,7 +1388,7 @@ def page_create():
             ).strip() or None
 
             cut_energy = st.slider(
-                "🎬 Cut Energy", min_value=0.0, max_value=1.0, value=0.5, step=0.05,
+                "Cut Energy", min_value=0.0, max_value=1.0, value=0.5, step=0.05,
                 help="Biases the target clip length within the duration range: calm at 0.0 leans "
                      "toward the longer end (let the moment breathe), energetic at 1.0 leans toward "
                      "the shorter end (snappy cut). A bias, not a hard override — the min/max range "
@@ -1393,11 +1400,12 @@ def page_create():
         generate_clicked = (
             False
             if (DEMO_MODE and not uploaded_path and demo_locked(
-                "⚡ EXECUTE PIPELINE",
+                "EXECUTE PIPELINE",
                 "Upload a video above to run the pipeline.",
                 "execute_locked",
+                icon=":material/bolt:",
             ))
-            else st.button("⚡ EXECUTE PIPELINE", type="primary")
+            else st.button("EXECUTE PIPELINE", type="primary", icon=":material/bolt:")
         )
 
         if generate_clicked and not active_video_path:
@@ -1464,7 +1472,7 @@ def page_create():
                 _save_last_session(yt_url, transcript_input)
                 st.session_state.current_generation = final_metadata
                 progress_placeholder.empty()
-                st.success("✨ Execution complete!")
+                st.success("Execution complete!")
             except Exception as e:
                 progress_placeholder.empty()
                 st.error(f"Pipeline execution failed: {e}")
@@ -1586,9 +1594,9 @@ def page_create():
                 top_hook = item.get("grounded_top_hook_type", "—")
                 hook_rank = item.get("hook_rank")
                 if item.get("is_top_tier_hook"):
-                    st.success(f"✅ Grounded pick: **{hook_type}** (Urðr's #{hook_rank} ranked hook)")
+                    st.success(f"Grounded pick: **{hook_type}** (Urðr's #{hook_rank} ranked hook)")
                 elif hook_rank is not None:
-                    st.warning(f"⚠️ **{hook_type}** ranks #{hook_rank} in Urðr's benchmarks — top pick was **{top_hook}**")
+                    st.warning(f"**{hook_type}** ranks #{hook_rank} in Urðr's benchmarks — top pick was **{top_hook}**")
                 else:
                     st.caption(f"Hook type: {hook_type} (not found in Urðr's benchmark taxonomy)")
 
@@ -1596,7 +1604,8 @@ def page_create():
 
                 similar_df = _cached_similar_shorts(st.session_state.verdandi_adk.urdr, hook_type)
                 if not similar_df.empty:
-                    with st.expander(f"📊 Similar historical '{hook_type}' shorts"):
+                    with st.expander(f"Similar historical '{hook_type}' shorts",
+                                     icon=":material/bar_chart:"):
                         st.dataframe(
                             similar_df[["hook_text", "virality_score", "avg_3s_retention_pct", "completion_rate_pct", "sample_size_views"]],
                             width='stretch', hide_index=True,
@@ -1636,9 +1645,9 @@ def page_create():
 
                 b1, b2 = st.columns(2, gap="small")
                 with b1:
-                    if demo_locked("🚀 Publish", 'Publishes to a real YouTube channel — disabled on the public demo.', f"pub_locked_{c_id}"):
+                    if demo_locked("Publish", 'Publishes to a real YouTube channel — disabled on the public demo.', f"pub_locked_{c_id}", icon=":material/rocket_launch:"):
                         pass
-                    elif st.button("🚀 Publish", key=f"pub_{c_id}", type="primary"):
+                    elif st.button("Publish", key=f"pub_{c_id}", type="primary", icon=":material/rocket_launch:"):
                         with st.spinner("Publishing..."):
                             try:
                                 result = st.session_state.publisher.upload_to_youtube_shorts(
@@ -1677,7 +1686,7 @@ def page_create():
                                     "privacy_status": result["privacy_status"],
                                 })
                                 thumb_note = " · 👁️ custom thumbnail set" if result.get("thumbnail_set") else ""
-                                st.success(f"✨ Published: [{result['url']}]({result['url']}) · {result['privacy_status']}{thumb_note}")
+                                st.success(f"Published: [{result['url']}]({result['url']}) · {result['privacy_status']}{thumb_note}")
                                 st.session_state.published_count += 1
                                 _cached_published_outcomes.clear()
                                 rq.record_decision(
@@ -1693,11 +1702,11 @@ def page_create():
                                 st.session_state.current_generation.pop(idx)
                                 st.rerun()
                             except PublishError as e:
-                                st.error(f"❌ Publish failed: {e}")
+                                st.error(f"Publish failed: {e}")
                 with b2:
-                    if demo_locked("🗑️ Reject", 'Writes to the shared ClickHouse warehouse — disabled on the public demo.', f"rej_locked_{c_id}"):
+                    if demo_locked("Reject", 'Writes to the shared ClickHouse warehouse — disabled on the public demo.', f"rej_locked_{c_id}", icon=":material/close:"):
                         pass
-                    elif st.button("🗑️ Reject", key=f"rej_{c_id}"):
+                    elif st.button("Reject", key=f"rej_{c_id}", icon=":material/close:"):
                         rq.record_decision(c_id, rq.REJECTED, comment, source="ui")
                         moved = rq.archive_rejected(c_id)
                         st.session_state.current_generation.pop(idx)
@@ -1728,10 +1737,14 @@ def page_review():
         "is the same either way."
     )
 
+    # :material/name: is the same icon-shorthand the page nav and every
+    # button on this page now use -- st.radio renders it in option labels
+    # too, so the filter row doesn't have to fall back to raw emoji just
+    # because it isn't a button.
     filter_labels = {
-        f"⏳ Pending ({counts.get(rq.PENDING, 0)})": rq.PENDING,
-        f"✅ Approved ({counts.get(rq.APPROVED, 0)})": rq.APPROVED,
-        f"🗑️ Rejected ({counts.get(rq.REJECTED, 0)})": rq.REJECTED,
+        f":material/hourglass_empty: Pending ({counts.get(rq.PENDING, 0)})": rq.PENDING,
+        f":material/check_circle: Approved ({counts.get(rq.APPROVED, 0)})": rq.APPROVED,
+        f":material/close: Rejected ({counts.get(rq.REJECTED, 0)})": rq.REJECTED,
         "All": None,
     }
     chosen = st.radio("Show", list(filter_labels), horizontal=True,
@@ -1747,9 +1760,9 @@ def page_review():
         cid = clip["clip_id"]
         title = meta.get("hook_title") or cid
 
-        badge = {rq.PENDING: "⏳ Pending review",
-                 rq.APPROVED: "✅ Approved",
-                 rq.REJECTED: "🗑️ Rejected"}.get(clip["state"], clip["state"])
+        badge = {rq.PENDING: ":material/hourglass_empty: Pending review",
+                 rq.APPROVED: ":material/check_circle: Approved",
+                 rq.REJECTED: ":material/close: Rejected"}.get(clip["state"], clip["state"])
 
         with st.container(border=True):
             head, body = st.columns([1, 2], gap="medium")
@@ -1803,7 +1816,7 @@ def page_review():
                         line += f" — [watch]({decision['youtube_url']})"
                     st.markdown(line)
                     if decision.get("comment"):
-                        st.info(f"💬 {decision['comment']}")
+                        st.info(decision['comment'])
                     if decision.get("previous"):
                         prev = decision["previous"]
                         st.caption(f"↩️ previously {prev.get('status')} via {prev.get('source', '?')}"
@@ -1817,15 +1830,15 @@ def page_review():
                     )
                     a1, a2 = st.columns(2, gap="small")
                     with a1:
-                        if demo_locked("✅ Approve", 'Writes to the shared ClickHouse warehouse — disabled on the public demo.', f"lib_app_locked_{cid}"):
+                        if demo_locked("Approve", 'Writes to the shared ClickHouse warehouse — disabled on the public demo.', f"lib_app_locked_{cid}", icon=":material/check_circle:"):
                             pass
-                        elif st.button("✅ Approve", key=f"lib_app_{cid}", type="primary"):
+                        elif st.button("Approve", key=f"lib_app_{cid}", type="primary", icon=":material/check_circle:"):
                             rq.record_decision(cid, rq.APPROVED, comment, source="ui")
                             st.rerun()
                     with a2:
-                        if demo_locked("🗑️ Reject", 'Writes to the shared ClickHouse warehouse — disabled on the public demo.', f"lib_rej_locked_{cid}"):
+                        if demo_locked("Reject", 'Writes to the shared ClickHouse warehouse — disabled on the public demo.', f"lib_rej_locked_{cid}", icon=":material/close:"):
                             pass
-                        elif st.button("🗑️ Reject", key=f"lib_rej_{cid}"):
+                        elif st.button("Reject", key=f"lib_rej_{cid}", icon=":material/close:"):
                             rq.record_decision(cid, rq.REJECTED, comment, source="ui")
                             rq.archive_rejected(cid)
                             st.rerun()
@@ -1840,7 +1853,7 @@ def page_review():
                 # archives, because the render cost real API spend and the
                 # comment is the useful part. This is the irreversible one.
                 confirm_key = f"lib_confirm_{cid}"
-                with st.expander("⚠️ Delete permanently"):
+                with st.expander("Delete permanently", icon=":material/warning:"):
                     st.caption(
                         "Removes the render, subtitles, thumbnail and metadata from disk. "
                         "This cannot be undone — reject instead if you only want it out of the way."
@@ -1869,7 +1882,7 @@ def page_intelligence():
         # the retry; this is the local reminder that every chart below is
         # synthetic fallback data rather than anything real.
         st.error(
-            "🔴 **Every chart on this tab is in-memory fallback data, not real ClickHouse data.** "
+            "**Every chart on this tab is in-memory fallback data, not real ClickHouse data.** "
             "See the reason and retry at the top of the page."
         )
 
@@ -2316,9 +2329,9 @@ def page_intelligence():
     if outcomes_df.empty:
         st.info("Publish a short from Tab 1 to start collecting real outcomes here.")
     else:
-        if demo_locked("🔄 Sync Actual Performance", 'Publishes to a real YouTube channel — disabled on the public demo.', "sync_locked"):
+        if demo_locked("Sync Actual Performance", 'Publishes to a real YouTube channel — disabled on the public demo.', "sync_locked", icon=":material/sync:"):
             pass
-        elif st.button("🔄 Sync Actual Performance"):
+        elif st.button("Sync Actual Performance", icon=":material/sync:"):
             with st.spinner("Pulling live stats from YouTube..."):
                 synced, failed = 0, 0
                 for video_id in outcomes_df["youtube_video_id"].unique():
@@ -2493,7 +2506,7 @@ def page_intelligence():
             "to expose on an unauthenticated URL."
         )
     else:
-        with st.expander("🔎 SQL Query Console"):
+        with st.expander("SQL Query Console", icon=":material/terminal:"):
             default_query = (
                 "SELECT hook_type, avg(virality_score) AS avg_virality\n"
                 "FROM video_hook_retention\n"
@@ -2501,7 +2514,7 @@ def page_intelligence():
                 "ORDER BY avg_virality DESC"
             )
             user_query = st.text_area("Run a custom ClickHouse query:", value=default_query, height=90)
-            if st.button("▶️ Execute Query"):
+            if st.button("Execute Query", icon=":material/play_arrow:"):
                 try:
                     result_df = urdr.execute_custom_query(user_query)
                     st.dataframe(result_df, width='stretch')
