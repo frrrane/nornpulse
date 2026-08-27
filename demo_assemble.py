@@ -35,8 +35,11 @@ load_dotenv()
 CAP_SEC = 180.0
 FPS = 25
 # Narration sits slightly ahead of the picture: a beat that cuts the instant
-# the last word lands feels clipped, and a held frame is cheap.
-TAIL_PAD_SEC = 0.6
+# the last word lands feels clipped, and a held frame is cheap. 0.6 was a
+# guess made when this was written, never measured against anything; 0.4 is
+# still a real breath, and buys back 2s across ten segments — cheaper than
+# cutting more meaning out of the narration to clear the 3:00 cap.
+TAIL_PAD_SEC = 0.4
 
 
 def duration_of(path: Path) -> float:

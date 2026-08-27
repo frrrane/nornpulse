@@ -75,11 +75,10 @@ minute beforehand or set `--min-instances=1` for the day.
 
 **On screen:** The scoreboard panel.
 
-> So forecasts are calibrated against the channel's own history, and then
-> graded. Right now the scoreboard says two of sixteen are gradeable: three
-> are too young, six were published before forecasts were recorded, and five
-> point at videos that no longer exist. It reports that instead of averaging
-> an accuracy figure over two clips.
+> So forecasts are calibrated against the channel's own history, then
+> graded. Right now only two of sixteen are gradeable — the rest are too
+> young, predate the forecasts, or point at videos that no longer exist.
+> It says so, instead of averaging an accuracy figure over two clips.
 
 ## 2:13 – 2:21 · The human gate, automated
 
@@ -100,10 +99,10 @@ minute beforehand or set `--min-instances=1` for the day.
 
 **On screen:** Home page, the thesis line.
 
-> Most AI tools present everything they output with identical confidence.
-> This one tells you which parts it measured, which it assumed, and which it
-> guessed, and when the sample is too thin it refuses to answer. NornPulse.
-> Every chart is running against the real warehouse right now.
+> Most AI tools present everything with identical confidence. This one
+> tells you what it measured, what it assumed, and what it guessed — and
+> when the sample is too thin, it refuses to answer. NornPulse. Every
+> chart is live against the real warehouse.
 
 <!-- generated: 431 words, ~167s at 155wpm, 173s at 150wpm -->
 

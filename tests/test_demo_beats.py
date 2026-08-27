@@ -66,6 +66,12 @@ def test_the_cap_holds_at_a_slower_delivery():
     that much regardless of speech length, so a real assembled cut always
     runs len(BEATS) * TAIL_PAD_SEC longer than this sum alone predicted —
     the gap that let this test pass while the real render came in over cap.
+
+    If the real render and this test ever disagree by a constant again,
+    that constant is a duration knob demo_assemble.py added and this test
+    didn't import. Add it the same way TAIL_PAD_SEC is added below, not as
+    a second hardcoded number here — a restated constant is exactly what
+    drifted last time.
     """
     from demo_assemble import TAIL_PAD_SEC
 
