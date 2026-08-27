@@ -124,8 +124,10 @@ model to do something, a deterministic check verifies it did.
 Most AI tools present everything they output with identical confidence. The
 more useful thing turned out to be the opposite: labelling each decision by
 what it rests on — **measured**, **assumed**, or **model judgement** — and
-refusing to answer when the sample is too thin. A typical clip declares *3
-measured, 4 assumed, 1 model judgement*, inline.
+refusing to answer when the sample is too thin. Every clip declares its own
+mix of *measured*, *assumed* and *model judgement* decisions, inline — the
+ratio moves clip to clip, which is the point: it's read off the actual clip,
+not a fixed number quoted at it.
 
 The scoreboard reports how many of its own forecasts are gradeable so far
 rather than averaging something comforting over two clips.

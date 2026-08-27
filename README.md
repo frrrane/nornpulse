@@ -29,8 +29,10 @@ Every one of those reads is a ClickHouse query.
 It takes a video, cuts it into vertical shorts through six agents, and scores
 every choice along the way — hook, cut, captions, tags, music, cover — against
 measured outcomes rather than style-guide folklore. Each finished clip declares
-its own evidence: a typical one is **3 measured, 4 assumed, 1 model
-judgement**, labelled inline rather than presented as uniform confidence.
+its own evidence — **measured**, **assumed**, or **model judgement** per
+decision, labelled inline rather than presented as uniform confidence. The
+mix moves clip to clip; it's read off the actual clip on the Home page, not
+quoted as a fixed ratio.
 
 ---
 
@@ -431,7 +433,7 @@ Every clip carries a **How this was decided** panel listing each choice the pipe
 - **Seeded prior** — from a hand-written benchmark table. Framing, camera motion, colour grade and score. The public dataset has no visual or audio features, so there is nothing external to measure these against, and the panel says so rather than letting them sit next to the measured figures looking equally solid.
 - **Model judgement** — Verðandi's reading of this specific transcript. The cut.
 
-A typical clip is 3 measured, 4 assumed, 1 model, and one worked example sits on the Home page rather than only inside a clip card. That ratio is the honest state of the system, and showing it is more useful than implying everything is grounded.
+Every clip labels its own mix of measured, seeded-prior and model-judgement decisions, and one worked example sits on the Home page rather than only inside a clip card. The mix moves clip to clip — that's the honest state of the system, and showing it per-clip is more useful than quoting a fixed ratio that implies one.
 
 ## 📈 Syncing real performance
 
