@@ -61,8 +61,16 @@ def test_the_cap_holds_at_a_slower_delivery():
     Nobody narrates a demo at exactly the estimate. 150 words per minute is a
     relaxed pace and the floors in min_seconds only push the total up, so this
     is the number that actually has to clear.
+
+    This missed TAIL_PAD_SEC once: demo_assemble.py pads every segment by
+    that much regardless of speech length, so a real assembled cut always
+    runs len(BEATS) * TAIL_PAD_SEC longer than this sum alone predicted —
+    the gap that let this test pass while the real render came in over cap.
     """
+    from demo_assemble import TAIL_PAD_SEC
+
     total = sum(max(b.min_seconds, len(b.narration.split()) / 2.5) for b in d.BEATS)
+    total += len(d.BEATS) * TAIL_PAD_SEC
     assert total < CAP_SEC, f"{total:.0f}s at a slow pace, cap is {CAP_SEC:.0f}s"
 
 
