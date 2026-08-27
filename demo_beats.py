@@ -68,7 +68,7 @@ BEATS: List[Beat] = [
             "billion videos, banded by channel size."
         ),
         page="/",
-        actions=[("wait", 1.0), ("scroll", 420), ("wait", 2.0), ("scroll", 420),
+        actions=[("wait", 1.0), ("scroll", 220), ("wait", 2.0), ("scroll", 220),
                  ("wait", 2.0)],
         min_seconds=14.0,
     ),
@@ -150,7 +150,12 @@ BEATS: List[Beat] = [
             "public, which is the point."
         ),
         page="/page_review",
-        actions=[("settle", "h1"), ("wait", 3.0)],
+        # Review has no <h1> — settle("h1") here silently ran the full
+        # timeout every capture. scroll_to's own wait for the element
+        # covers "has this painted" instead, and lands on the exact
+        # approved-with-comment card the narration describes, not just
+        # the page header.
+        actions=[("scroll_to", "text=could be funnier"), ("wait", 3.0)],
         manual="Cut to the approval email in a real inbox, reply comment visible.",
         min_seconds=18.0,
     ),

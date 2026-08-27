@@ -37,8 +37,11 @@ VIEWPORT = {"width": 1920, "height": 1080}
 # is worse than a failure because it looks like it worked.
 SETTLE_TIMEOUT_MS = 120_000
 
-# Any of these means Streamlit has painted something real.
-FIRST_PAINT = "[data-testid='stMetric'], h1, [data-testid='stDataFrame']"
+# Any of these means Streamlit has painted something real. .workflow-header
+# is the one every page actually has — Review has none of the other three,
+# so without it the initial paint-wait ran the full SETTLE_TIMEOUT_MS on
+# that page every time before falling through.
+FIRST_PAINT = "[data-testid='stMetric'], h1, [data-testid='stDataFrame'], .workflow-header"
 
 
 def find_content_start(video: Path, fps_probe: float = 4.0,
@@ -122,6 +125,13 @@ def write_slate(out: Path, beat, duration: float) -> bool:
 
 
 def run_actions(page, actions, verbose=False):
+    # Playwright's mouse starts at (0, 0) — the sidebar, on this layout —
+    # and mouse.wheel scrolls whatever the mouse is over. Left there, every
+    # "scroll" beat fires the wheel at the sidebar instead of stMain and
+    # scrolls nothing at all, with no error to say so. Confirmed against the
+    # live site: scrollTop stayed 0 after wheel(0, 420) at the default
+    # position, and moved only once the mouse was over the main content.
+    page.mouse.move(VIEWPORT["width"] / 2, VIEWPORT["height"] / 2)
     for verb, arg in actions:
         if verb == "wait":
             time.sleep(float(arg))
