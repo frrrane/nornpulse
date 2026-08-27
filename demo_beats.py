@@ -56,7 +56,13 @@ BEATS: List[Beat] = [
             "minus four percent. Same decision. Opposite answer."
         ),
         page="/",
-        actions=[("settle", "[data-testid='stMetric']"), ("wait", 2.0)],
+        # stMetric is the container Streamlit renders before the ClickHouse
+        # value arrives, so this passed while the tiles were still empty
+        # placeholders — confirmed live: 0 matches for "% reach" right after
+        # the container/chrome paints, 2 matches six seconds later once the
+        # data actually lands. Settle on the data text itself, the same fix
+        # already proven on gate_review.
+        actions=[("settle", "text=% reach"), ("wait", 2.0)],
         min_seconds=16.0,
     ),
     Beat(
@@ -187,7 +193,9 @@ BEATS: List[Beat] = [
             "NornPulse. Every chart is live against the real warehouse."
         ),
         page="/",
-        actions=[("settle", "h1"), ("wait", 3.0)],
+        # h1 is the static "NornPulse" title, present before the ClickHouse
+        # data is — same gap as hook. Settle on the data text instead.
+        actions=[("settle", "text=% reach"), ("wait", 3.0)],
         min_seconds=16.0,
     ),
 ]
