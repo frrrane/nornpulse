@@ -580,26 +580,47 @@ def render_provenance(clip_meta: dict, key: str) -> None:
 
 # Each agent is named for a Norse figure and does one job. A judge meeting
 # these mid-run has no glossary to hand, so the role travels with the name
-# everywhere it appears first — the name is what makes the architecture
-# memorable, the role is what makes it legible.
+# everywhere it appears — function first, name second ("Analytics
+# (Urðr)"), so the label is legible on its own and the name is still
+# right there for anyone who wants the branding. One dict, not inline
+# strings, so a future switch to full replacement (dropping the name
+# entirely) is a one-line change to _agent_label instead of a rewrite.
+# Matches the wording in the README's own agent table and log lines
+# exactly, so the two halves of this pass read as one decision rather
+# than two different namings of the same six agents.
 AGENT_ROLES = {
-    "urdr": "analytics",
-    "verdandi": "reasoning",
-    "skuld": "rendering",
-    "bragi": "music",
-    "heimdall": "cover art",
-    "mimir": "narration",
+    "urdr": "Analytics",
+    "verdandi": "Orchestration",
+    "skuld": "Rendering",
+    "bragi": "Music",
+    "heimdall": "Cover image",
+    "mimir": "Narration",
 }
 
+AGENT_NAMES = {
+    "urdr": "Urðr",
+    "verdandi": "Verðandi",
+    "skuld": "Skuld",
+    "bragi": "Bragi",
+    "heimdall": "Heimdall",
+    "mimir": "Mímir",
+}
+
+
+def _agent_label(key: str) -> str:
+    """'Analytics (Urðr)' -- the one place this ordering is decided."""
+    return f"{AGENT_ROLES[key]} ({AGENT_NAMES[key]})"
+
+
 PIPELINE_STAGES = [
-    ("urdr", "🔮 Urðr · analytics"),
-    ("upload", "📤 Upload"),
-    ("verdandi", "🧠 Verðandi · reasoning"),
-    ("bragi", "🎵 Bragi · music"),
-    ("heimdall", "👁️ Heimdall · cover"),
-    ("mimir", "🗣️ Mímir · narration"),
-    ("skuld", "🎬 Skuld · rendering"),
-    ("urdr_log", "📊 Log"),
+    ("urdr", f"{_material_icon('insights')} {_agent_label('urdr')}"),
+    ("upload", f"{_material_icon('upload')} Upload"),
+    ("verdandi", f"{_material_icon('psychology')} {_agent_label('verdandi')}"),
+    ("bragi", f"{_material_icon('music_note')} {_agent_label('bragi')}"),
+    ("heimdall", f"{_material_icon('image')} {_agent_label('heimdall')}"),
+    ("mimir", f"{_material_icon('record_voice_over')} {_agent_label('mimir')}"),
+    ("skuld", f"{_material_icon('movie')} {_agent_label('skuld')}"),
+    ("urdr_log", f"{_material_icon('description')} Log"),
 ]
 
 # Batch mode does its own per-video download + transcription before
@@ -607,8 +628,8 @@ PIPELINE_STAGES = [
 # pills. Single-video mode does that work in Column 1 instead, before
 # generation is ever triggered, which is why it doesn't need them.
 BATCH_PIPELINE_STAGES = [
-    ("download", "⬇️ Download"),
-    ("transcribe", "📝 Transcript"),
+    ("download", f"{_material_icon('download')} Download"),
+    ("transcribe", f"{_material_icon('subtitles')} Transcript"),
 ] + PIPELINE_STAGES
 
 
@@ -934,7 +955,7 @@ def page_home():
             "<div class='thread-note'>Captioning lifts engagement at every size, but only "
             "buys reach once a channel has an audience — captioned videos skew to channels "
             "that already have one. Every figure here is read within a size band, and "
-            "<strong>Skuld (rendering)</strong> burns captions in regardless.</div>",
+            f"<strong>{_agent_label('skuld')}</strong> burns captions in regardless.</div>",
             unsafe_allow_html=True)
 
     # The self-criticism, above the fold and immediately after the claim it
@@ -1144,10 +1165,12 @@ def page_create():
         if DEMO_MODE:
             st.text_input(
                 "Video link", key="yt_url_locked", disabled=True,
-                placeholder="Links are disabled here — upload a file instead")
+                placeholder="Links are disabled here — upload a file instead",
+                icon=":material/lock:")
             st.caption(
-                "🔒 Link ingestion cannot work from Cloud Run: YouTube blocks "
-                "datacenter IPs. Upload a file above to run the real pipeline."
+                f"{_material_icon('lock', '0.85rem')} Link ingestion cannot work from Cloud Run: "
+                "YouTube blocks datacenter IPs. Upload a file above to run the real pipeline.",
+                unsafe_allow_html=True,
             )
             yt_url = ""
         else:
@@ -1175,7 +1198,7 @@ def page_create():
             download_time_range = None
             if probed_duration and probed_duration > AUTO_WINDOW_MAX_SEC:
                 window_pick = st.radio(
-                    f"🎬 Long video (~{int(probed_duration // 60)} min) — pick a "
+                    f":material/movie: Long video (~{int(probed_duration // 60)} min) — pick a "
                     f"{int(AUTO_WINDOW_MAX_SEC // 60)}-min window to download:",
                     options=["Random", "From Start"], horizontal=True,
                     help="Only this window gets downloaded, not the whole video.",
@@ -1197,9 +1220,11 @@ def page_create():
                         st.video(active_video_path, width=440)
                         if download_time_range:
                             st.caption(
-                                f"✂️ Downloaded {format_seconds_to_mmss(download_time_range[0])}–"
+                                f"{_material_icon('content_cut', '0.85rem')} Downloaded "
+                                f"{format_seconds_to_mmss(download_time_range[0])}–"
                                 f"{format_seconds_to_mmss(download_time_range[1])} of the full "
-                                f"{format_seconds_to_mmss(probed_duration)} video."
+                                f"{format_seconds_to_mmss(probed_duration)} video.",
+                                unsafe_allow_html=True,
                             )
                     else:
                         st.error("Downloaded video path is invalid.")
@@ -1270,7 +1295,7 @@ def page_create():
                             st.session_state.current_generation = batch_results
                             batch_progress.empty()
                             st.success(
-                                f"✨ Batch complete: {len(batch_results)} clip(s) from "
+                                f"Batch complete: {len(batch_results)} clip(s) from "
                                 f"{len(batch_urls)} video(s), ranked by virality score — see Review & Publish."
                             )
                         except Exception as e:
@@ -1281,7 +1306,8 @@ def page_create():
             st.markdown(f"<div class='workflow-header'>{_material_icon('publish')} "
                         "Recently Published</div>", unsafe_allow_html=True)
             for pub in reversed(st.session_state.recently_published[-5:]):
-                st.markdown(f"🔗 [{pub['title']}]({pub['url']}) · `{pub['privacy_status']}`")
+                st.markdown(f"{_material_icon('link', '0.9rem')} [{pub['title']}]({pub['url']}) "
+                            f"· `{pub['privacy_status']}`", unsafe_allow_html=True)
 
     # --- 2. Transcript and controls ---
     st.divider()
@@ -1309,9 +1335,10 @@ def page_create():
         transcript_input = st.text_area("Timestamped Transcript:", key="transcript_input", height=160)
         if not transcript_input.strip():
             st.caption(
-                "🎥 No transcript — Verðandi will fall back to vision mode: Gemini watches the "
-                "uploaded video directly (no burned-in captions, since there's no dialogue to caption). "
-                "Works well for silent/instrumental sources; adds upload + processing latency."
+                f"{_material_icon('visibility', '0.85rem')} No transcript — Verðandi will fall back "
+                "to vision mode: Gemini watches the uploaded video directly (no burned-in captions, "
+                "since there's no dialogue to caption). Works well for silent/instrumental sources; "
+                "adds upload + processing latency.", unsafe_allow_html=True,
             )
 
         target_clips = st.slider(
@@ -1335,11 +1362,11 @@ def page_create():
                 help="Burned into the video by libass. All options ship in the "
                      "container; the build fails if one is missing.")
             warmth = st.slider(
-                "🌡️ Warmth", min_value=0.0, max_value=1.0, value=0.5, step=0.05,
+                ":material/thermostat: Warmth", min_value=0.0, max_value=1.0, value=0.5, step=0.05,
                 help="Cool blue/white captions at 0.0 → warm gold/orange color grade at 1.0",
             )
             crazy = st.slider(
-                "Crazy", min_value=0.0, max_value=1.0, value=0.3, step=0.05,
+                ":material/bolt: Crazy", min_value=0.0, max_value=1.0, value=0.3, step=0.05,
                 help="Controls both the reveal pace and the pop: ~5-word phrases with a gentle "
                      "bounce at 0.0 → rapid single-word pops with scale overshoot and wobble at 1.0.",
             )
@@ -1351,7 +1378,7 @@ def page_create():
                 try:
                     video_duration_sec = _cached_duration(active_video_path)
                     window_choice = st.slider(
-                        "✂️ Cut From/To (optional)",
+                        ":material/content_cut: Cut From/To (optional)",
                         min_value=0.0, max_value=float(video_duration_sec),
                         value=(0.0, float(video_duration_sec)), step=1.0,
                         help="Restrict generation to a portion of the video. Leave at the full range "
@@ -1363,10 +1390,12 @@ def page_create():
                         scoped_transcript = filter_transcript_by_window(transcript_input, transcript_window)
                         line_count = len([ln for ln in scoped_transcript.strip().split("\n") if ln.strip()])
                         st.caption(
-                            f"✂️ Scoped to {format_seconds_to_mmss(window_choice[0])}–"
+                            f"{_material_icon('content_cut', '0.85rem')} Scoped to "
+                            f"{format_seconds_to_mmss(window_choice[0])}–"
                             f"{format_seconds_to_mmss(window_choice[1])} "
                             f"({line_count} transcript line{'s' if line_count != 1 else ''} in range, "
-                            f"or vision mode within this window if none)."
+                            f"or vision mode within this window if none).",
+                            unsafe_allow_html=True,
                         )
                     # No "video is long, pick a window" toggle here anymore —
                     # Column 1 already handles that at download time, so the
@@ -1382,7 +1411,7 @@ def page_create():
             available_topics = _cached_topic_categories(st.session_state.verdandi_adk.urdr)
             topic_options = ["Auto (let Verðandi decide)"] + available_topics
             topic_choice = st.selectbox(
-                "🎯 Topic Focus — ground generation in a specific topic category's history",
+                ":material/target: Topic Focus — ground generation in a specific topic category's history",
                 topic_options, index=0,
                 help="Scopes the ClickHouse retention data fed to Verðandi to one topic_category, "
                      "instead of the full historical spread. Falls back to all categories if the "
@@ -1410,7 +1439,7 @@ def page_create():
             ).strip() or None
 
             cut_energy = st.slider(
-                "Cut Energy", min_value=0.0, max_value=1.0, value=0.5, step=0.05,
+                ":material/speed: Cut Energy", min_value=0.0, max_value=1.0, value=0.5, step=0.05,
                 help="Biases the target clip length within the duration range: calm at 0.0 leans "
                      "toward the longer end (let the moment breathe), energetic at 1.0 leans toward "
                      "the shorter end (snappy cut). A bias, not a hard override — the min/max range "
@@ -1535,7 +1564,7 @@ def page_create():
                     thumbnail_path = item.get("thumbnail_path")
                     if thumbnail_path and Path(thumbnail_path).exists():
                         with thumb_col:
-                            st.image(thumbnail_path, width=90, caption="👁️ Heimdall cover")
+                            st.image(thumbnail_path, width=90, caption=_agent_label("heimdall"))
                 # The 0-100 virality score is Verðandi's internal ranking and
                 # has no external referent — it says nothing about what this
                 # clip might actually get. The forecast beside it is grounded
@@ -1566,15 +1595,18 @@ def page_create():
 
                 if forecast:
                     st.caption(
-                        f"　📊 Plausible range **{forecast['p10']:,.0f} – {forecast['p90']:,.0f}** views "
-                        f"(p10–p90), centred on {forecast['p50']:,.0f}."
+                        f"　{_material_icon('bar_chart', '0.85rem')} Plausible range "
+                        f"**{forecast['p10']:,.0f} – {forecast['p90']:,.0f}** views "
+                        f"(p10–p90), centred on {forecast['p50']:,.0f}.", unsafe_allow_html=True,
                     )
                     with st.expander("How this forecast is derived"):
                         for comp in forecast["components"]:
-                            flag = "" if comp["banded"] else "  ⚠️ not size-banded"
+                            flag = ("" if comp["banded"]
+                                    else f"  {_material_icon('warning', '0.75rem')} not size-banded")
                             st.markdown(
                                 f"- **{comp['factor']}** — {comp['detail']} "
-                                f"(×{comp['multiplier']:.2f}, {comp['basis']}){flag}"
+                                f"(×{comp['multiplier']:.2f}, {comp['basis']}){flag}",
+                                unsafe_allow_html=True,
                             )
                         st.caption(
                             "Read as *comparable videos got this much*, not *this clip will*. "
@@ -1584,8 +1616,10 @@ def page_create():
                 if item.get("has_subtitles"):
                     caption_lang = item.get("caption_language")
                     st.caption(
-                        f"💬 Kinetic subtitles burned in — translated to {caption_lang}" if caption_lang
-                        else "💬 Kinetic subtitles burned in"
+                        (f"{_material_icon('subtitles', '0.85rem')} Kinetic subtitles burned in — "
+                         f"translated to {caption_lang}") if caption_lang
+                        else f"{_material_icon('subtitles', '0.85rem')} Kinetic subtitles burned in",
+                        unsafe_allow_html=True,
                     )
                     # Evidence sits next to the decision it justifies. Read
                     # within this channel's size band, never across all of
@@ -1608,9 +1642,13 @@ def page_create():
                 if item.get("has_bragi_score"):
                     genre = item.get("music_genre") or "custom"
                     mood = item.get("music_mood") or ""
-                    st.caption(f"🎵 Original score by Bragi (Lyria) — {genre}, {mood}".rstrip(", "))
+                    st.caption(
+                        f"{_material_icon('music_note', '0.85rem')} Original score by Bragi (Lyria) "
+                        f"— {genre}, {mood}".rstrip(", "), unsafe_allow_html=True)
                 if item.get("has_narration"):
-                    st.caption("🗣️ AI narration by Mímir (fills silence, or reads over hard-to-hear audio)")
+                    st.caption(
+                        f"{_material_icon('record_voice_over', '0.85rem')} AI narration by Mímir "
+                        "(fills silence, or reads over hard-to-hear audio)", unsafe_allow_html=True)
 
                 hook_type = item.get("hook_type", "unknown")
                 top_hook = item.get("grounded_top_hook_type", "—")
@@ -1652,9 +1690,10 @@ def page_create():
                 prior = rq.get_decision(c_id)
                 if prior:
                     st.caption(
-                        f"↩️ Previously **{prior['status']}** via {prior.get('source', '?')} "
-                        f"on {prior.get('decided_at', '?')}"
-                        + (f" — “{prior['comment']}”" if prior.get("comment") else "")
+                        f"{_material_icon('history', '0.85rem')} Previously **{prior['status']}** "
+                        f"via {prior.get('source', '?')} on {prior.get('decided_at', '?')}"
+                        + (f" — “{prior['comment']}”" if prior.get("comment") else ""),
+                        unsafe_allow_html=True,
                     )
 
                 st.selectbox(
@@ -1707,7 +1746,7 @@ def page_create():
                                     "url": result["url"],
                                     "privacy_status": result["privacy_status"],
                                 })
-                                thumb_note = " · 👁️ custom thumbnail set" if result.get("thumbnail_set") else ""
+                                thumb_note = " · custom thumbnail set" if result.get("thumbnail_set") else ""
                                 st.success(f"Published: [{result['url']}]({result['url']}) · {result['privacy_status']}{thumb_note}")
                                 st.session_state.published_count += 1
                                 _cached_published_outcomes.clear()
@@ -1791,7 +1830,7 @@ def page_review():
             with head:
                 st.video(clip["video_path"], width=210)
                 if clip["thumbnail_path"]:
-                    st.image(clip["thumbnail_path"], width=90, caption="👁️ Heimdall cover")
+                    st.image(clip["thumbnail_path"], width=90, caption=_agent_label("heimdall"))
 
             with body:
                 st.markdown(f"### {title}")
@@ -1818,18 +1857,21 @@ def page_review():
                 treatment = [meta.get(k) for k in ("crop_mode", "motion_effect", "color_grade")]
                 treatment = [t for t in treatment if t]
                 if treatment:
-                    st.caption("🎬 " + " · ".join(treatment))
+                    st.caption(f"{_material_icon('movie', '0.85rem')} " + " · ".join(treatment),
+                               unsafe_allow_html=True)
 
                 extras = []
                 if meta.get("has_subtitles"):
                     lang = meta.get("caption_language")
-                    extras.append(f"💬 subtitles{f' ({lang})' if lang else ''}")
+                    extras.append(f"{_material_icon('subtitles', '0.85rem')} subtitles"
+                                  f"{f' ({lang})' if lang else ''}")
                 if meta.get("has_bragi_score"):
-                    extras.append(f"🎵 {meta.get('music_genre') or 'original score'}")
+                    extras.append(f"{_material_icon('music_note', '0.85rem')} "
+                                  f"{meta.get('music_genre') or 'original score'}")
                 if meta.get("has_narration"):
-                    extras.append("🗣️ narration")
+                    extras.append(f"{_material_icon('record_voice_over', '0.85rem')} narration")
                 if extras:
-                    st.caption(" · ".join(extras))
+                    st.caption(" · ".join(extras), unsafe_allow_html=True)
 
                 if decision:
                     line = (f"Decided **{decision['status']}** via {decision.get('source', '?')} "
@@ -1841,8 +1883,12 @@ def page_review():
                         st.info(decision['comment'])
                     if decision.get("previous"):
                         prev = decision["previous"]
-                        st.caption(f"↩️ previously {prev.get('status')} via {prev.get('source', '?')}"
-                                   + (f" — “{prev['comment']}”" if prev.get("comment") else ""))
+                        st.caption(
+                            f"{_material_icon('history', '0.85rem')} previously {prev.get('status')} "
+                            f"via {prev.get('source', '?')}"
+                            + (f" — “{prev['comment']}”" if prev.get("comment") else ""),
+                            unsafe_allow_html=True,
+                        )
 
                 # --- actions ---
                 if clip["state"] == rq.PENDING:
@@ -2071,7 +2117,7 @@ def page_intelligence():
             ratio = gap["ratio"]
             st.markdown(
                 f"<div class='workflow-header' style='margin-top:1.1rem;'>"
-                f"⚖️ Benchmark vs reality · {band} subs</div>",
+                f"{_material_icon('balance')} Benchmark vs reality · {band} subs</div>",
                 unsafe_allow_html=True)
             g1, g2, g3 = st.columns(3)
             with g1:
@@ -2308,10 +2354,11 @@ def page_intelligence():
             )
 
         st.caption(
-            "⚠️ Scope: the public dataset was crawled 27 Nov – 13 Dec 2021, so its view counts are "
-            "frozen at that date and it predates mature Shorts behaviour. It carries no duration "
-            "column, so nothing here is a Shorts-specific benchmark — that is what the trending "
-            "layer above is for. Figures are 1/N sampled; sample sizes are shown throughout."
+            f"{_material_icon('warning', '0.85rem')} Scope: the public dataset was crawled 27 Nov "
+            "– 13 Dec 2021, so its view counts are frozen at that date and it predates mature Shorts "
+            "behaviour. It carries no duration column, so nothing here is a Shorts-specific "
+            "benchmark — that is what the trending layer above is for. Figures are 1/N sampled; "
+            "sample sizes are shown throughout.", unsafe_allow_html=True,
         )
 
         st.markdown(f"<div class='workflow-header'>{_material_icon('movie')} "
@@ -2400,9 +2447,10 @@ def page_intelligence():
         n_unavailable = int(unavailable_mask.sum())
         if n_unavailable:
             st.caption(
-                f"⚠️ {n_unavailable} row(s) point at videos that are deleted, private, or were "
-                f"never published. They're kept for the audit trail but excluded from the charts "
-                f"below, since an unmeasurable clip isn't a missed prediction."
+                f"{_material_icon('warning', '0.85rem')} {n_unavailable} row(s) point at videos "
+                f"that are deleted, private, or were never published. They're kept for the audit "
+                f"trail but excluded from the charts below, since an unmeasurable clip isn't a "
+                f"missed prediction.", unsafe_allow_html=True,
             )
 
         # Age context, shown whether or not a forecast exists. Without it a
@@ -2537,9 +2585,10 @@ def page_intelligence():
 
     if DEMO_MODE:
         st.caption(
-            "🔒 The SQL console is disabled on the public demo. It runs user-supplied SQL "
-            "against the shared warehouse with write access enabled, which is not something "
-            "to expose on an unauthenticated URL."
+            f"{_material_icon('lock', '0.85rem')} The SQL console is disabled on the public demo. "
+            "It runs user-supplied SQL against the shared warehouse with write access enabled, "
+            "which is not something "
+            "to expose on an unauthenticated URL.", unsafe_allow_html=True,
         )
     else:
         with st.expander("SQL Query Console", icon=":material/terminal:"):
