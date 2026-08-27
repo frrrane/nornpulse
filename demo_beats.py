@@ -133,11 +133,11 @@ BEATS: List[Beat] = [
     Beat(
         key="scoreboard",
         narration=(
-            "So forecasts are calibrated against the channel's own history. "
-            "Uncalibrated, two thousand four hundred. Calibrated, three hundred "
-            "and five. Actual median, three hundred and forty-three. And the "
-            "scoreboard says how many of its own forecasts are gradeable so far, "
-            "instead of averaging something comforting."
+            "So forecasts are calibrated against the channel's own history, and then "
+            "graded. Right now the scoreboard says two of sixteen are gradeable: three "
+            "are too young, six were published before forecasts were recorded, and five "
+            "point at videos that no longer exist. It reports that instead of averaging "
+            "an accuracy figure over two clips."
         ),
         page="/page_intelligence",
         actions=[("scroll_to", "text=Forecast scoreboard"), ("wait", 3.0)],
