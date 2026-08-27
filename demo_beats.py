@@ -111,8 +111,11 @@ BEATS: List[Beat] = [
             "thirteen, and three hundred and forty-three."
         ),
         page="/page_intelligence",
-        actions=[("settle", "[data-testid='stMetric']"), ("wait", 2.0),
-                 ("scroll", 260), ("wait", 3.0)],
+        # The old pixel offset (260) was guessed against a page layout that
+        # no longer exists — the real target is 1488px down a 6412px page,
+        # measured against the live site. scroll_to fails loudly instead of
+        # guessing again next time the page grows.
+        actions=[("scroll_to", "text=Benchmark vs reality"), ("wait", 3.0)],
         min_seconds=17.0,
     ),
     Beat(
@@ -124,7 +127,7 @@ BEATS: List[Beat] = [
             "because the population inside the band is filtered too."
         ),
         page="/page_intelligence",
-        actions=[("wait", 1.0), ("scroll", 300), ("wait", 3.0)],
+        actions=[("scroll_to", "text=The public dataset is a crawl"), ("wait", 3.0)],
         min_seconds=16.0,
     ),
     Beat(
@@ -137,7 +140,7 @@ BEATS: List[Beat] = [
             "instead of averaging something comforting."
         ),
         page="/page_intelligence",
-        actions=[("wait", 1.0), ("scroll", 420), ("wait", 3.0)],
+        actions=[("scroll_to", "text=Forecast scoreboard"), ("wait", 3.0)],
         min_seconds=18.0,
     ),
     # The human gate is two shots, not one: the Review page is real evidence

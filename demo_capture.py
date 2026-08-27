@@ -143,12 +143,12 @@ def run_actions(page, actions, verbose=False):
             # (via the warning below) instead of silently filming the wrong
             # part of the page.
             try:
-                page.locator(arg).first.scroll_into_view_if_needed(timeout=15_000)
+                page.locator(arg).first.scroll_into_view_if_needed(timeout=SETTLE_TIMEOUT_MS)
             except Exception as e:
                 print(f"     ⚠️  could not scroll to {arg!r}: {str(e)[:70]}")
         elif verb == "click":
             try:
-                page.click(arg, timeout=15_000)
+                page.click(arg, timeout=SETTLE_TIMEOUT_MS)
             except Exception as e:
                 # A missing control is a demo-script problem, not a crash:
                 # the rest of the beat is still worth recording.
