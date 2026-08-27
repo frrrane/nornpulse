@@ -127,6 +127,15 @@ def run_actions(page, actions, verbose=False):
             time.sleep(float(arg))
         elif verb == "scroll":
             page.mouse.wheel(0, int(arg))
+        elif verb == "scroll_to":
+            # Unlike "scroll", this targets an element rather than a pixel
+            # count, so a layout change that moves the target fails loudly
+            # (via the warning below) instead of silently filming the wrong
+            # part of the page.
+            try:
+                page.locator(arg).first.scroll_into_view_if_needed(timeout=15_000)
+            except Exception as e:
+                print(f"     ⚠️  could not scroll to {arg!r}: {str(e)[:70]}")
         elif verb == "click":
             try:
                 page.click(arg, timeout=15_000)

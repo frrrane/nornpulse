@@ -37,10 +37,15 @@ class Beat:
 
 
 # Verbs:
-#   wait      seconds
-#   scroll    pixels (positive is down)
-#   click     CSS selector
-#   settle    selector to wait for before doing anything else
+#   wait       seconds
+#   scroll     pixels (positive is down) — for slow-drift shots where the
+#              motion itself is the point, not a specific destination
+#   scroll_to  CSS selector — for shots that need a specific element on
+#              screen; fails loudly (a printed warning) if the layout moves
+#              and the selector isn't found, instead of silently scrolling
+#              the wrong distance
+#   click      CSS selector
+#   settle     selector to wait for before doing anything else
 BEATS: List[Beat] = [
     Beat(
         key="hook",
@@ -93,7 +98,7 @@ BEATS: List[Beat] = [
             "visual features to ground it against, and it says so."
         ),
         page="/",
-        actions=[("scroll", 1100), ("wait", 1.5),
+        actions=[("scroll_to", "[data-testid='stExpander'] summary"), ("wait", 1.5),
                  ("click", "[data-testid='stExpander'] summary"), ("wait", 3.0)],
         min_seconds=16.0,
     ),

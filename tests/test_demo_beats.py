@@ -80,3 +80,16 @@ def test_a_beat_is_either_driven_or_declared_manual(beat):
     """
     assert beat.actions or beat.manual, (
         f"beat {beat.key!r} has no actions and is not marked manual")
+
+
+@pytest.mark.parametrize("beat", d.BEATS, ids=lambda b: b.key)
+def test_scroll_to_targets_are_real_selectors(beat):
+    """
+    scroll_to exists specifically so a moved target fails loudly instead of
+    silently scrolling the wrong distance — an empty or non-string argument
+    would defeat that by not being a selector at all.
+    """
+    for verb, arg in beat.actions:
+        if verb == "scroll_to":
+            assert isinstance(arg, str) and arg.strip(), (
+                f"beat {beat.key!r} has a scroll_to with no real selector: {arg!r}")
