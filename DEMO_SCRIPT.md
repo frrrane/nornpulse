@@ -46,12 +46,12 @@ minute beforehand or set `--min-instances=1` for the day.
 
 ## 1:03 – 1:20 · Every decision, labelled
 
-**On screen:** Provenance panel on a finished clip, expanded.
+**On screen:** Provenance panel on a finished clip, on the Home page.
 
-> And every decision is labelled. Three measured, four assumed, one model
-> judgement. The hook is measured, with a sample size attached. The framing
-> is a seeded prior, because the public dataset has no visual features to
-> ground it against, and it says so.
+> And every decision is labelled by what it rests on — measured, assumed, or
+> model judgement. The hook is measured, with a sample size attached. The
+> framing is a seeded prior, because the public dataset has no visual
+> features to ground it against, and it says so.
 
 ## 1:20 – 1:38 · Pointed at itself
 
@@ -122,7 +122,7 @@ they are the ones to film first, not last.
 - [ ] **The generated Short playing full-frame, sound on**
 - [ ] **The approval email in a real inbox**, with the reply comment visible
 - [ ] Home page, full scroll, warm instance
-- [ ] A provenance panel expanded, showing all three levels
+- [ ] The provenance panel on Home, showing all three levels
 - [ ] Intelligence → benchmark vs reality panel
 - [ ] The scoreboard panel, gradeable count visible
 - [ ] Outcomes table with non-zero actual views

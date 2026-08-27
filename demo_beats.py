@@ -92,14 +92,17 @@ BEATS: List[Beat] = [
     Beat(
         key="provenance",
         narration=(
-            "And every decision is labelled. Three measured, four assumed, one "
-            "model judgement. The hook is measured, with a sample size attached. "
-            "The framing is a seeded prior, because the public dataset has no "
-            "visual features to ground it against, and it says so."
+            "And every decision is labelled by what it rests on — measured, "
+            "assumed, or model judgement. The hook is measured, with a sample "
+            "size attached. The framing is a seeded prior, because the public "
+            "dataset has no visual features to ground it against, and it says so."
         ),
         page="/",
-        actions=[("scroll_to", "[data-testid='stExpander'] summary"), ("wait", 1.5),
-                 ("click", "[data-testid='stExpander'] summary"), ("wait", 3.0)],
+        # Renders inline now, not behind an expander — no click needed, and
+        # clicking a summary that no longer exists is the 120s-timeout path
+        # that used to run here. The heading text is the section's own copy
+        # and doubles as "has this painted".
+        actions=[("scroll_to", "text=How a clip gets decided"), ("wait", 3.0)],
         min_seconds=16.0,
     ),
     Beat(
