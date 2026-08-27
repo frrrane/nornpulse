@@ -52,3 +52,43 @@ def test_chunking_only_kicks_in_for_long_videos():
     """A short source keeps the single call it always had."""
     assert tr.TRANSCRIBE_CHUNK_SEC < tr.TRANSCRIBE_CHUNK_THRESHOLD_SEC
     assert tr.TRANSCRIBE_CHUNK_THRESHOLD_SEC >= 300
+
+
+# --- the cache must answer about THIS video --------------------------------
+#
+# Keyed on the filename alone, it handed one video another's words. Every
+# download lands at the same fixed path (sample_data/yt_input.mp4), so a new
+# source inherited the previous one's transcript, and the only check was
+# whether the file looked like a transcript — which a wrong one does. A
+# 161-second Cosmos video ended up paired with a 22-minute Artemis transcript.
+
+def test_two_videos_at_the_same_path_get_different_cache_files(tmp_path):
+    same_path = tmp_path / "yt_input.mp4"
+
+    same_path.write_bytes(b"first video bytes")
+    first = tr._cache_path_for(str(same_path))
+
+    same_path.write_bytes(b"a completely different video")
+    second = tr._cache_path_for(str(same_path))
+
+    assert first != second, "same filename, different content, same cache key"
+
+
+def test_the_same_video_keeps_its_cache(tmp_path):
+    """Re-running on an unchanged source must still hit, or it re-bills every time."""
+    v = tmp_path / "yt_input.mp4"
+    v.write_bytes(b"identical bytes")
+    assert tr._cache_path_for(str(v)) == tr._cache_path_for(str(v))
+
+
+def test_the_key_still_names_the_video(tmp_path):
+    """A directory of opaque hashes is unreadable when something goes wrong."""
+    v = tmp_path / "yt_input.mp4"
+    v.write_bytes(b"x")
+    assert tr._cache_path_for(str(v)).name.startswith("yt_input_")
+
+
+def test_an_unreadable_video_does_not_block_transcription(tmp_path):
+    """The cache's own bookkeeping must not fail a caller that could proceed."""
+    missing = tmp_path / "gone.mp4"
+    assert tr._cache_path_for(str(missing)).name == "gone_transcript.txt"

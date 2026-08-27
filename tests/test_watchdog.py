@@ -40,6 +40,12 @@ def test_missing_key_flags_rather_than_passing(monkeypatch):
     "Could not check" is not "nothing found". Reporting a clean result the
     check never obtained is the one failure that makes a guard harmful.
     """
+    # Vertex is the default credential path now (.env sets
+    # NORNPULSE_USE_VERTEX), and it authenticates with ADC rather than an
+    # API key -- so clearing the key alone no longer means "no credentials".
+    # Cleared here so this still tests what it was written to test: that
+    # having NOTHING to authenticate with fails loudly instead of quietly.
+    monkeypatch.delenv("NORNPULSE_USE_VERTEX", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     v = wd.check_text(title="anything at all")
     assert v.level == wd.FLAG

@@ -76,6 +76,12 @@ def test_unknown_source_is_rejected_rather_than_defaulted(tmp_path):
 
 
 def test_generation_without_a_key_fails_before_calling_out(tmp_path, monkeypatch):
+    # Vertex is the default credential path now (.env sets
+    # NORNPULSE_USE_VERTEX), and it authenticates with ADC rather than an
+    # API key -- so clearing the key alone no longer means "no credentials".
+    # Cleared here so this still tests what it was written to test: that
+    # having NOTHING to authenticate with fails loudly instead of quietly.
+    monkeypatch.delenv("NORNPULSE_USE_VERTEX", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with pytest.raises(fg.FootageError, match="GEMINI_API_KEY"):
         fg.generate_with_veo("a prompt", tmp_path / "out.mp4")

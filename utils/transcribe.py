@@ -84,8 +84,48 @@ def _cached_transcript_for(video_path: str) -> str | None:
     return None
 
 
+def _file_digest(path: str | Path, chunk_size: int = 1 << 20) -> str:
+    """
+    A short content hash of the video.
+
+    A twin of agent.verdandi_orchestrator._file_digest, inlined rather than
+    imported because that module imports this one — importing back would be
+    circular. Same reasoning behind both: the pipeline reuses fixed local
+    names for whatever it is working on.
+    """
+    import hashlib
+
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(chunk_size):
+            digest.update(chunk)
+    return digest.hexdigest()[:12]
+
+
 def _cache_path_for(video_path: str) -> Path:
-    return CACHE_DIR / f"{Path(video_path).stem}_transcript.txt"
+    """
+    Where this video's transcript is cached, keyed on its CONTENT.
+
+    Keyed on the filename alone, this cache handed one video another's
+    words. Every download lands at the same fixed path — sample_data/
+    yt_input.mp4 — so downloading a new source silently inherited the
+    previous one's transcript, and the only check was whether the file
+    looked like a transcript at all, which a wrong one does. That is how a
+    161-second Cosmos video came to be paired with a 22-minute Artemis
+    transcript: nothing lied, nothing failed, the cache just answered a
+    question about a different video.
+
+    The digest costs a read of the file. A wrong transcript costs a clip
+    captioned with someone else's words, which is worse and much harder to
+    notice.
+    """
+    stem = Path(video_path).stem
+    try:
+        return CACHE_DIR / f"{stem}_{_file_digest(video_path)}_transcript.txt"
+    except OSError:
+        # Unreadable video: fall back to the name so a caller that can still
+        # transcribe is not blocked by the cache's own bookkeeping.
+        return CACHE_DIR / f"{stem}_transcript.txt"
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 def get_or_create_transcript(video_path: str) -> str:
