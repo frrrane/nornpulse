@@ -417,7 +417,7 @@ def fate_thread(p10: float, p50: float, p90: float,
       </svg>
       <div class="thread-scale">
         <span style="left:{x10}%;">{_fmt_views(p10)}</span>
-        <span style="left:{x50}%;transform:translateX(-50%);">median {_fmt_views(p50)}</span>
+        <span style="left:{x50}%;">median {_fmt_views(p50)}</span>
         <span style="left:{x90}%;transform:translateX(-100%);">{_fmt_views(p90)}</span>
       </div>
     </div>"""
@@ -775,9 +775,17 @@ with st.sidebar:
         f"<span style='display:inline-flex;width:26px;flex-shrink:0;'>{_nornpulse_mark(26)}</span>"
         "<span style='font-family:var(--display);font-weight:800;font-size:1.22rem;"
         "letter-spacing:-.02em;'>NornPulse</span></div>"
-        "<div style='display:flex;align-items:center;gap:.5rem;margin-top:.3rem;'>"
-        f"<span style='display:inline-flex;width:26px;flex-shrink:0;'>{_nornlabs_mark(26)}</span>"
-        "<span class='eyebrow'>Norn Labs</span></div>"
+        # The parent-brand row links out to nornlabs.ai -- it names the
+        # company, not this product, so "go there" is a reasonable click.
+        # The mark itself used to share the row's 26px icon column at
+        # full size, towering over the 0.66rem eyebrow text next to it;
+        # it's sized down to that text's own height and just centered in
+        # the same column so both rows still start at the same x.
+        "<a href='https://nornlabs.ai' target='_blank' style='text-decoration:none;"
+        "color:inherit;display:flex;align-items:center;gap:.5rem;margin-top:.3rem;'>"
+        f"<span style='display:inline-flex;width:26px;flex-shrink:0;justify-content:center;'>"
+        f"{_nornlabs_mark(13)}</span>"
+        "<span class='eyebrow'>Norn Labs</span></a>"
         "</div>", unsafe_allow_html=True)
 
 # Global ClickHouse health banner, deliberately ABOVE the tabs so it's
@@ -833,23 +841,20 @@ def page_home():
     lift = gb.subtitle_lift(band, facts=facts)
 
     grounded = f"{4_557_605_031:,}"
-    # Signature: faint ripples from a well crossed by two threads, echoing
-    # fate_thread()'s own bead-on-a-line vocabulary below. One shape, spent
-    # once, on the one screen that states the thesis -- the data underneath
-    # stays the actual visual, this just gives it a frame.
+    # Signature: the NornPulse mark itself, cascading — not the ripples-
+    # from-a-well graphic (that's nornlabs.ai's own hero, one level up the
+    # brand; repeating it here made the two sites read as one template
+    # with the wordmark swapped). Three copies of the same bead-on-thread
+    # mark at receding sizes, because it's the one shape this product
+    # doesn't share with its parent brand.
     st.markdown(
         "<div style='position:relative;'>"
-        "<svg viewBox='0 0 460 230' aria-hidden='true' style='position:absolute;"
-        "top:-16px;right:-24px;width:min(46vw,460px);height:230px;opacity:0.16;"
-        "pointer-events:none;z-index:0;'>"
-        "<circle cx='55' cy='185' r='55' fill='none' stroke='var(--bone-dim)'/>"
-        "<circle cx='55' cy='185' r='105' fill='none' stroke='var(--bone-dim)'/>"
-        "<circle cx='55' cy='185' r='155' fill='none' stroke='var(--bone-dim)'/>"
-        "<path d='M35,210 C160,145 280,80 440,20' fill='none' stroke='var(--thread)' stroke-width='1.4'/>"
-        "<path d='M15,150 C150,195 300,55 445,115' fill='none' stroke='var(--bone-dim)' stroke-width='1'/>"
-        "<circle cx='440' cy='20' r='3.5' fill='var(--thread)'/>"
-        "<circle cx='35' cy='210' r='3.5' fill='var(--thread)'/>"
-        "</svg>"
+        "<div aria-hidden='true' style='position:absolute;top:-10px;right:-10px;"
+        "width:min(46vw,460px);height:230px;opacity:0.16;pointer-events:none;z-index:0;'>"
+        f"<span style='position:absolute;top:6px;right:30px;'>{_nornpulse_mark(120)}</span>"
+        f"<span style='position:absolute;top:96px;right:190px;'>{_nornpulse_mark(78)}</span>"
+        f"<span style='position:absolute;top:156px;right:300px;'>{_nornpulse_mark(50)}</span>"
+        "</div>"
         "<div style='position:relative;z-index:1;'>"
         "<div class='eyebrow'>Norn Labs · autonomous short-form engine</div>"
         "<div style='display:flex;align-items:center;gap:.7rem;margin:.15rem 0 .1rem 0;'>"
@@ -996,7 +1001,7 @@ def page_home():
             c1, c2 = st.columns([1, 3], gap="medium", vertical_alignment="center")
             with c1:
                 if vid:
-                    st.image(f"https://img.youtube.com/vi/{vid}/hqdefault.jpg", width=110)
+                    st.image(f"https://img.youtube.com/vi/{vid}/hqdefault.jpg", width=170)
             with c2:
                 st.markdown(f"**{_humanize_clip_id(row.get('clip_id')) or vid}**")
                 bits = []
@@ -1050,13 +1055,13 @@ def page_home():
                     + [c for c in clips if c["state"] == rq.PENDING])
         for clip in showcase[:3]:
             meta = clip["metadata"]
-            # A 9:16 thumbnail at this width runs ~195px tall against two
+            # A 9:16 thumbnail at this width runs ~300px tall against two
             # short lines of text -- top-aligned columns left the text
             # stranded at the top with dead space below it.
             c1, c2 = st.columns([1, 3], gap="medium", vertical_alignment="center")
             with c1:
                 if clip["thumbnail_path"]:
-                    st.image(clip["thumbnail_path"], width=110)
+                    st.image(clip["thumbnail_path"], width=170)
             with c2:
                 st.markdown(f"**{meta.get('hook_title') or _humanize_clip_id(clip['clip_id'])}**")
                 bits = [clip["state"]]
