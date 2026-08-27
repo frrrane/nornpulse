@@ -81,15 +81,20 @@ minute beforehand or set `--min-instances=1` for the day.
 > says how many of its own forecasts are gradeable so far, instead of
 > averaging something comforting.
 
-## 2:13 – 2:34 · The human gate
+## 2:13 – 2:21 · The human gate, automated
 
-**On screen:** Review page, then **manual shot**: the approval email in a real inbox, reply comment visible.
+**On screen:** Review page, the real decision ledger read from ClickHouse.
 
 > Nothing publishes itself. Every clip goes to a human by email, with a
-> comment that goes back into the record. This one was approved with the
-> note, could be funnier. The forecast is written down before publication,
-> then graded against what happened. It can be wrong in public, which is the
-> point.
+> comment that goes back into the record.
+
+## 2:21 – 2:34 · The human gate, by hand
+
+**On screen:** **Manual shot.** The approval email in a real inbox, reply comment "could be funnier" visible.
+
+> This one was approved with the note, could be funnier. The forecast is
+> written down before publication, then graded against what happened. It can
+> be wrong in public, which is the point.
 
 ## 2:34 – 2:53 · Close
 

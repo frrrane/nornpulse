@@ -140,24 +140,38 @@ BEATS: List[Beat] = [
         actions=[("wait", 1.0), ("scroll", 420), ("wait", 3.0)],
         min_seconds=18.0,
     ),
+    # The human gate is two shots, not one: the Review page is real evidence
+    # Playwright can capture and re-capture on every run, so it's automated.
+    # The inbox is a second inbox's UI and genuinely can't be — a screenshot
+    # of a real reply requires a real reply. A single `manual` beat can't
+    # hold both (a manual beat skips its own `actions` entirely), so this is
+    # two beats, split where the automatable part actually ends: the specific
+    # quoted comment ("could be funnier") is spoken while the inbox is on
+    # screen, not the Review list, so the split falls before that line.
     Beat(
-        key="gate",
+        key="gate_review",
         narration=(
             "Nothing publishes itself. Every clip goes to a human by email, with "
-            "a comment that goes back into the record. This one was approved with "
-            "the note, could be funnier. The forecast is written down before "
-            "publication, then graded against what happened. It can be wrong in "
-            "public, which is the point."
+            "a comment that goes back into the record."
         ),
         page="/page_review",
         # Review has no <h1> — settle("h1") here silently ran the full
-        # timeout every capture. scroll_to's own wait for the element
-        # covers "has this painted" instead, and lands on the exact
-        # approved-with-comment card the narration describes, not just
-        # the page header.
-        actions=[("scroll_to", "text=could be funnier"), ("wait", 3.0)],
-        manual="Cut to the approval email in a real inbox, reply comment visible.",
-        min_seconds=18.0,
+        # timeout every capture. This text is the page's own copy for the
+        # warehouse-backed decision list, so it doubles as "the real ledger
+        # has painted" and "goes back into the record" being visibly true.
+        actions=[("settle", "text=read from ClickHouse"), ("wait", 2.0)],
+        min_seconds=8.0,
+    ),
+    Beat(
+        key="gate_inbox",
+        narration=(
+            "This one was approved with the note, could be funnier. The forecast "
+            "is written down before publication, then graded against what "
+            "happened. It can be wrong in public, which is the point."
+        ),
+        page="/page_review",
+        manual="The approval email in a real inbox, reply comment “could be funnier” visible.",
+        min_seconds=13.0,
     ),
     Beat(
         key="close",
