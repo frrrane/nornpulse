@@ -472,3 +472,59 @@ def test_no_uids_fetches_nothing():
     imap = _FakeIMAP({})
     assert ca._fetch_headers(imap, []) == []
     assert imap.fetched == []
+
+
+# --- review history for a machine with no ledger on disk -------------------
+#
+# The Review page renders empty on the deployed demo because the JSON ledger
+# lives in output_clips/, which is gitignored AND excluded from the image. The
+# decisions are mirrored to ClickHouse on every write, so the warehouse can
+# answer when the disk cannot — and the page whose whole point is "a human
+# decides" stops being blank.
+
+_KEYS = {"clip_id", "status", "comment", "source", "decided_at",
+         "youtube_video_id", "youtube_url", "actual_view_count",
+         "video_unavailable"}
+
+
+def test_history_falls_back_to_the_ledger_when_the_warehouse_is_down(monkeypatch, tmp_path):
+    """A workstation with no ClickHouse still shows its own decisions."""
+    ledger = tmp_path / "ledger.json"
+    rq.record_decision("a", rq.APPROVED, "looks fine", path=ledger,
+                       extra={"youtube_url": "https://y/1", "youtube_video_id": "1"},
+                       mirror_to_clickhouse=False)
+
+    import builtins
+    real_import = builtins.__import__
+
+    def boom(name, *a, **k):
+        if "clickhouse" in name:
+            raise RuntimeError("warehouse down")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", boom)
+    rows = rq.review_history(limit=5, path=ledger)
+    assert [r["clip_id"] for r in rows] == ["a"]
+    assert rows[0]["comment"] == "looks fine"
+
+
+def test_both_paths_return_the_same_shape(monkeypatch, tmp_path):
+    """
+    The renderer reads one set of keys. A fallback that returns a different
+    shape turns a warehouse outage into a KeyError on the page.
+    """
+    ledger = tmp_path / "ledger.json"
+    rq.record_decision("a", rq.REJECTED, "nope", path=ledger,
+                       mirror_to_clickhouse=False)
+
+    import builtins
+    real_import = builtins.__import__
+
+    def boom(name, *a, **k):
+        if "clickhouse" in name:
+            raise RuntimeError("warehouse down")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", boom)
+    rows = rq.review_history(path=ledger)
+    assert rows and _KEYS <= set(rows[0])

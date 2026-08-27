@@ -190,6 +190,62 @@ def archive_published(clip_id: str, output_dir: Path = OUTPUT_DIR) -> List[str]:
     return _move_artifacts(clip_id, output_dir / PUBLISHED_DIR.name, output_dir)
 
 
+def review_history(limit: int = 20, path: Path = LEDGER_PATH) -> List[Dict[str, Any]]:
+    """
+    Recent human decisions, newest first, for display.
+
+    Reads the ClickHouse mirror rather than the JSON ledger, because the
+    ledger lives in output_clips/ — gitignored and excluded from the
+    deployed image — so on the public demo it is simply absent. That is why
+    the Review page renders empty there while the pipeline's whole claim is
+    that a human decides. The decisions themselves are mirrored on every
+    write, so the warehouse can answer when the disk cannot.
+
+    Falls back to the local ledger when ClickHouse is unreachable, so a
+    workstation with no warehouse still shows its own history.
+
+    One row per clip: a clip rejected and later re-decided has several rows
+    and only the latest is its actual state.
+    """
+    rows: List[Dict[str, Any]] = []
+    try:
+        import agent.clickhouse_mcp_client as ch
+
+        result = ch.run_query(f"""
+            SELECT d.clip_id, d.status, d.comment, d.source, d.decided_at,
+                   o.youtube_video_id, o.youtube_url, o.actual_view_count,
+                   o.video_unavailable
+            FROM (
+                SELECT * FROM clip_review_decisions
+                ORDER BY clip_id, decided_at DESC LIMIT 1 BY clip_id
+            ) AS d
+            LEFT JOIN (
+                SELECT * FROM published_clip_outcomes
+                ORDER BY clip_id, row_written_at DESC LIMIT 1 BY clip_id
+            ) AS o ON d.clip_id = o.clip_id
+            ORDER BY d.decided_at DESC
+            LIMIT {int(limit)}
+        """)
+        cols = result["columns"]
+        rows = [dict(zip(cols, r)) for r in result["rows"]]
+    except Exception as e:
+        logger.info(f"Review history unavailable from ClickHouse ({str(e)[:80]}); "
+                    f"falling back to the local ledger.")
+        for entry in list_decisions(path=path)[:limit]:
+            rows.append({
+                "clip_id": entry.get("clip_id", ""),
+                "status": entry.get("status", ""),
+                "comment": entry.get("comment", ""),
+                "source": entry.get("source", ""),
+                "decided_at": entry.get("decided_at", ""),
+                "youtube_video_id": entry.get("youtube_video_id", ""),
+                "youtube_url": entry.get("youtube_url", ""),
+                "actual_view_count": 0,
+                "video_unavailable": 0,
+            })
+    return rows
+
+
 def published_urls(path: Path = LEDGER_PATH) -> List[Dict[str, Any]]:
     """Every clip in the ledger that reached YouTube, oldest first."""
     rows = [e for e in load_ledger(path).values()
