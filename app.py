@@ -991,11 +991,28 @@ def page_home():
     # One worked example of provenance, above the fold. A judge should not
     # have to open a clip card to learn that the system distinguishes what
     # it measured from what it assumed.
+    #
+    # rq.list_clips() only ever sees output_clips/, which is gitignored
+    # and excluded from the deployed image -- so on the public demo this
+    # silently had nothing to show, the same failure already fixed for
+    # Home's clips section and Review's queue. Falls back to a real
+    # clip's hook_type from ClickHouse plus the seeded visual prior
+    # get_top_visual_benchmark would have picked for that hook_type --
+    # the same lookup Skuld actually renders with, not a stand-in.
     clips_for_example = rq.list_clips(rq.APPROVED)
     example = next((c for c in clips_for_example if c["metadata"].get("hook_type")), None)
-    if example:
+    example_meta = example["metadata"] if example else None
+    if not example_meta:
+        outcomes_for_example = _cached_published_outcomes(st.session_state.verdandi_adk.urdr)
+        if not outcomes_for_example.empty and "hook_type" in outcomes_for_example.columns:
+            hook_rows = outcomes_for_example[outcomes_for_example["hook_type"].astype(bool)]
+            if not hook_rows.empty:
+                fallback_hook = hook_rows.iloc[0]["hook_type"]
+                visual = st.session_state.verdandi_adk.urdr.get_top_visual_benchmark(fallback_hook)
+                example_meta = {"hook_type": fallback_hook, **(visual or {})}
+    if example_meta:
         decisions = pv.decisions_for_clip(
-            example["metadata"], int(st.session_state.channel_subs), facts)
+            example_meta, int(st.session_state.channel_subs), facts)
         counts = pv.grounding_summary(decisions)
         st.markdown("<div class='workflow-header'>How a clip gets decided"
                     f"<span class='eyebrow'>{counts[pv.MEASURED]} measured · "
