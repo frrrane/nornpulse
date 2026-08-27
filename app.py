@@ -1790,13 +1790,33 @@ def page_review():
     # working the moment rejection began archiving into a subdirectory —
     # archived clips were safe on disk but invisible here.
     counts = rq.state_counts()
-    st.caption(
-        f"**{counts.get(rq.PENDING, 0)}** awaiting review · "
-        f"**{counts.get(rq.APPROVED, 0)}** approved · "
-        f"**{counts.get(rq.REJECTED, 0)}** rejected. "
-        "Decisions made here and by email reply share one ledger, so this list "
-        "is the same either way."
-    )
+    all_clips = rq.list_clips()
+    # output_clips/ is gitignored and excluded from the deployed image, so
+    # on the public demo all_clips is always empty even though real human
+    # decisions exist — they're mirrored to ClickHouse on every write.
+    # Falling back to that warehouse copy here is the same move Home
+    # already makes for published_home: show the real thing instead of an
+    # empty state that contradicts the rest of the page.
+    history = [] if all_clips else rq.review_history(limit=20)
+
+    if all_clips:
+        st.caption(
+            f"**{counts.get(rq.PENDING, 0)}** awaiting review · "
+            f"**{counts.get(rq.APPROVED, 0)}** approved · "
+            f"**{counts.get(rq.REJECTED, 0)}** rejected. "
+            "Decisions made here and by email reply share one ledger, so this list "
+            "is the same either way."
+        )
+    elif history:
+        h_approved = sum(1 for r in history if r.get("status") == rq.APPROVED)
+        h_rejected = sum(1 for r in history if r.get("status") == rq.REJECTED)
+        st.caption(
+            f"**{h_approved}** approved · **{h_rejected}** rejected — read from ClickHouse. "
+            "This session's local queue is empty, which is the normal state on the read-only "
+            "demo, but every decision below is a real human call, rejections included."
+        )
+    else:
+        st.caption("No decisions recorded yet.")
 
     # :material/name: is the same icon-shorthand the page nav and every
     # button on this page now use -- st.radio renders it in option labels
@@ -1810,8 +1830,43 @@ def page_review():
     }
     chosen = st.radio("Show", list(filter_labels), horizontal=True,
                       label_visibility="collapsed", key="library_filter")
-    clips = rq.list_clips(state=filter_labels[chosen])
+    state_filter = filter_labels[chosen]
 
+    if not all_clips and history:
+        shown = [r for r in history if state_filter is None or r.get("status") == state_filter]
+        if not shown:
+            st.info(f"No {chosen.split('(')[0].strip().lower()} decisions in the warehouse sample.")
+        for row in shown:
+            vid = row.get("youtube_video_id")
+            available = vid and not row.get("video_unavailable")
+            badge = {rq.PENDING: ":material/hourglass_empty: Pending review",
+                     rq.APPROVED: ":material/check_circle: Approved",
+                     rq.REJECTED: ":material/close: Rejected"}.get(row.get("status"), row.get("status"))
+            with st.container(border=True):
+                head, body = st.columns([1, 2], gap="medium", vertical_alignment="center")
+                with head:
+                    if available:
+                        st.image(f"https://img.youtube.com/vi/{vid}/hqdefault.jpg", width=170)
+                with body:
+                    title = _humanize_clip_id(row.get("clip_id")) or row.get("clip_id")
+                    st.markdown(f"### {title}")
+                    bits = [badge, f"`{row.get('clip_id')}`", f"via {row.get('source') or '?'}"]
+                    if row.get("decided_at"):
+                        bits.append(str(row["decided_at"])[:16].replace("T", " ") + " UTC")
+                    st.caption(" · ".join(bits), unsafe_allow_html=True)
+                    if row.get("comment"):
+                        st.info(row["comment"])
+                    if row.get("youtube_url") and available:
+                        st.markdown(f"[watch]({row['youtube_url']})")
+                    elif vid and not available:
+                        st.caption("Video no longer available (deleted, private, or unpublished).")
+        return
+
+    if not all_clips:
+        st.info("Nothing here yet. Generate clips from the Create tab.")
+        return
+
+    clips = rq.list_clips(state=state_filter)
     if not clips:
         st.info("Nothing here yet. Generate clips from the Create tab.")
 
