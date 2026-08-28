@@ -125,6 +125,12 @@ def write_slate(out: Path, beat, duration: float) -> bool:
 
 
 def run_actions(page, actions, verbose=False):
+    """
+    Runs a beat's actions, and returns the wall-clock time its content was
+    confirmed present — the moment the first settle/scroll_to/click actually
+    resolved against the page, as opposed to a fixed wait or a blind scroll.
+    None if no such action was in the list, or none of them succeeded.
+    """
     # Playwright's mouse starts at (0, 0) — the sidebar, on this layout —
     # and mouse.wheel scrolls whatever the mouse is over. Left there, every
     # "scroll" beat fires the wheel at the sidebar instead of stMain and
@@ -132,6 +138,7 @@ def run_actions(page, actions, verbose=False):
     # live site: scrollTop stayed 0 after wheel(0, 420) at the default
     # position, and moved only once the mouse was over the main content.
     page.mouse.move(VIEWPORT["width"] / 2, VIEWPORT["height"] / 2)
+    confirmed_at = None
     for verb, arg in actions:
         if verb == "wait":
             time.sleep(float(arg))
@@ -144,11 +151,13 @@ def run_actions(page, actions, verbose=False):
             # part of the page.
             try:
                 page.locator(arg).first.scroll_into_view_if_needed(timeout=SETTLE_TIMEOUT_MS)
+                confirmed_at = confirmed_at or time.time()
             except Exception as e:
                 print(f"     ⚠️  could not scroll to {arg!r}: {str(e)[:70]}")
         elif verb == "click":
             try:
                 page.click(arg, timeout=SETTLE_TIMEOUT_MS)
+                confirmed_at = confirmed_at or time.time()
             except Exception as e:
                 # A missing control is a demo-script problem, not a crash:
                 # the rest of the beat is still worth recording.
@@ -156,12 +165,14 @@ def run_actions(page, actions, verbose=False):
         elif verb == "settle":
             try:
                 page.wait_for_selector(arg, timeout=SETTLE_TIMEOUT_MS)
+                confirmed_at = confirmed_at or time.time()
             except Exception:
                 print(f"     ⚠️  {arg!r} never appeared; recording anyway")
         else:
             raise ValueError(f"Unknown action verb {verb!r}")
         if verbose:
             print(f"     · {verb} {arg}")
+    return confirmed_at
 
 
 def capture(url: str, out_dir: Path, only: str | None = None,
@@ -210,6 +221,7 @@ def capture(url: str, out_dir: Path, only: str | None = None,
             )
             page = context.new_page()
             started = time.time()
+            confirmed_at = None
             try:
                 page.goto(target, wait_until="domcontentloaded", timeout=SETTLE_TIMEOUT_MS)
                 # Wait for the app to actually paint before the beat's own
@@ -220,7 +232,7 @@ def capture(url: str, out_dir: Path, only: str | None = None,
                 except Exception:
                     print("     ⚠️  app never painted; recording anyway")
                 content_at = time.time()
-                run_actions(page, beat.actions, verbose=verbose)
+                confirmed_at = run_actions(page, beat.actions, verbose=verbose)
                 # Hold the frame until the beat is at least as long as the
                 # narration that will play over it.
                 remaining = beat.min_seconds - (time.time() - content_at)
@@ -239,7 +251,18 @@ def capture(url: str, out_dir: Path, only: str | None = None,
                 failures += 1
                 continue
             raw = produced[0]
-            lead_in = find_content_start(raw)
+            if confirmed_at is not None:
+                # FIRST_PAINT and the brightness scan both measure "something
+                # is on screen", which a Streamlit skeleton clears just as
+                # well as real data — confirmed live: a loading placeholder
+                # sits at ~15,000 bright px against find_content_start's
+                # 6,000 threshold, only ~7% under the painted page's ~16,000.
+                # A beat's own settle/scroll_to/click is a real measurement
+                # of when its data actually arrived, not a proxy for it, so
+                # it wins over the pixel scan wherever one succeeded.
+                lead_in = max(0.0, confirmed_at - started)
+            else:
+                lead_in = find_content_start(raw)
             final = out_dir / f"{beat.key}.mp4"
             final.unlink(missing_ok=True)
             # One re-encode: trim the blank prefix and produce the mp4 the
