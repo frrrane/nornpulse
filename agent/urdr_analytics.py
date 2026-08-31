@@ -1290,9 +1290,18 @@ class UrdrAnalytics:
         if global_top:
             best_hook = global_top
 
+        # Real, owner-measured retention on this channel's own clips —
+        # the strongest signal available, so it gets the final say and is
+        # applied after the global title-pattern re-rank, not instead of it.
+        summary_list, owner_note, owner_top = self._apply_owner_retention(summary_list)
+        if owner_top:
+            best_hook = owner_top
+
         insights = self._derive_insights(summary_list, benchmarks_df)
         if global_note:
             insights.insert(0, global_note)
+        if owner_note:
+            insights.insert(0, owner_note)
 
         return {
             "top_performing_hook_type": best_hook,
@@ -1372,6 +1381,55 @@ class UrdrAnalytics:
             f"English-titled videos. Prefer it unless the transcript genuinely fits another."
         )
         return ordered, note, best["hook"]
+
+    def _apply_owner_retention(self, summary_list: List[Dict[str, Any]]):
+        """
+        Attach this channel's own real, owner-measured retention to each
+        hook type and re-rank by it where there's enough of it — the last
+        and strongest word in the ranking chain (seeded prior -> measured
+        global title-pattern reach -> this channel's own real retention).
+
+        _apply_global_hooks' global figures are still a proxy: reach on
+        OTHER channels' titles that happen to match a pattern. This is
+        retention measured on THIS channel's own published clips, via the
+        YouTube Analytics API — as real as grounding data gets here. Hook
+        types without enough owner data (see
+        get_owner_retention_by_hook_type's min_sample_size) simply keep
+        whatever ranking came before this step, same as an unmeasured
+        entry does in _apply_global_hooks.
+
+        Returns (taxonomies, note, top_hook), the same shape as
+        _apply_global_hooks so both slot into get_retention_intelligence_summary
+        identically.
+        """
+        df = self.get_owner_retention_by_hook_type()
+        if df.empty:
+            return summary_list, None, None
+
+        owner_by_type = {row["hook_type"]: row for _, row in df.iterrows()}
+        for entry in summary_list:
+            row = owner_by_type.get(entry["hook_type"])
+            if row is None:
+                continue
+            entry["owner_measured"] = True
+            entry["owner_avg_view_pct"] = float(row["avg_view_percentage"])
+            entry["owner_sample_size"] = int(row["sample_size"])
+
+        with_owner = [e for e in summary_list if e.get("owner_measured")]
+        without_owner = [e for e in summary_list if not e.get("owner_measured")]
+        if not with_owner:
+            return summary_list, None, None
+
+        with_owner.sort(key=lambda e: e["owner_avg_view_pct"], reverse=True)
+        ordered = with_owner + without_owner
+        top = with_owner[0]
+        note = (
+            f"Real retention from this channel's own published clips ranks "
+            f"'{top['hook_type']}' highest ({top['owner_avg_view_pct']:.0f}% avg view, "
+            f"n={top['owner_sample_size']}) — this overrides the crawl-derived "
+            f"title-pattern ranking above where they disagree."
+        )
+        return ordered, note, top["hook_type"]
 
     @staticmethod
     def _derive_insights(summary_list: List[Dict[str, Any]], benchmarks_df) -> List[str]:
