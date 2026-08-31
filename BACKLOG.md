@@ -32,12 +32,6 @@ submission is **Wed 9 September 2026, 2pm PDT**.
   an over-engineering audit for this reason; the module now says so in its own
   docstring so it does not read as dead code.
 
-- [ ] **One more UI overhaul before the deadline.** Wanted explicitly. Worth
-  doing *before* the demo footage is captured, not after — `demo_capture.py`
-  re-records the whole deck in one command, but only the driveable beats, and
-  the two hand-shot ones would have to be filmed again by hand if the UI moves
-  under them. Sequence: overhaul, then capture.
-
 - [ ] **Upload cadence.** Six uploads/day maximum (1,600 quota units each
   against 10,000/day). Views need days to mature, so elapsed time is the
   binding constraint — every day without publishing is outcome data that will
@@ -206,8 +200,16 @@ of work, judged against what the clips actually looked like.
       looks the same locally and in the container.
 - [x] Vertex AI routing, so Google Cloud credit can pay for model calls
       that AI Studio's separate prepay wallet cannot.
+- [x] One more UI overhaul, sequenced before demo capture. Hero graphic,
+      sidebar mark sizing/linking, enlarged clip cards, Material Symbols
+      replacing emoji, natural-language chart/table labels, Norse-name-first
+      labeling, ClickHouse fallbacks for Home/Review, and — the one piece
+      that was actually still missing on a direct check — click-to-inspect
+      on the Intelligence page's charts.
 - [x] Owner-only YouTube Analytics — average view duration and the
       retention curve, the numbers that say *why* rather than *how many*.
+      The module existed with zero callers until `sync_retention.py`
+      actually wired it up and started writing real per-clip data.
 - [x] Source segments grounded in YouTube's own most-replayed graph.
 - [x] Query guardrails on agent-written SQL, failing loudly rather than
       truncating silently.
