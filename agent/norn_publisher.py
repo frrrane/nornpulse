@@ -103,6 +103,7 @@ class NornPublisher:
         ("hook_burned", "Burned-in hook"),
         ("forecast_p50", "Forecast reach (p50)"),
         ("forecast_range", "Forecast range (p10-p90)"),
+        ("owner_retention", "This hook type's real retention"),
         ("tags", "Tags"),
         # A reviewer approving a clip should see what was checked on their
         # behalf, and just as importantly what was not.

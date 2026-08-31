@@ -178,6 +178,25 @@ def main() -> int:
             print(f"    {k['basis']}"
                   + ("" if k["confident"] else "  ⚠️ thin history"))
 
+    # Real, owner-measured retention for this hook type — distinct from the
+    # view forecast above, which is calibrated but still ultimately a public
+    # view-count proxy. This is the number that says why a hook type works,
+    # not just how far it reached. Requires at least 2 owner-measured clips
+    # of this hook type; below that a single video's number is not yet a
+    # fact about the hook type. Absent until sync_retention.py has run and
+    # accumulated enough — reported as such rather than omitted silently.
+    owner_retention = ""
+    if args.hook_type:
+        try:
+            ret_df = UrdrAnalytics().get_owner_retention_by_hook_type(args.hook_type)
+        except Exception:
+            ret_df = None
+        if ret_df is not None and not ret_df.empty:
+            r = ret_df.iloc[0]
+            owner_retention = (f"{r['avg_view_percentage']:.0f}% avg view "
+                                f"(n={int(r['sample_size'])}, real YouTube Analytics)")
+            print(f"📈 owner retention for '{args.hook_type}': {owner_retention}")
+
     if args.dry_run:
         print(f"\n(dry run — nothing uploaded, clip_id would be {clip_id})")
         return 0
@@ -205,6 +224,8 @@ def main() -> int:
             clip_record["forecast_p50"] = f"{forecast['p50']:,.0f} views"
             clip_record["forecast_range"] = (
                 f"{forecast['p10']:,.0f} - {forecast['p90']:,.0f} views")
+        if owner_retention:
+            clip_record["owner_retention"] = owner_retention
 
         sidecar = OUTPUT_DIR / f"{clip_id}_metadata.json"
         sidecar.write_text(json.dumps(clip_record, indent=2), encoding="utf-8")

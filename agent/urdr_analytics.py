@@ -1201,6 +1201,55 @@ class UrdrAnalytics:
         ).reset_index()
         return grouped.round(2).sort_values(by="avg_virality_score", ascending=False)
 
+    def get_owner_retention_by_hook_type(self, hook_type: Optional[str] = None,
+                                          min_sample_size: int = 2) -> pd.DataFrame:
+        """
+        Real, owner-measured retention (sync_retention.py -> yt_analytics.py
+        -> YouTube Analytics API), grouped by hook_type -- distinct from
+        get_hook_type_benchmarks, which reads video_hook_retention and is
+        still mostly seeded priors, not measured outcomes.
+
+        hook_type comes from published_clip_outcomes, joined by video id,
+        since owner_retention_diagnostics only knows the raw YouTube video
+        id. Rows with fewer than min_sample_size clips are dropped rather
+        than shown as a hook type's average on n=1 -- a single video's
+        retention is a fact about that video, not yet a fact about the
+        hook type.
+
+        Returns an empty DataFrame (never raises) when there is no data
+        yet, or ClickHouse is unreachable -- there is no in-memory seed to
+        fall back to here, unlike the crawl-derived benchmarks, because
+        this table only ever holds real measurements.
+        """
+        empty = pd.DataFrame(columns=[
+            "hook_type", "avg_hook_retention", "avg_view_percentage", "sample_size"])
+        if not self.is_connected():
+            return empty
+        try:
+            where_clause = ""
+            if hook_type and hook_type != "all":
+                where_clause = f"WHERE p.hook_type = {ch.sql_literal(hook_type)}"
+            query = f"""
+            SELECT
+                p.hook_type AS hook_type,
+                round(avg(o.hook_retention), 3) AS avg_hook_retention,
+                round(avg(o.avg_view_percentage), 1) AS avg_view_percentage,
+                count() AS sample_size
+            FROM owner_retention_diagnostics o
+            INNER JOIN (
+                SELECT DISTINCT youtube_video_id, hook_type
+                FROM published_clip_outcomes
+            ) p ON o.video_id = p.youtube_video_id
+            {where_clause}
+            GROUP BY p.hook_type
+            HAVING sample_size >= {int(min_sample_size)}
+            ORDER BY avg_view_percentage DESC
+            """
+            return ch.run_query_df(query)
+        except Exception as e:
+            logger.error(f"Owner retention aggregation query failed: {e}")
+            return empty
+
     def get_retention_intelligence_summary(
         self, topic_category: Optional[str] = None, channel_subscribers: int = 0
     ) -> Dict[str, Any]:
