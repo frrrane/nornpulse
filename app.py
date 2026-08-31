@@ -1418,6 +1418,15 @@ def page_create():
                 help="Controls both the reveal pace and the pop: ~5-word phrases with a gentle "
                      "bounce at 0.0 → rapid single-word pops with scale overshoot and wobble at 1.0.",
             )
+            opener_sec = st.slider(
+                ":material/movie_filter: Generated Opener (seconds)",
+                min_value=0.0, max_value=4.0, value=0.0, step=0.5,
+                help="Prepends a Veo-generated establishing shot before the cut, crossfaded in — "
+                     "the visual equivalent of the hook banner, for whatever the source video "
+                     "happened to be showing at the cut point. 0 = off (default). "
+                     "**Costs real money**: unlike everything else here, this is a separate paid "
+                     "Veo call per clip, on top of what generation already costs.",
+            )
             if active_video_path and os.path.exists(active_video_path):
                 @st.cache_data(show_spinner=False)
                 def _cached_duration(video_path: str) -> float:
@@ -1542,6 +1551,7 @@ def page_create():
                     content_hint=content_hint,
                     caption_language=caption_language,
                     channel_subscribers=int(st.session_state.channel_subs),
+                    opener_sec=opener_sec,
                     # What this clip was cut from. A link where there is
                     # one, the file name where there isn't — NornPulse
                     # works on the video, not on where it came from, so

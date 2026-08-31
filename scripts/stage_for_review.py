@@ -11,7 +11,10 @@ real Gemini, ClickHouse and Gmail APIs and costs money. Run it directly:
 
 NORNPULSE_CHANNEL selects the channel whose profile applies (caption
 font, music mood, forbidden crops and motions); NORNPULSE_CHANNEL_SUBS
-sets the size band the hook ranking is read within.
+sets the size band the hook ranking is read within. NORNPULSE_OPENER_SEC,
+if set above 0, prepends a generated opening shot to every clip (see
+agent/weaver.py) — off by default, since each one is a separate paid Veo
+call on top of what staging otherwise costs.
 
 A URL is downloaded and transcribed first, so staging from a fresh source
 is one command. A local path skips both and needs its transcript passed
@@ -69,7 +72,8 @@ def _resolve_source(source: str, transcript_path: str | None):
 
 
 def stage_clips(source: str, transcript_path: str | None, target_count: int,
-                subscribers: int = 0, channel_slug: str | None = None) -> int:
+                subscribers: int = 0, channel_slug: str | None = None,
+                opener_sec: float = 0.0) -> int:
     from agent import channels as chans
     from agent.verdandi_orchestrator import CLIP_MIN_SEC, CLIP_MAX_SEC
     from agent.verdandi_orchestrator import VerdandiOrchestrator
@@ -115,6 +119,10 @@ def stage_clips(source: str, transcript_path: str | None, target_count: int,
         except Exception as e:
             print(f"📈 could not read the most-replayed graph: {str(e)[:80]}")
 
+    if opener_sec > 0:
+        print(f"🧵 Generated opener requested: {opener_sec:.1f}s per clip — "
+              f"each is a paid Veo call (see agent/weaver.py).")
+
     print(f"🚀 Staging {target_count} clip(s) from {video.name}...")
     clips = VerdandiOrchestrator().orchestrate_generation(
         transcript_text=transcript_text,
@@ -127,6 +135,7 @@ def stage_clips(source: str, transcript_path: str | None, target_count: int,
         caption_font=getattr(profile, "caption_font", None) if profile else None,
         # The hook ranking is only meaningful within a channel-size band.
         channel_subscribers=subscribers,
+        opener_sec=opener_sec,
         progress_callback=lambda stage, message: print(f"   [{stage}] {message}"),
     )
 
@@ -190,4 +199,5 @@ if __name__ == "__main__":
         int(args[2]) if len(args) > 2 else DEFAULT_COUNT,
         int(os.getenv("NORNPULSE_CHANNEL_SUBS", "0")),
         os.getenv("NORNPULSE_CHANNEL") or None,
+        float(os.getenv("NORNPULSE_OPENER_SEC", "0")),
     ))
