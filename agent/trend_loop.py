@@ -41,6 +41,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from agent import provenance as pv
+from agent.urdr_analytics import hook_title_guidance_block
 
 logger = logging.getLogger(__name__)
 
@@ -384,16 +385,19 @@ filled: setting and look, then 0-3s, 3-5s and 5-8s each saying what HAPPENS. \
 The 5-8s beat must be an action, not a held pose. No named characters or \
 brands.>",
       "negative_prompt": "<what the generator should avoid, comma separated>",
-      "title": "<YouTube title under 80 characters, naming what is literally \
-visible and leading with the thing from the 5-8s beat. No outcome words the \
-footage does not show. End with one or two emoji that match what is on screen \
--- every video that has actually travelled on this channel has them, and they \
-are stripped automatically from the burned-in banner and the spoken line, so \
-they cost nothing on screen.>",
-      "caption": "<one-line description>",
       "hook_type": "<one of: shock_stat, curiosity_gap, contrarian_claim, \
 problem_agitation, direct_question, visual_disruption, metaphor_analogy, \
-story_in_medias_res>",
+story_in_medias_res -- decide this BEFORE writing title below, since the \
+title has to be written to match it, not labelled after the fact>",
+      "title": "<YouTube title under 80 characters, WRITTEN TO MATCH THE \
+hook_type CHOSEN ABOVE per the guidance below -- not a plain description of \
+the topic with a hook_type label stapled on. Lead with the thing from the \
+5-8s beat. No outcome words the footage does not show. End with one or two \
+emoji that match what is on screen -- every video that has actually \
+travelled on this channel has them, and they are stripped automatically \
+from the burned-in banner and the spoken line, so they cost nothing on \
+screen.\n{hook_guidance}>",
+      "caption": "<one-line description>",
       "rationale": "<why this topic suits THIS channel, one sentence>"
     }}
   ],
@@ -485,6 +489,7 @@ def write_brief(channel, topics: List[Dict[str, Any]],
         topics=listed,
         look=_COMEDY_LOOK if comedy else "",
         n=CANDIDATES,
+        hook_guidance=hook_title_guidance_block(),
     )
 
     client, model = gc.client_for(model, api_key=key)

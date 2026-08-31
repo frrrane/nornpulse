@@ -16,7 +16,10 @@ import pandas as pd
 import pytest
 
 import agent.clickhouse_mcp_client as ch
-from agent.urdr_analytics import UrdrAnalytics, _compute_actual_virality_score
+from agent.urdr_analytics import (
+    UrdrAnalytics, _compute_actual_virality_score,
+    HOOK_TITLE_GUIDANCE, hook_title_guidance_block,
+)
 
 
 # --------------------------------------------------------------------------
@@ -441,3 +444,66 @@ def test_sync_carries_the_publication_date_forward(monkeypatch, offline_urdr):
     assert offline_urdr.sync_actual_stats("vid", 338, 5, 1) is True
     assert "published_at" in captured["sql"]
     assert "2026-08-22 18:30:20" in captured["sql"]
+
+
+# --- hook_title guidance: "how to write it", not just "which label" -------
+
+_TAXONOMY = ("shock_stat", "curiosity_gap", "contrarian_claim", "problem_agitation",
+             "direct_question", "visual_disruption", "metaphor_analogy",
+             "story_in_medias_res")
+
+
+def test_every_taxonomy_hook_type_has_title_guidance():
+    """
+    A hook_type with no writing guidance is exactly the original bug: a
+    label a model can attach to a title without it ever shaping the words.
+    """
+    for hook_type in _TAXONOMY:
+        assert hook_type in HOOK_TITLE_GUIDANCE
+        assert len(HOOK_TITLE_GUIDANCE[hook_type]) > 20
+
+
+def test_guidance_block_renders_every_entry():
+    block = hook_title_guidance_block()
+    for hook_type in _TAXONOMY:
+        assert hook_type in block
+
+
+def test_write_brief_prompt_actually_carries_the_guidance(monkeypatch):
+    """
+    Not enough for the guidance to exist -- the brief-writing prompt has to
+    actually include it, or a model choosing a hook_type still has nothing
+    telling it how that choice should shape the title it writes.
+    """
+    from agent import trend_loop as tl
+
+    class _Channel:
+        title = "Test Channel"
+        class profile:
+            topic_hints = ["test"]
+            music_mood = "neutral"
+        slug = "test"
+
+    seen = {}
+
+    class _Resp:
+        text = '{"suitable": false, "why": "test stub"}'
+
+    class _Models:
+        def generate_content(self, **kw):
+            seen["contents"] = kw.get("contents", "")
+            return _Resp()
+
+    class _Client:
+        def __init__(self, **kw): self.models = _Models()
+
+    import google.genai as genai
+    monkeypatch.setattr(genai, "Client", _Client)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
+
+    topics = [{"tag": "test topic", "videos": 10, "median_views": 1000.0}]
+    tl.write_brief(_Channel(), topics, voice=[])
+
+    # One representative phrase from the guidance is enough to prove the
+    # block made it into the actual prompt sent to the model.
+    assert "withhold the answer" in seen["contents"]

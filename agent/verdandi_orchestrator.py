@@ -25,7 +25,7 @@ from agent.skuld_renderer import (
     measure_audio_mean_volume, NARRATION_FALLBACK_VOLUME_THRESHOLD_DB,
     SIDE_CROPPING_MODES,
 )
-from agent.urdr_analytics import UrdrAnalytics
+from agent.urdr_analytics import UrdrAnalytics, hook_title_guidance_block
 from agent.bragi_composer import BragiComposer
 from agent.heimdall_visualizer import HeimdallVisualizer
 from agent.mimir_narrator import MimirNarrator
@@ -938,6 +938,11 @@ class VerdandiOrchestrator:
             f"hook_type value to both tool_execute_skuld_render and tool_log_urdr_telemetry for each clip — "
             f"tool_execute_skuld_render uses it to ground Bragi's Lyria-composed background score, so it must "
             f"never be a placeholder. "
+            f"THE CHOSEN hook_type MUST SHAPE THE WORDS OF hook_title, not just label it after the fact — "
+            f"'NASA's Plan For A Permanent Moon Base' is what a plain description looks like, and it stays "
+            f"that flat regardless of which hook_type gets attached to it if the title itself was never "
+            f"written to match. Write hook_title the way each hook type actually demands:\n"
+            f"{hook_title_guidance_block()}\n"
             f"Return a strict JSON list response with fields: clip_id, hook_type, hook_title, social_caption, "
             f"virality_score, start_time, end_time. "
             f"End hook_title with one or two emoji that match what is on screen. Every video that has "

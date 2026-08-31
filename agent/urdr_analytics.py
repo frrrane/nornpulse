@@ -25,6 +25,65 @@ import agent.clickhouse_mcp_client as ch  # noqa: E402 – imported after load_d
 
 logger = logging.getLogger("nornpulse.urdr")
 
+# How to actually WRITE a title for each hook type, not just which label to
+# attach to one. A real published title ("NASA's Plan For A Permanent Moon
+# Base") named its hook_type as curiosity_gap and read as pure description —
+# the taxonomy was grounded and chosen correctly, but nothing in the prompt
+# told the model how that choice should shape the words themselves, so it
+# picked a label and then wrote the title it would have written anyway. This
+# is the missing link, shared by every prompt that asks a model to write a
+# hook_title, so it lives here once rather than being redefined per caller.
+HOOK_TITLE_GUIDANCE: Dict[str, str] = {
+    "shock_stat": (
+        "Lead with the number or fact itself, stated plainly and specifically "
+        "— not softened into a description of the topic. 'NASA's Plan For A "
+        "Permanent Moon Base' names the topic; 'The Moon Base NASA Says Will "
+        "House 4 People By 2035' leads with the number."
+    ),
+    "curiosity_gap": (
+        "Name the question or the gap, withhold the answer. The title must "
+        "make it impossible to guess the payoff without watching — describing "
+        "the topic instead of the gap is the single most common way this hook "
+        "type gets written flat."
+    ),
+    "contrarian_claim": (
+        "State the counter-intuitive claim directly, as a claim that pushes "
+        "against what the viewer already assumes, not a neutral description "
+        "of the topic it happens to be about."
+    ),
+    "direct_question": (
+        "Phrase the title itself as a question aimed straight at the viewer "
+        "— not a statement about the topic that happens to be phrased near a "
+        "question."
+    ),
+    "story_in_medias_res": (
+        "Drop the viewer into the middle of something already happening — a "
+        "specific moment, not a summary of what the video is about."
+    ),
+    "metaphor_analogy": (
+        "Frame the title around the comparison itself, the two things "
+        "collapsed together — not a description of just the one thing the "
+        "video is actually about."
+    ),
+    "problem_agitation": (
+        "Name the specific problem or pain point directly, in the viewer's "
+        "own terms, not a general topic label it falls under."
+    ),
+    "visual_disruption": (
+        "Describe the specific visual wrongness on screen — what looks "
+        "broken, out of place, or impossible — not the general subject "
+        "matter of the footage."
+    ),
+}
+
+
+def hook_title_guidance_block() -> str:
+    """
+    HOOK_TITLE_GUIDANCE rendered for a prompt. One shared renderer so every
+    caller's prompt formats this identically.
+    """
+    return "\n".join(f"  {k}: {v}" for k, v in HOOK_TITLE_GUIDANCE.items())
+
 
 def gb_size_band(subscriber_count: int) -> str:
     """Channel-size band, imported lazily to keep module import order simple."""
