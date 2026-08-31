@@ -58,6 +58,8 @@ def main() -> int:
     ap.add_argument("--no-guard", action="store_true",
                     help="skip the rights check. Only for material you know "
                          "you have the rights to.")
+    ap.add_argument("--no-quality-guard", action="store_true",
+                    help="skip the pre-generation quality critic")
     ap.add_argument("--source", default="generated",
                     choices=["generated", "public_domain"])
     ap.add_argument("--model", default=None,
@@ -136,7 +138,13 @@ def main() -> int:
 
     # 2. What to make of it
     print("🧠 Choosing a topic and writing a brief...")
-    brief = tl.write_brief(channel, topics)
+    if args.no_quality_guard:
+        brief = tl.write_brief(channel, topics)
+        quality_verdict = None
+    else:
+        from agent import critic as cr
+        brief, quality_verdict = cr.critique_with_one_revision(
+            channel, topics, write_brief_fn=tl.write_brief)
     if brief is None:
         print("🤷 Nothing trending suits this channel right now, so nothing was made.\n"
               "   That is a real answer — forcing a topic produces off-brand filler.")
@@ -171,6 +179,27 @@ def main() -> int:
     # way to learn that the last three seconds are a held pose.
     for warning in tl.brief_warnings(brief):
         print(f"  ⚠️  {warning}")
+
+    # Quality critic: argues with the brief against this channel's own real
+    # rejection history, while a wrong call only costs a Gemini text call
+    # rather than a paid Veo generation. critique_with_one_revision already
+    # tried a second brief if the first needed one; what's left here is
+    # deciding whether the SECOND attempt's verdict is good enough to spend
+    # money generating.
+    if quality_verdict is not None:
+        print()
+        from agent import critic as cr
+        print(cr.describe(quality_verdict))
+        if quality_verdict.level == cr.BLOCK:
+            print("\n⛔ Not generating — the quality critic blocked this brief even "
+                  "after one revision. Re-run for a different premise, or pass "
+                  "--no-quality-guard if you disagree with the call.")
+            return 1
+        if quality_verdict.level == cr.REVISE and args.generate:
+            print("\n⚠️  The quality critic still wants a revision after one retry, so "
+                  "nothing was generated. Re-run to try a fresh premise, or pass "
+                  "--no-quality-guard to generate anyway.")
+            return 1
 
     # Rights check, before anything is generated. Placed here for two
     # reasons: the brief writer is shown this channel's own titles as a voice
@@ -257,6 +286,16 @@ def main() -> int:
     tags, decisions = publisher._tags_for(clip, brief.title, brief.caption)
     print(f"\n🏷️  tags: {', '.join(tags)}")
 
+    # Audience reaction to the FINISHED clip -- the complement to the
+    # quality critic, which only ever saw the brief. No caption sidecar on
+    # this path (the hook is a burned banner, not a subtitle track), so
+    # this is frames-only; still catches held-pose endings and dead frames
+    # the brief could not have shown.
+    from agent import audience as aud
+    print("👀 Getting an audience reaction to the finished clip...")
+    reaction = aud.watch(video_path)
+    print(aud.describe(reaction))
+
     forecast = cal.calibrated_forecast(channel, has_subtitles=False) or {}
     if forecast:
         print(f"📊 forecast p50 {forecast['p50']:,.0f} views "
@@ -292,6 +331,8 @@ def main() -> int:
             clip_record["forecast_p50"] = f"{forecast['p50']:,.0f} views"
             clip_record["forecast_range"] = (
                 f"{forecast['p10']:,.0f} - {forecast['p90']:,.0f} views")
+        clip_record["audience_reaction"] = (
+            reaction.summary() + (f" — {'; '.join(reaction.reasons)}" if reaction.reasons else ""))
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         sidecar = OUTPUT_DIR / f"{clip_id}_metadata.json"
         sidecar.write_text(json.dumps(clip_record, indent=2), encoding="utf-8")

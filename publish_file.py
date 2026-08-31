@@ -201,6 +201,17 @@ def main() -> int:
         print(f"\n(dry run — nothing uploaded, clip_id would be {clip_id})")
         return 0
 
+    # Audience reaction to the finished video — a real Gemini vision call,
+    # so it runs here rather than above the dry-run return. This pipeline
+    # did not make this file and cannot inspect its footage for rights
+    # (the watchdog check above says so explicitly); it CAN watch it the
+    # way a scrolling viewer would, which is a different and complementary
+    # kind of check.
+    from agent import audience as aud
+    print("\n👀 Getting an audience reaction to the finished video...")
+    reaction = aud.watch(video)  # no known subtitle sidecar for a pipeline-external file
+    print(aud.describe(reaction))
+
     if args.stage:
         # The sidecar goes down before the email does. check_approvals.py
         # looks the clip up by id when the reply lands, so an approval whose
@@ -226,6 +237,8 @@ def main() -> int:
                 f"{forecast['p10']:,.0f} - {forecast['p90']:,.0f} views")
         if owner_retention:
             clip_record["owner_retention"] = owner_retention
+        clip_record["audience_reaction"] = (
+            reaction.summary() + (f" — {'; '.join(reaction.reasons)}" if reaction.reasons else ""))
 
         sidecar = OUTPUT_DIR / f"{clip_id}_metadata.json"
         sidecar.write_text(json.dumps(clip_record, indent=2), encoding="utf-8")
