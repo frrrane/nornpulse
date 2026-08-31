@@ -43,22 +43,26 @@ submission is **Wed 9 September 2026, 2pm PDT**.
 These came out of reviewing real rejected clips. Ordered by effect per unit
 of work, judged against what the clips actually looked like.
 
-- [ ] **Weave generated footage into cut clips.** Both halves already exist
-  and have never been connected: `agent/footage.py` generates Veo clips,
-  `agent/skuld_renderer.py` cuts and composites source video. Three forms,
-  cheapest first:
+- [ ] **Weave generated footage into cut clips.** Three forms, cheapest first:
 
-  1. *Generated cold-open*, one or two seconds before the cut begins — the
-     visual equivalent of the hook banner. One Veo call per clip, lands on
-     the first second, which is the second that decides retention.
+  1. ~~*Generated cold-open*~~ — **done** (`agent/weaver.py`): a
+     crossfaded Veo opener in front of the cut, addressing the exact "cuts
+     unexpectedly at the second second" complaint from a real past
+     rejection. Was fully built and wired through
+     `VerdandiOrchestrator.orchestrate_generation`/`orchestrate_batch`
+     months before this line was last touched, but nothing above the
+     orchestrator ever exposed a way to turn it on — now surfaced as a
+     slider in the Create page's Advanced Settings (default 0, off) and
+     `NORNPULSE_OPENER_SEC` in `scripts/stage_for_review.py`.
   2. *Generated B-roll under narration*, where the transcript says
      something the source does not show. This is the one that earns its
      keep: the NASA source has long stretches where the audio is more
      interesting than the picture. Needs the model to identify which
      moments lack visual support, which is real reasoning rather than a
-     wiring job.
+     wiring job. Still unbuilt.
   3. *Generated backdrop instead of blur*, compositing the source over a
      themed generated background rather than a blurred copy of itself.
+     Still unbuilt.
 
   Every insert is a paid Veo call on a clip that currently costs nothing
   beyond rendering, so at six uploads a day this is a real line item.
@@ -95,9 +99,6 @@ of work, judged against what the clips actually looked like.
   that tags on a niche channel are model judgement and label them plainly
   as such.
 
-- [ ] **Punchier titles.** "NASA's Plan For A Permanent Moon Base" is
-  descriptive, not curious. The channel's own best-performing hook types are
-  curiosity_gap and shock_stat; the title is written as if neither applied.
 
 - [ ] **Word-level caption timing.** Captions currently follow transcript
   cues, which is a sentence-level rhythm. Word-level pop timing reads as
@@ -173,6 +174,17 @@ of work, judged against what the clips actually looked like.
       looks the same locally and in the container.
 - [x] Vertex AI routing, so Google Cloud credit can pay for model calls
       that AI Studio's separate prepay wallet cannot.
+- [x] **Punchier titles.** Root cause was that neither title-writing prompt
+      (`verdandi_orchestrator.py`, `trend_loop.py`) ever explained HOW a
+      chosen hook_type should shape the words — a model could pick the
+      correctly-grounded label and still write "NASA's Plan For A
+      Permanent Moon Base". `HOOK_TITLE_GUIDANCE` in `urdr_analytics.py`
+      gives concrete writing guidance per hook type, shared by both
+      prompts; `trend_loop.py` also had hook_type asked for AFTER title in
+      its JSON schema, so a model literally couldn't have written to a
+      choice it hadn't made yet — reordered. Verified live: a real run
+      produced "Hippo Swings Butterfly Net At High-Speed Flying Ball
+      Explosion" for a visual_disruption hook, not a topic label.
 - [x] **A critic agent, and an audience agent** (`agent/critic.py`,
       `agent/audience.py`). The critic sits between the brief and
       generation, checked against real, live-read rejection history (19
