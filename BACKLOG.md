@@ -54,12 +54,17 @@ of work, judged against what the clips actually looked like.
      orchestrator ever exposed a way to turn it on — now surfaced as a
      slider in the Create page's Advanced Settings (default 0, off) and
      `NORNPULSE_OPENER_SEC` in `scripts/stage_for_review.py`.
-  2. *Generated B-roll under narration*, where the transcript says
-     something the source does not show. This is the one that earns its
-     keep: the NASA source has long stretches where the audio is more
-     interesting than the picture. Needs the model to identify which
-     moments lack visual support, which is real reasoning rather than a
-     wiring job. Still unbuilt.
+  2. ~~*Generated B-roll under narration*~~ — **done** (`agent/weaver.py`):
+     `identify_broll_moment` reasons over a clip's own transcript for a
+     span the source footage genuinely can't show, and correctly says
+     "nowhere" on most clips rather than forcing an insert — verified
+     against the real sample_data transcript (correctly picked the loop-
+     quantum-gravity passage) and against deliberately concrete narration
+     (correctly found nothing). `insert_broll` swaps only the picture for
+     that window via ffmpeg, with the clip's own audio stream-copied
+     through untouched — verified byte-identical via a raw PCM diff.
+     Wired and exposed from the start this time: a checkbox in the
+     Create page and `NORNPULSE_BROLL` in `scripts/stage_for_review.py`.
   3. *Generated backdrop instead of blur*, compositing the source over a
      themed generated background rather than a blurred copy of itself.
      Still unbuilt.
