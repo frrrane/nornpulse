@@ -421,6 +421,7 @@ class VerdandiOrchestrator:
         avoid_motion: Optional[List[str]] = None,
         avoid_crop: Optional[List[str]] = None,
         opener_sec: float = 0.0,
+        broll: bool = False,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Callable]:
         """Builds request-scoped tool functions closing over this call's state."""
@@ -708,6 +709,33 @@ class VerdandiOrchestrator:
                 except Exception as e:
                     logger.warning(
                         f"{clip_id}: no generated opener, keeping the clip as "
+                        f"rendered: {e}")
+
+            # A generated cutaway spliced into the middle of the clip, if
+            # one was asked for AND the transcript actually gives something
+            # to reason about (vision-mode clips have no transcript, so
+            # there is nothing here to check). Off by default for the same
+            # reason as the opener; unlike the opener, "nothing found" is
+            # the expected outcome on most clips, not a degraded one.
+            if broll and resolved_transcript:
+                _emit("skuld", f"🧵 Checking for a generated cutaway moment (clip {clip_counter[0]})...")
+                try:
+                    from agent import weaver
+                    cues = parse_cues(resolved_transcript)
+                    broll_start_sec = parse_time_to_seconds(start_time)
+                    broll_end_sec = parse_time_to_seconds(end_time)
+                    woven = weaver.add_generated_broll(
+                        clip_path=rendered_path,
+                        clip_id=clip_id,
+                        transcript_cues=cues,
+                        clip_start_sec=broll_start_sec,
+                        clip_end_sec=broll_end_sec)
+                    if woven.generated:
+                        rendered_path = str(woven.path)
+                    logger.info(f"{clip_id}: {woven.note}")
+                except Exception as e:
+                    logger.warning(
+                        f"{clip_id}: no generated cutaway, keeping the clip as "
                         f"rendered: {e}")
 
             # What the viewer actually hears first, and whether it will
@@ -1065,6 +1093,7 @@ class VerdandiOrchestrator:
         source_ref: Optional[str] = None,
         channel_profile: Optional[Any] = None,
         opener_sec: float = 0.0,
+        broll: bool = False,
         rewatch_evidence: str = "",
         rewatch_peak_sec: Optional[float] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
@@ -1172,6 +1201,7 @@ class VerdandiOrchestrator:
             avoid_motion=list(getattr(channel_profile, "avoid_motion", []) or []),
             avoid_crop=list(getattr(channel_profile, "avoid_crop", []) or []),
             opener_sec=opener_sec,
+            broll=broll,
             progress_callback=progress_callback,
         )
         prompt = self._build_prompt(
@@ -1269,6 +1299,7 @@ class VerdandiOrchestrator:
         channel_subscribers: int = 0,
         channel_profile: Optional[Any] = None,
         opener_sec: float = 0.0,
+        broll: bool = False,
         rewatch_evidence: str = "",
         rewatch_peak_sec: Optional[float] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
@@ -1378,6 +1409,7 @@ class VerdandiOrchestrator:
                     source_ref=url,
                     channel_profile=channel_profile,
                     opener_sec=opener_sec,
+                    broll=broll,
                     rewatch_evidence=rewatch_evidence,
                     rewatch_peak_sec=rewatch_peak_sec,
                     progress_callback=_relay,

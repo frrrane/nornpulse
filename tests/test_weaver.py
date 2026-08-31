@@ -238,6 +238,16 @@ def test_the_opener_is_off_unless_asked_for():
         assert inspect.signature(fn).parameters["opener_sec"].default == 0.0
 
 
+def test_broll_is_off_unless_asked_for():
+    """Same reasoning as the opener: a real Veo call per clip, so it
+    stays opt-in rather than becoming the default six times a day."""
+    import inspect
+    from agent.verdandi_orchestrator import VerdandiOrchestrator
+
+    for fn in (VerdandiOrchestrator.orchestrate_generation, VerdandiOrchestrator.orchestrate_batch):
+        assert inspect.signature(fn).parameters["broll"].default is False
+
+
 def test_a_failed_weave_keeps_the_rendered_clip():
     """
     weave_opener raises so a half-joined file is never written; the
@@ -326,3 +336,281 @@ def test_the_dissolve_shortens_the_result_by_its_own_length(tmp_path):
          "-of", "csv=p=0", str(out)], capture_output=True, text=True).stdout.strip())
     expected = 2.0 + 6.0 - weaver.CROSSFADE_SEC
     assert abs(duration - expected) < 0.6, f"expected ~{expected}s, got {duration}"
+
+
+# =============================================================================
+# Generated B-roll under narration
+# =============================================================================
+
+# --- the prompt --------------------------------------------------------------
+
+def test_the_broll_prompt_forbids_readable_text():
+    prompt = weaver.broll_prompt("a web of glowing quantum loops")
+    lowered = prompt.lower()
+    for banned in ("no text", "no captions", "no titles", "no logos"):
+        assert banned in lowered
+
+
+def test_the_broll_prompt_asks_for_one_continuous_shot():
+    assert "no cuts" in weaver.broll_prompt("x").lower()
+
+
+def test_the_broll_prompt_survives_an_empty_concept():
+    assert weaver.broll_prompt("") != ""
+
+
+# --- retiming cues to the clip's own start -----------------------------------
+
+def test_cues_are_retimed_relative_to_the_clip():
+    cues = [(27.0, "a"), (31.0, "b"), (35.0, "c")]
+    relative = weaver.clip_relative_cues(cues, clip_start_sec=27.0, clip_end_sec=38.0)
+    assert relative == [(0.0, "a"), (4.0, "b"), (8.0, "c")]
+
+
+def test_cues_outside_the_clip_window_are_dropped():
+    cues = [(10.0, "before"), (30.0, "inside"), (60.0, "after")]
+    relative = weaver.clip_relative_cues(cues, clip_start_sec=25.0, clip_end_sec=40.0)
+    assert relative == [(5.0, "inside")]
+
+
+def test_blank_cue_text_is_dropped():
+    cues = [(0.0, "real text"), (2.0, "   ")]
+    relative = weaver.clip_relative_cues(cues, clip_start_sec=0.0, clip_end_sec=5.0)
+    assert relative == [(0.0, "real text")]
+
+
+# --- identify_broll_moment: failing toward "do not spend" --------------------
+
+def _stub_genai(monkeypatch, payload, raises=None):
+    class _Resp:
+        text = payload if isinstance(payload, str) else __import__("json").dumps(payload)
+
+    class _Models:
+        def generate_content(self, **kw):
+            if raises:
+                raise raises
+            return _Resp()
+
+    class _Client:
+        def __init__(self, **kw): self.models = _Models()
+
+    import google.genai as genai
+    monkeypatch.setattr(genai, "Client", _Client)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
+
+
+_CUES = [(0.0, "space itself is made of discrete loops")]
+
+
+def test_missing_key_returns_none_not_a_fabricated_moment(monkeypatch):
+    """
+    Unlike critic.py's REVISE-on-failure, there is no unsafe direction
+    here: skipping a possible cutaway costs nothing but missed upside, so
+    this fails toward not spending, not toward asking a human.
+    """
+    monkeypatch.delenv("NORNPULSE_USE_VERTEX", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    assert weaver.identify_broll_moment(_CUES, 0.0, 10.0) is None
+
+
+def test_api_error_returns_none(monkeypatch):
+    _stub_genai(monkeypatch, {}, raises=RuntimeError("network is down"))
+    assert weaver.identify_broll_moment(_CUES, 0.0, 10.0) is None
+
+
+def test_unreadable_response_returns_none(monkeypatch):
+    _stub_genai(monkeypatch, "not json")
+    assert weaver.identify_broll_moment(_CUES, 0.0, 10.0) is None
+
+
+def test_no_moment_is_a_real_answer_not_an_error(monkeypatch):
+    _stub_genai(monkeypatch, {"has_moment": False, "reason": "already concrete"})
+    assert weaver.identify_broll_moment(_CUES, 0.0, 10.0) is None
+
+
+def test_a_claimed_moment_with_no_usable_timing_is_discarded(monkeypatch):
+    _stub_genai(monkeypatch, {"has_moment": True, "visual_concept": "x"})
+    assert weaver.identify_broll_moment(_CUES, 0.0, 10.0) is None
+
+
+def test_a_span_outside_the_clip_is_discarded(monkeypatch):
+    _stub_genai(monkeypatch, {"has_moment": True, "start_sec": 8.0, "end_sec": 15.0,
+                              "visual_concept": "x"})
+    assert weaver.identify_broll_moment(_CUES, 0.0, 10.0) is None
+
+
+def test_a_valid_moment_is_returned(monkeypatch):
+    _stub_genai(monkeypatch, {"has_moment": True, "start_sec": 1.0, "end_sec": 3.0,
+                              "visual_concept": "glowing quantum loops",
+                              "reason": "abstract physics, no camera can show it"})
+    moment = weaver.identify_broll_moment(_CUES, 0.0, 10.0)
+    assert moment["start_sec"] == 1.0
+    assert moment["visual_concept"] == "glowing quantum loops"
+
+
+def test_span_length_is_clamped_to_the_configured_bounds(monkeypatch):
+    """A model landing just outside the soft limit is a rounding
+    disagreement, not a reason to throw away an otherwise-good pick."""
+    _stub_genai(monkeypatch, {"has_moment": True, "start_sec": 1.0, "end_sec": 9.0,
+                              "visual_concept": "x"})
+    moment = weaver.identify_broll_moment(_CUES, 0.0, 10.0)
+    span = moment["end_sec"] - moment["start_sec"]
+    assert span <= weaver.MAX_BROLL_SEC
+
+
+def test_the_cues_actually_reach_the_prompt(monkeypatch):
+    seen = {}
+
+    class _Resp:
+        text = '{"has_moment": false}'
+
+    class _Models:
+        def generate_content(self, **kw):
+            seen["contents"] = kw.get("contents", "")
+            return _Resp()
+
+    class _Client:
+        def __init__(self, **kw): self.models = _Models()
+
+    import google.genai as genai
+    monkeypatch.setattr(genai, "Client", _Client)
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+
+    weaver.identify_broll_moment(
+        [(0.0, "space itself is made of discrete loops")], 0.0, 10.0)
+    assert "discrete loops" in seen["contents"]
+
+
+def test_empty_transcript_never_calls_the_model(monkeypatch):
+    called = {"n": 0}
+
+    class _Models:
+        def generate_content(self, **kw):
+            called["n"] += 1
+            raise AssertionError("should not have been reached")
+
+    class _Client:
+        def __init__(self, **kw): self.models = _Models()
+
+    import google.genai as genai
+    monkeypatch.setattr(genai, "Client", _Client)
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+
+    assert weaver.identify_broll_moment([], 0.0, 10.0) is None
+    assert called["n"] == 0
+
+
+# --- insert_broll: the splice itself -----------------------------------------
+
+def test_missing_inputs_are_refused_before_ffmpeg(tmp_path):
+    with pytest.raises(weaver.WeaveError):
+        weaver.insert_broll(tmp_path / "nope.mp4", tmp_path / "nope2.mp4",
+                            1.0, 2.0, tmp_path / "out.mp4")
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_a_span_past_the_clip_end_is_rejected(tmp_path):
+    clip = tmp_path / "clip.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi",
+                    "-i", "testsrc2=size=1080x1920:rate=30:d=4",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an",
+                    "-y", str(clip)], check=True, capture_output=True)
+    broll = _file(tmp_path, "broll.mp4")
+    with pytest.raises(weaver.WeaveError, match="does not fit"):
+        weaver.insert_broll(clip, broll, 2.0, 10.0, tmp_path / "out.mp4")
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_a_real_splice_preserves_duration_and_audio(tmp_path):
+    """
+    The two guarantees that actually matter: total duration is unchanged
+    (the swap is 1:1 in time, not an insertion), and the audio is
+    bit-identical to the original -- proving it was stream-copied, not
+    re-encoded, and never touched the B-roll's own generated audio at all.
+    """
+    clip = tmp_path / "clip.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi",
+                    "-i", "testsrc2=size=1080x1920:rate=30:d=8",
+                    "-f", "lavfi", "-i", "sine=frequency=300:duration=8",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                    "-shortest", "-y", str(clip)], check=True, capture_output=True)
+    broll = tmp_path / "broll.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi",
+                    "-i", "testsrc=size=720x1280:rate=24:d=8",
+                    "-f", "lavfi", "-i", "sine=frequency=880:duration=8",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                    "-shortest", "-y", str(broll)], check=True, capture_output=True)
+
+    out = tmp_path / "out.mp4"
+    woven = weaver.insert_broll(clip, broll, 3.0, 5.0, out)
+    assert woven.broll_sec == 2.0
+
+    duration = float(subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", str(out)], capture_output=True, text=True).stdout.strip())
+    assert abs(duration - 8.0) < 0.3, f"expected ~8.0s (unchanged), got {duration}"
+
+    orig_audio = tmp_path / "orig.wav"
+    new_audio = tmp_path / "new.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(clip),
+                    "-vn", "-acodec", "pcm_s16le", str(orig_audio)], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(out),
+                    "-vn", "-acodec", "pcm_s16le", str(new_audio)], check=True)
+    assert orig_audio.read_bytes() == new_audio.read_bytes()
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg not installed")
+def test_a_splice_reaching_the_clip_end_has_no_after_segment(tmp_path):
+    """The span ending exactly at the clip's own end is the n=2 concat
+    path (no [vafter]), not a special case that should fail."""
+    clip = tmp_path / "clip.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi",
+                    "-i", "testsrc2=size=1080x1920:rate=30:d=5",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an",
+                    "-y", str(clip)], check=True, capture_output=True)
+    broll = tmp_path / "broll.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi",
+                    "-i", "testsrc=size=720x1280:rate=24:d=3",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an",
+                    "-y", str(broll)], check=True, capture_output=True)
+    out = tmp_path / "out.mp4"
+    weaver.insert_broll(clip, broll, 3.0, 5.0, out)
+    duration = float(subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", str(out)], capture_output=True, text=True).stdout.strip())
+    assert abs(duration - 5.0) < 0.3
+
+
+# --- add_generated_broll: the entry point ------------------------------------
+
+def test_no_moment_returns_the_clip_unchanged_without_calling_veo(tmp_path, monkeypatch):
+    clip = _file(tmp_path, "clip.mp4")
+    monkeypatch.setattr(weaver, "identify_broll_moment", lambda *a, **kw: None)
+
+    called = {"n": 0}
+    import agent.footage as fg
+    monkeypatch.setattr(fg, "generate_with_veo",
+                        lambda **kw: called.__setitem__("n", called["n"] + 1))
+
+    woven = weaver.add_generated_broll(clip, "clip_1", [], 0.0, 10.0)
+    assert not woven.generated
+    assert woven.path == clip
+    assert called["n"] == 0
+
+
+def test_a_blocked_cutaway_never_reaches_the_generator(tmp_path, monkeypatch):
+    clip = _file(tmp_path, "clip.mp4")
+    monkeypatch.setattr(weaver, "identify_broll_moment", lambda *a, **kw: {
+        "start_sec": 1.0, "end_sec": 3.0, "visual_concept": "x", "reason": "y"})
+
+    from agent import watchdog as wd
+    monkeypatch.setattr(wd, "check_text", lambda **kw: wd.Verdict(level=wd.BLOCK, reasons=["nope"]))
+
+    called = {"n": 0}
+    import agent.footage as fg
+    monkeypatch.setattr(fg, "generate_with_veo",
+                        lambda **kw: called.__setitem__("n", called["n"] + 1))
+
+    with pytest.raises(weaver.WeaveError):
+        weaver.add_generated_broll(clip, "clip_1", [], 0.0, 10.0)
+    assert called["n"] == 0

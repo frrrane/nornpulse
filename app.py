@@ -1427,6 +1427,17 @@ def page_create():
                      "**Costs real money**: unlike everything else here, this is a separate paid "
                      "Veo call per clip, on top of what generation already costs.",
             )
+            broll = st.checkbox(
+                ":material/movie_filter: Generated Cutaway",
+                value=False,
+                help="Checks this clip's own narration for a moment describing something the "
+                     "source footage can't show — an abstract process, something far away or "
+                     "long ago — and splices in a generated shot there, picture only; the "
+                     "clip's own audio keeps playing underneath, untouched. Off by default. "
+                     "**May cost real money**: most clips are concretely visual throughout and "
+                     "get no cutaway at all — the reasoning step is a cheap text call, and the "
+                     "Veo generation only fires on the clips that actually need one.",
+            )
             if active_video_path and os.path.exists(active_video_path):
                 @st.cache_data(show_spinner=False)
                 def _cached_duration(video_path: str) -> float:
@@ -1552,6 +1563,7 @@ def page_create():
                     caption_language=caption_language,
                     channel_subscribers=int(st.session_state.channel_subs),
                     opener_sec=opener_sec,
+                    broll=broll,
                     # What this clip was cut from. A link where there is
                     # one, the file name where there isn't — NornPulse
                     # works on the video, not on where it came from, so
