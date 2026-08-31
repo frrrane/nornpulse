@@ -530,6 +530,37 @@ def styled(fig):
     return fig
 
 
+def _show_clicked_clip(event, df: pd.DataFrame, id_col: str = "clip_id") -> None:
+    """
+    Renders the full row for whichever point a scatter chart's click
+    selected — the payoff for wiring `on_select` up in the first place:
+    a chart you can click into rather than only hover over.
+
+    Keyed off `customdata` (set to id_col on the trace) rather than
+    point_index: a colored scatter splits into one Plotly trace per
+    color group, so point_index alone is relative to the wrong subset
+    once there's more than one hook type on the chart.
+    """
+    points = (event or {}).get("selection", {}).get("points", [])
+    if not points:
+        return
+    clip_id = (points[0].get("customdata") or [None])[0]
+    if clip_id is None or id_col not in df.columns:
+        return
+    row = df[df[id_col] == clip_id]
+    if row.empty:
+        return
+    r = row.iloc[0]
+    with st.container(border=True):
+        st.markdown(f"**{clip_id}** · {_humanize_hook_type(r.get('hook_type', ''))}")
+        shown = [c for c in ("predicted_virality_score", "actual_view_count",
+                              "forecast_views_p50", "forecast_views_p90") if c in r.index]
+        cols = st.columns(len(shown)) if shown else []
+        for col, field in zip(cols, shown):
+            val = r[field]
+            col.metric(field.replace("_", " ").title(), f"{val:,.0f}" if pd.notna(val) else "—")
+
+
 _PROVENANCE_STYLE = {
     pv.MEASURED: ("var(--thread)", "◆"),
     pv.PRIOR:    ("var(--bone-dim)", "○"),
@@ -2397,14 +2428,28 @@ def page_intelligence():
             title=f"Median views by title hook pattern · {band} subscribers",
             labels={"median_views": "Median views", "bucket_label": ""},
         )
-        st.plotly_chart(styled(fig), width='stretch')
+        event = st.plotly_chart(
+            styled(fig), width='stretch', on_select="rerun",
+            selection_mode="points", key="hook_pattern_bar")
         st.caption(
             "Sampled across 14 uploader ranges rather than one contiguous block, and "
             "restricted to English-language titles — an unfiltered sample is mostly "
             "non-English, which an English pattern matcher silently files as “plain”. "
             f"Buckets under {gb.HOOK_MIN_SAMPLE:,} videos are charted but never headlined — "
-            "a thin bucket tops the ranking on noise. Hover for n."
+            "a thin bucket tops the ranking on noise. Click a bar for its lift over a "
+            "plain title."
         )
+        clicked = ((event or {}).get("selection", {}).get("points") or [{}])[0].get("y")
+        if clicked:
+            match = hooks[hooks["bucket_label"] == clicked]
+            if not match.empty:
+                m = match.iloc[0]
+                plain_rows = hooks[hooks["bucket"] == "plain"]
+                baseline = float(plain_rows.iloc[0]["median_views"]) if not plain_rows.empty else None
+                lift = (f" — {(m['median_views'] / baseline - 1) * 100:+.0f}% vs a plain title"
+                        if baseline and m["bucket"] != "plain" else "")
+                st.info(f"**{clicked}**: {m['median_views']:,.0f} median views across "
+                        f"{m['sample_videos']:,} real videos{lift}.")
 
     # --- current trending layer ---
         summary = _cached_trending_summary()
@@ -2563,11 +2608,15 @@ def page_intelligence():
             scatter_fig = px.scatter(
                 synced_df, x="predicted_virality_score", y="actual_view_count",
                 color=synced_df["hook_type"].map(_humanize_hook_type).rename("Hook type"),
-                size="actual_view_count", hover_data=["clip_id"],
+                size="actual_view_count", hover_data=["clip_id"], custom_data=["clip_id"],
                 template="plotly_dark", color_discrete_sequence=CHART_COLORS, title="Predicted Virality vs. Actual Views",
                 labels={"predicted_virality_score": "Predicted Virality Score", "actual_view_count": "Actual Views"},
             )
-            st.plotly_chart(styled(scatter_fig), width='stretch')
+            event = st.plotly_chart(
+                styled(scatter_fig), width='stretch', on_select="rerun",
+                selection_mode="points", key="predicted_actual_scatter")
+            st.caption("Click a point for that clip's numbers.")
+            _show_clicked_clip(event, synced_df, "clip_id")
         else:
             st.caption("Sync actual performance above once your published clips have real view counts to compare against.")
 
@@ -2604,7 +2653,7 @@ def page_intelligence():
             fig = px.scatter(
                 forecast_df, x="forecast_views_p50", y="actual_view_count",
                 color=forecast_df["hook_type"].map(_humanize_hook_type).rename("Hook type"),
-                hover_data=["clip_id", "forecast_views_p90"],
+                hover_data=["clip_id", "forecast_views_p90"], custom_data=["clip_id"],
                 template="plotly_dark", color_discrete_sequence=CHART_COLORS, log_x=True, log_y=True,
                 title="Grounded Forecast vs. Actual Views",
                 labels={"forecast_views_p50": "Forecast views (p50, global data)",
@@ -2616,11 +2665,15 @@ def page_intelligence():
                            forecast_df["actual_view_count"].max()))
             fig.add_shape(type="line", x0=lo, y0=lo, x1=hi, y1=hi,
                           line=dict(dash="dash", color="#00E5FF"))
-            st.plotly_chart(styled(fig), width='stretch')
+            event = st.plotly_chart(
+                styled(fig), width='stretch', on_select="rerun",
+                selection_mode="points", key="forecast_actual_scatter")
             st.caption(
                 "Points on the dashed line landed exactly where the global data said "
-                "comparable videos land. Above it, the clip beat its cohort."
+                "comparable videos land. Above it, the clip beat its cohort. Click a "
+                "point for that clip's numbers."
             )
+            _show_clicked_clip(event, forecast_df, "clip_id")
         elif "forecast_views_p50" in outcomes_df.columns:
             st.caption(
                 "No clip has both a stored forecast and real views yet — forecasts are "
