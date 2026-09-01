@@ -18,13 +18,6 @@ submission is **Wed 9 September 2026, 2pm PDT**.
 
 ## Next
 
-- [ ] **Word-level caption timings.** Captions are one-per-line because a
-  transcript line carries a start time and nothing else, so the kinetic
-  word-chunk reveal had to guess each chunk's moment by character count and
-  lagged the audio by about a chunk by mid-line — three clips were rejected
-  for it. Ask the transcription model for per-word timestamps, then set
-  `skuld_renderer.WORD_CHUNK_CAPTIONS = True` to restore the reveal honestly.
-
 - [ ] **Scheduled staging.** `agent/norn_cron.py` exists but nothing imports it,
   and its body predates the trend loop — wiring it up means rewriting it against
   `trend_publish.py --stage`. Deliberately staging-only: a timer that fills a
@@ -76,10 +69,6 @@ of work, judged against what the clips actually looked like.
   as such.
 
 
-- [ ] **Word-level caption timing.** Captions currently follow transcript
-  cues, which is a sentence-level rhythm. Word-level pop timing reads as
-  considerably more energetic and is what the format's conventions expect.
-
 ## Housekeeping
 
 ## Known problems worth fixing
@@ -127,6 +116,34 @@ of work, judged against what the clips actually looked like.
   published unverified, which is sufficient.
 
 ## Done
+
+- [x] **Word-level caption timings.** Root cause was that a transcript line
+      carried a start time and nothing else, so the kinetic word-chunk
+      reveal had to guess each chunk's moment by character count across a
+      window running to the next line's start — and lagged the audio by
+      about a chunk by mid-line. Three clips were rejected for it.
+      `utils/transcribe.py`'s prompt now asks for a timestamp before every
+      word, not just each line's first (`_shift_timestamps`' chunk-offset
+      rewrite needed no change — it's a global regex substitution, so it
+      already covers however many timestamps a line carries).
+      `skuld_renderer.py` gained `_line_word_times` (detects a line with
+      one real timestamp per word, distinguished from the legacy two-marker
+      "[start] ... [explicit end]" shape) and
+      `_distribute_chunk_times_from_words` (chunk boundaries from those
+      real times instead of the character-count guess), and
+      `WORD_CHUNK_CAPTIONS` is now `True`. A line that doesn't carry real
+      per-word marks — an already-cached transcript from before this
+      change, or a response that skipped the instruction — falls back to
+      one un-split caption for its whole window rather than the
+      discredited guess, so old and new transcripts can coexist safely.
+      Also fixed a latent bug the per-word format would have tripped:
+      `explicit_end` used to trigger on `len(times) >= 2`, which a
+      many-timestamps-per-line transcript would have satisfied on its
+      *second word's* time; narrowed to `== 2` so only the legacy shape
+      hits it. Verified against a real cached transcript (13 lines, still
+      one caption each, no drift) and a realistic per-word transcript
+      (chunk boundaries landed exactly on each word's real timestamp,
+      widened only where the 0.28s floor required it).
 
 - [x] Repo clean-up. Removed four dead root scripts: `test_pipeline.py` and
       `daemon.py` could not import at all, `approve_and_publish.py` was a

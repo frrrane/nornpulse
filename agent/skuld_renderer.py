@@ -362,18 +362,23 @@ def _kinetic_prefix(crazy: float) -> str:
 # Whether to split a transcript line into word-chunks that reveal in
 # sequence, or show the line as one caption for its whole window.
 #
-# The kinetic reveal is the nicer look and it is off, because it cannot be
-# done honestly with the timing data available. A transcript line carries a
-# start time and nothing else, so each chunk's moment is guessed by
-# character count across a window that runs to the *next* line's start --
-# and the speaker finishes before then and pauses. Measured against the
-# clip's own audio, the chunks lagged by about one chunk by mid-line: the
-# caption read "were missing." while the audio said "And we didn\'t really".
-# Three clips were rejected for it.
+# The kinetic reveal is the nicer look, and was off because it could not be
+# done honestly with the timing data available: a transcript line used to
+# carry a start time and nothing else, so each chunk's moment was guessed by
+# character count across a window that ran to the *next* line's start -- and
+# the speaker finishes before then and pauses. Measured against the clip's
+# own audio, the chunks lagged by about one chunk by mid-line: the caption
+# read "were missing." while the audio said "And we didn't really". Three
+# clips were rejected for it.
 #
-# One caption per line cannot drift within itself. Turning this back on
-# needs real word-level timings from transcription, not a better guess.
-WORD_CHUNK_CAPTIONS = False
+# utils/transcribe.py now asks for a timestamp before EVERY word, not just
+# each line's first. When a line's transcript actually carries one
+# timestamp per word (see _line_word_times below), chunk boundaries use
+# those real times. When it doesn't -- an old cached transcript, or a
+# response that didn't follow the per-word instruction -- that one line
+# falls back to a single un-split caption for its whole window rather than
+# the discredited character-count guess, so the flag is honest either way.
+WORD_CHUNK_CAPTIONS = True
 
 
 def _words_per_chunk(crazy: float) -> int:
@@ -426,6 +431,54 @@ def _distribute_chunk_times(
         end = min(rel_end, cursor + d)
         times.append((cursor, end))
         cursor = end
+    return times
+
+
+# Matches a transcript's per-word (or per-line) timestamp marker, e.g.
+# "[00:12.350]". Shared by _line_word_times below and the transcript parser
+# in generate_rebased_ass_subtitle_file.
+_TS_MARKER_RE = re.compile(r"\[(\d{1,3}:\d{2}(?:[:.]\d+)?)\]")
+
+
+def _line_word_times(raw_line: str, word_count: int) -> Optional[List[float]]:
+    """
+    Real per-word ABSOLUTE timestamps for a transcript line, one per word in
+    order -- or None if this line doesn't actually carry one timestamp per
+    word.
+
+    Requires strictly more than 2 markers (2 is the legacy
+    "[start] ... [explicit end]" shape handled separately by the caller) and
+    a marker count matching word_count, the cleaned line's own word count.
+    A mismatch means the model didn't fully comply with the per-word
+    instruction for this line, so the caller should fall back rather than
+    trust a misaligned mapping.
+    """
+    markers = list(_TS_MARKER_RE.finditer(raw_line))
+    if len(markers) <= 2 or len(markers) != word_count:
+        return None
+    return [parse_time_to_seconds(m.group(1)) for m in markers]
+
+
+def _distribute_chunk_times_from_words(
+    chunks: List[str], word_rel_times: List[float], rel_end: float, min_chunk_dur: float = 0.28,
+) -> List[Tuple[float, float]]:
+    """
+    Real-timing counterpart to _distribute_chunk_times: chunk boundaries
+    come from the transcript's own per-word timestamps (word_rel_times, one
+    per word across all chunks combined, in order) instead of a
+    character-count guess. Each chunk starts at its first word's real time
+    and ends at the next chunk's first word's real time (or rel_end for the
+    last chunk), with the same min_chunk_dur floor so a short chunk never
+    flashes illegibly.
+    """
+    times = []
+    idx = 0
+    for chunk in chunks:
+        start = word_rel_times[idx]
+        idx += len(chunk.split())
+        end = word_rel_times[idx] if idx < len(word_rel_times) else rel_end
+        end = min(rel_end, max(end, start + min_chunk_dur))
+        times.append((start, end))
     return times
 
 
@@ -539,7 +592,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\
         if not times:
             continue
         abs_start = parse_time_to_seconds(times[0])
-        explicit_end = parse_time_to_seconds(times[1]) if len(times) >= 2 else None
+        # Exactly 2 markers is the legacy "[start] ... [explicit end]" shape.
+        # A per-word line has many more than 2, and its second marker is
+        # just the second word's time, not an end — leave explicit_end None
+        # so Pass 2's next-line-start guess handles it instead.
+        explicit_end = parse_time_to_seconds(times[1]) if len(times) == 2 else None
         parsed.append({"abs_start": abs_start, "explicit_end": explicit_end, "raw_line": line})
 
     # Pass 2: resolve each line's effective end, capping any guessed
@@ -598,10 +655,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\
 
         # words_per_chunk == 0 means "do not split": the line is one caption
         # held across its own window, which is the only claim the timing data
-        # actually supports.
-        chunks = (_chunk_words(clean_text, words_per_chunk)
-                  if words_per_chunk else [clean_text])
-        chunk_times = _distribute_chunk_times(chunks, rel_start, rel_end)
+        # actually supports without real per-word timestamps.
+        clean_word_count = len(clean_text.split())
+        word_abs_times = (_line_word_times(line, clean_word_count)
+                           if words_per_chunk else None)
+        if words_per_chunk and word_abs_times:
+            chunks = _chunk_words(clean_text, words_per_chunk)
+            word_rel_times = [t - clip_start_sec for t in word_abs_times]
+            chunk_times = _distribute_chunk_times_from_words(chunks, word_rel_times, rel_end)
+        elif words_per_chunk:
+            # Line didn't carry real per-word timing (old cached transcript,
+            # or the model skipped the instruction) — one un-split caption
+            # for the whole window rather than the discredited char-count
+            # guess, so this line stays honest instead of drifting.
+            chunks = [clean_text]
+            chunk_times = [(rel_start, rel_end)]
+        else:
+            chunks = [clean_text]
+            chunk_times = _distribute_chunk_times(chunks, rel_start, rel_end)
 
         for chunk_text, (chunk_start, chunk_end) in zip(chunks, chunk_times):
             # Drop chunks spoken outside the clip, and trim the one that

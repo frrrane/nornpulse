@@ -765,13 +765,44 @@ def test_each_caption_carries_its_line_intact(tmp_path):
         assert phrase in _re.sub(r"\{[^}]*\}", "", body)
 
 
-def test_word_chunking_stays_off_until_word_timings_exist():
+def test_word_chunking_is_on_now_that_transcription_gives_per_word_times():
     """
-    Guards the decision, not the code. The kinetic reveal is the nicer look
-    and cannot be timed honestly from line-level timestamps; turning it back
-    on needs real per-word times from transcription.
+    Guards the decision, not the code. utils/transcribe.py now asks for a
+    timestamp before every word, so the kinetic reveal can be timed
+    honestly — see the two tests below for the two paths that decision
+    depends on.
     """
-    assert sr.WORD_CHUNK_CAPTIONS is False
+    assert sr.WORD_CHUNK_CAPTIONS is True
+
+
+def test_real_word_times_drive_chunk_boundaries(tmp_path):
+    """
+    A line that carries one timestamp per word gets chunk boundaries from
+    those real times, not the character-count guess.
+    """
+    out = tmp_path / "t.ass"
+    line = "[00:10.000]One [00:10.300]two [00:10.700]three [00:11.200]four\n"
+    sr.generate_rebased_ass_subtitle_file(line, out, 10.0, 22.0, crazy=1.0)
+    times = sorted(_boundary_times(out))
+    assert times == [
+        pytest.approx((0.0, 0.3), abs=0.02),
+        pytest.approx((0.3, 0.7), abs=0.02),
+        pytest.approx((0.7, 1.2), abs=0.02),
+        pytest.approx((1.2, 4.0), abs=0.02),
+    ]
+
+
+def test_legacy_single_timestamp_line_stays_unsplit(tmp_path):
+    """
+    A line without real per-word marks (an old cached transcript, or a
+    response that skipped the instruction) must not fall back to the
+    discredited character-count guess — that guess is what got three real
+    clips rejected. It stays one un-split caption for its whole window
+    instead, even with WORD_CHUNK_CAPTIONS on and crazy cranked up.
+    """
+    out = tmp_path / "t.ass"
+    sr.generate_rebased_ass_subtitle_file(_LINES, out, 10.0, 22.0, crazy=1.0)
+    assert len(_boundary_times(out)) == 3
 
 
 # --- emoji live in metadata, never in pixels or speech ---------------------

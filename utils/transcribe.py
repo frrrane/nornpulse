@@ -235,14 +235,16 @@ def _transcribe_one(video_bytes: bytes, client, model) -> str:
             (
                 "You are a professional closed-captioning engine. "
                 "Watch the video and output a transcript. "
-                "EVERY SINGLE LINE MUST START WITH A TIMESTAMP FORMATTED EXACTLY "
-                "LIKE THIS: [MM:SS.mmm] — to the millisecond, at the exact moment "
-                "the first word of that line is spoken. Whole-second timestamps "
-                "round every caption to the nearest second, which is visibly out "
-                "of sync with the speech.\n"
+                "EVERY SINGLE WORD MUST BE IMMEDIATELY PRECEDED BY A TIMESTAMP "
+                "FORMATTED EXACTLY LIKE THIS: [MM:SS.mmm] — to the millisecond, at "
+                "the exact moment THAT WORD is spoken, not just the first word of "
+                "the line. Whole-second timestamps round every caption to the "
+                "nearest second, which is visibly out of sync with the speech.\n"
                 "Start a new line at each natural sentence or clause boundary, so "
                 "a line is never left hanging mid-phrase.\n"
-                "Example:\n[00:00.480] First sentence here.\n[00:04.920] Second sentence here."
+                "Example:\n"
+                "[00:00.480]First [00:00.610]sentence [00:00.890]here.\n"
+                "[00:04.920]Second [00:05.140]sentence [00:05.430]here."
             )
         ]
     )
