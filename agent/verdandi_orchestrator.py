@@ -423,6 +423,7 @@ class VerdandiOrchestrator:
         opener_sec: float = 0.0,
         broll: bool = False,
         generated_backdrop: bool = False,
+        audience_check: bool = False,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Callable]:
         """Builds request-scoped tool functions closing over this call's state."""
@@ -768,6 +769,49 @@ class VerdandiOrchestrator:
                 logger.warning(
                     f"{clip_id}: weak opening line — {opening_problem}: {opening[:70]!r}")
 
+            # Preflight: free, deterministic, always on -- every fault it
+            # checks for is a real past rejection reason, and unlike the
+            # generation-cost gates above there is no reason to make
+            # someone opt in to a check that costs nothing. Previously
+            # only stage_for_review.py ran this, and only printed the
+            # result to a terminal nobody reviewing through the dashboard
+            # would ever see; running it here means every caller
+            # (app.py's Create page included) gets it on the clip record
+            # itself, not just whoever happened to run one particular
+            # script.
+            from agent import preflight as pf
+            preflight_report = pf.check_clip(
+                {"clip_id": clip_id, "start_time": start_time, "end_time": end_time,
+                 "motion_effect": motion_effect, "crop_mode": crop_mode},
+                transcript_text=resolved_transcript or "", profile=channel_profile,
+                min_sec=min_duration_sec, max_sec=max_duration_sec)
+            if not preflight_report.clean:
+                logger.warning(f"{clip_id}: {preflight_report.describe()}")
+
+            # Audience reaction: the complement to the opener/cutaway
+            # above, and to critic.py's pre-generation check on the
+            # trend-loop path -- this pipeline cuts from real footage
+            # rather than writing a Veo brief, so there is no "brief" for
+            # critic.py to argue with, but the finished artefact still
+            # benefits from "would a viewer scroll here" the same way any
+            # other finished clip does. Off by default like the generation
+            # gates above, even though this specific call is a cheap text
+            # call rather than a paid one, for consistency with the rest
+            # of this opt-in group.
+            audience_reaction = None
+            if audience_check:
+                _emit("skuld", f"👀 Getting an audience reaction to the finished clip (clip {clip_counter[0]})...")
+                try:
+                    from agent import audience as aud
+                    subs_path = self.skuld.output_dir / f"{clip_id}_subs.ass"
+                    reaction = aud.watch(
+                        rendered_path, subs_path if subs_path.exists() else None)
+                    audience_reaction = reaction.summary() + (
+                        f" — {'; '.join(reaction.reasons)}" if reaction.reasons else "")
+                    logger.info(f"{clip_id}: {audience_reaction}")
+                except Exception as e:
+                    logger.warning(f"{clip_id}: no audience reaction: {e}")
+
             rendered_clips.append(
                 {
                     "clip_id": clip_id,
@@ -775,6 +819,8 @@ class VerdandiOrchestrator:
                     "end_time": end_time,
                     "opening_line": opening,
                     "opening_problem": opening_problem,
+                    "preflight_findings": [str(f) for f in preflight_report.findings],
+                    "audience_reaction": audience_reaction,
                     "output_video_path": rendered_path,
                     "has_generated_opener": has_opener,
                     "has_subtitles": result["has_subtitles"],
@@ -1115,6 +1161,7 @@ class VerdandiOrchestrator:
         opener_sec: float = 0.0,
         broll: bool = False,
         generated_backdrop: bool = False,
+        audience_check: bool = False,
         rewatch_evidence: str = "",
         rewatch_peak_sec: Optional[float] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
@@ -1224,6 +1271,7 @@ class VerdandiOrchestrator:
             opener_sec=opener_sec,
             broll=broll,
             generated_backdrop=generated_backdrop,
+            audience_check=audience_check,
             progress_callback=progress_callback,
         )
         prompt = self._build_prompt(
@@ -1323,6 +1371,7 @@ class VerdandiOrchestrator:
         opener_sec: float = 0.0,
         broll: bool = False,
         generated_backdrop: bool = False,
+        audience_check: bool = False,
         rewatch_evidence: str = "",
         rewatch_peak_sec: Optional[float] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
@@ -1434,6 +1483,7 @@ class VerdandiOrchestrator:
                     opener_sec=opener_sec,
                     broll=broll,
                     generated_backdrop=generated_backdrop,
+            audience_check=audience_check,
                     rewatch_evidence=rewatch_evidence,
                     rewatch_peak_sec=rewatch_peak_sec,
                     progress_callback=_relay,

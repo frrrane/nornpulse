@@ -1447,6 +1447,15 @@ def page_create():
                      "clip on top of the cover thumbnail — falls back to the usual blurred "
                      "background if generation fails.",
             )
+            audience_check = st.checkbox(
+                ":material/visibility: Audience Reaction",
+                value=False,
+                help="Watches each finished clip's own sampled frames and captions and says "
+                     "where a scrolling viewer would give up, and why — the same check used on "
+                     "the trend-generated and externally-supplied paths, now available here too. "
+                     "Off by default. A cheap text call, not a paid one, kept opt-in for "
+                     "consistency with the rest of this group.",
+            )
             if active_video_path and os.path.exists(active_video_path):
                 @st.cache_data(show_spinner=False)
                 def _cached_duration(video_path: str) -> float:
@@ -1574,6 +1583,7 @@ def page_create():
                     opener_sec=opener_sec,
                     broll=broll,
                     generated_backdrop=generated_backdrop,
+                    audience_check=audience_check,
                     # What this clip was cut from. A link where there is
                     # one, the file name where there isn't — NornPulse
                     # works on the video, not on where it came from, so
@@ -2024,6 +2034,24 @@ def page_review():
                     extras.append(f"{_material_icon('record_voice_over', '0.85rem')} narration")
                 if extras:
                     st.caption(" · ".join(extras), unsafe_allow_html=True)
+
+                # Quality signals: previously recorded on the clip (some of
+                # them for months, in opening_problem's case) but never
+                # actually shown anywhere a reviewer using this page would
+                # see them — only a terminal, or a staging email. Same
+                # severity ordering as the modules themselves: preflight's
+                # findings are real past rejection reasons, so they get a
+                # warning; opening_problem and the audience reaction are
+                # advisory, so a caption.
+                if meta.get("opening_problem"):
+                    st.caption(f"{_material_icon('warning', '0.85rem')} opens weak — "
+                               f"{meta['opening_problem']}", unsafe_allow_html=True)
+                if meta.get("preflight_findings"):
+                    st.warning("Preflight: " + "; ".join(meta["preflight_findings"]),
+                              icon=":material/rule:")
+                if meta.get("audience_reaction"):
+                    st.caption(f"{_material_icon('visibility', '0.85rem')} "
+                               f"{meta['audience_reaction']}", unsafe_allow_html=True)
 
                 if decision:
                     line = (f"Decided **{decision['status']}** via {decision.get('source', '?')} "

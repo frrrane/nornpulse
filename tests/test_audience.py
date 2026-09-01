@@ -126,3 +126,19 @@ def test_describe_names_the_sampling_ceiling(monkeypatch, tmp_path):
     _stub(monkeypatch, {"would_finish": True, "reasons": []})
     text = audience.describe(audience.watch(tmp_path / "clip.mp4"))
     assert "storyboard proxy" in text
+
+
+# --- wired into the pipeline (VerdandiOrchestrator's own cut-from-source
+# path, not just trend_publish.py/publish_file.py) -----------------------
+
+def test_audience_check_is_off_unless_asked_for():
+    """
+    A cheap text call, not a paid one like the opener/cutaway/backdrop —
+    but kept opt-in for consistency with that group rather than becoming
+    a silent default on every clip.
+    """
+    import inspect
+    from agent.verdandi_orchestrator import VerdandiOrchestrator
+
+    for fn in (VerdandiOrchestrator.orchestrate_generation, VerdandiOrchestrator.orchestrate_batch):
+        assert inspect.signature(fn).parameters["audience_check"].default is False

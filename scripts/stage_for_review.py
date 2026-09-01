@@ -21,7 +21,10 @@ is the expected, correct outcome. NORNPULSE_GENERATED_BACKDROP=1
 composites the source over a themed generated image instead of a
 blurred copy of itself (see skuld_renderer.py's generated_backdrop crop
 mode) — off by default; a second Heimdall image call on top of the
-cover thumbnail when it's on.
+cover thumbnail when it's on. NORNPULSE_AUDIENCE_CHECK=1 gets a real
+audience reaction to each finished clip (see agent/audience.py) — off
+by default; a cheap text call, not a paid one, but kept opt-in for
+consistency with the rest of this group.
 
 A URL is downloaded and transcribed first, so staging from a fresh source
 is one command. A local path skips both and needs its transcript passed
@@ -81,9 +84,9 @@ def _resolve_source(source: str, transcript_path: str | None):
 def stage_clips(source: str, transcript_path: str | None, target_count: int,
                 subscribers: int = 0, channel_slug: str | None = None,
                 opener_sec: float = 0.0, broll: bool = False,
-                generated_backdrop: bool = False) -> int:
+                generated_backdrop: bool = False,
+                audience_check: bool = False) -> int:
     from agent import channels as chans
-    from agent.verdandi_orchestrator import CLIP_MIN_SEC, CLIP_MAX_SEC
     from agent.verdandi_orchestrator import VerdandiOrchestrator
     from agent.norn_publisher import NornPublisher
 
@@ -137,6 +140,9 @@ def stage_clips(source: str, transcript_path: str | None, target_count: int,
     if generated_backdrop:
         print("🖼️  Generated backdrop requested — a themed image call per clip "
               "(see agent/heimdall_visualizer.py, skuld_renderer.py).")
+    if audience_check:
+        print("👀 Audience reaction requested for each finished clip "
+              "(see agent/audience.py).")
 
     print(f"🚀 Staging {target_count} clip(s) from {video.name}...")
     clips = VerdandiOrchestrator().orchestrate_generation(
@@ -153,6 +159,7 @@ def stage_clips(source: str, transcript_path: str | None, target_count: int,
         opener_sec=opener_sec,
         broll=broll,
         generated_backdrop=generated_backdrop,
+        audience_check=audience_check,
         progress_callback=lambda stage, message: print(f"   [{stage}] {message}"),
     )
 
@@ -169,15 +176,12 @@ def stage_clips(source: str, transcript_path: str | None, target_count: int,
         Path(rendered).with_name(f"{clip['clip_id']}_metadata.json").write_text(
             json.dumps(clip, indent=2, default=str), encoding="utf-8")
 
-        # Checked before it costs a human any attention. Reported, not
-        # enforced: every fault on the list came from a real rejection, but
-        # a clip with one is still the reviewer's call to make.
-        from agent import preflight
-        report = preflight.check_clip(
-            clip, transcript_text=transcript_text, profile=profile,
-            min_sec=CLIP_MIN_SEC, max_sec=CLIP_MAX_SEC)
-        if not report.clean:
-            print(report.describe())
+        # Preflight now runs inside VerdandiOrchestrator itself (every
+        # caller gets it on the clip record, not just this script), so
+        # this only needs to print what's already there.
+        if clip.get("preflight_findings"):
+            print(f"🔴 preflight {clip['clip_id']}: "
+                  + "; ".join(clip["preflight_findings"]))
 
         print(f"📧 Staging {clip['clip_id']} — {clip.get('hook_title')}...")
         # Passing the whole clip record is what fills the review table in
@@ -219,4 +223,5 @@ if __name__ == "__main__":
         float(os.getenv("NORNPULSE_OPENER_SEC", "0")),
         os.getenv("NORNPULSE_BROLL", "").strip().lower() in ("1", "true", "yes"),
         os.getenv("NORNPULSE_GENERATED_BACKDROP", "").strip().lower() in ("1", "true", "yes"),
+        os.getenv("NORNPULSE_AUDIENCE_CHECK", "").strip().lower() in ("1", "true", "yes"),
     ))
