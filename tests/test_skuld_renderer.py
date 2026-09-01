@@ -251,10 +251,59 @@ def skuld(tmp_path):
 
 @pytest.mark.parametrize("crop_mode", [
     "center_crop", "blurred_background", "top_anchored_crop", "cinematic_letterbox",
+    "generated_backdrop",
 ])
 def test_every_crop_mode_targets_the_1080x1920_canvas(skuld, crop_mode):
     graph = skuld._build_crop_filter(crop_mode)
     assert "1080" in graph and "1920" in graph
+
+
+def test_generated_backdrop_composites_the_backdrop_input_not_the_source(skuld):
+    """
+    Unlike blurred_background/top_anchored_crop, the background layer
+    here comes from a SEPARATE ffmpeg input (the generated image) rather
+    than a blurred copy of the source itself.
+    """
+    graph = skuld._build_crop_filter("generated_backdrop")
+    assert "[1:v]" in graph
+    assert "boxblur" not in graph
+    # The foreground is still the source video, letterboxed to fit.
+    assert "[0:v]scale=1080:-1" in graph
+
+
+def test_generated_backdrop_never_needs_a_split(skuld):
+    """
+    No split=2 dance here even against a named filter pad: the
+    background comes from an entirely different input, so video_label
+    (whatever it is) is only ever consumed once, by the foreground.
+    """
+    graph = skuld._build_crop_filter("generated_backdrop", video_label="[zoomed]")
+    assert "split=2" not in graph
+    assert "[zoomed]scale=1080:-1" in graph
+
+
+def test_generated_backdrop_input_index_is_configurable(skuld):
+    """
+    render_vertical_short always attaches the backdrop as input 1, but
+    the parameter exists rather than a hardcoded literal so a future
+    caller isn't locked into that ordering.
+    """
+    graph = skuld._build_crop_filter("generated_backdrop", backdrop_input="[2:v]")
+    assert "[2:v]" in graph
+    assert "[1:v]" not in graph
+
+
+def test_generated_backdrop_is_off_unless_asked_for():
+    """
+    A second Heimdall image call per clip on top of the cover thumbnail,
+    so it stays opt-in like the opener and the cutaway rather than
+    becoming the default.
+    """
+    import inspect
+    from agent.verdandi_orchestrator import VerdandiOrchestrator
+
+    for fn in (VerdandiOrchestrator.orchestrate_generation, VerdandiOrchestrator.orchestrate_batch):
+        assert inspect.signature(fn).parameters["generated_backdrop"].default is False
 
 
 @pytest.mark.parametrize("crop_mode", ["blurred_background", "top_anchored_crop"])

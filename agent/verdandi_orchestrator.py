@@ -422,6 +422,7 @@ class VerdandiOrchestrator:
         avoid_crop: Optional[List[str]] = None,
         opener_sec: float = 0.0,
         broll: bool = False,
+        generated_backdrop: bool = False,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Callable]:
         """Builds request-scoped tool functions closing over this call's state."""
@@ -624,6 +625,24 @@ class VerdandiOrchestrator:
                     output_dir=self.skuld.output_dir,
                 )
 
+            # Form 3 of weaving generated footage into cut clips: composite
+            # the source over a themed generated image instead of a
+            # blurred copy of itself. Off unless a caller asks — this is a
+            # second Heimdall image call on top of the thumbnail, so it
+            # doubles that part of the per-clip cost when on. crop_mode
+            # is only overridden on success; a generation failure leaves
+            # whatever the benchmark already chose, same degrade-quietly
+            # pattern as the thumbnail right above.
+            backdrop_path = None
+            if generated_backdrop and music_benchmark:
+                _emit("heimdall", f"👁️ Heimdall (backdrop) is generating a themed background (clip {clip_counter[0]})...")
+                backdrop_path = self.heimdall.compose_backdrop(
+                    clip_id=clip_id, hook_title=hook_banner_text, music_benchmark=music_benchmark,
+                    output_dir=self.skuld.output_dir,
+                )
+                if backdrop_path:
+                    crop_mode = "generated_backdrop"
+
             # Mímir narrates in two situations, both grounded in the same
             # music_benchmark's energy_level for voice selection:
             #  1. Fill silence — vision mode has no dialogue at all, so
@@ -679,6 +698,7 @@ class VerdandiOrchestrator:
                 crazy=crazy,
                 music_path=music_path,
                 narration_path=narration_path,
+                backdrop_path=backdrop_path,
             )
             # Record ground-truth render output. This is what the UI will
             # ultimately trust, independent of whatever the model's final
@@ -1094,6 +1114,7 @@ class VerdandiOrchestrator:
         channel_profile: Optional[Any] = None,
         opener_sec: float = 0.0,
         broll: bool = False,
+        generated_backdrop: bool = False,
         rewatch_evidence: str = "",
         rewatch_peak_sec: Optional[float] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
@@ -1202,6 +1223,7 @@ class VerdandiOrchestrator:
             avoid_crop=list(getattr(channel_profile, "avoid_crop", []) or []),
             opener_sec=opener_sec,
             broll=broll,
+            generated_backdrop=generated_backdrop,
             progress_callback=progress_callback,
         )
         prompt = self._build_prompt(
@@ -1300,6 +1322,7 @@ class VerdandiOrchestrator:
         channel_profile: Optional[Any] = None,
         opener_sec: float = 0.0,
         broll: bool = False,
+        generated_backdrop: bool = False,
         rewatch_evidence: str = "",
         rewatch_peak_sec: Optional[float] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
@@ -1410,6 +1433,7 @@ class VerdandiOrchestrator:
                     channel_profile=channel_profile,
                     opener_sec=opener_sec,
                     broll=broll,
+                    generated_backdrop=generated_backdrop,
                     rewatch_evidence=rewatch_evidence,
                     rewatch_peak_sec=rewatch_peak_sec,
                     progress_callback=_relay,

@@ -1438,6 +1438,15 @@ def page_create():
                      "get no cutaway at all — the reasoning step is a cheap text call, and the "
                      "Veo generation only fires on the clips that actually need one.",
             )
+            generated_backdrop = st.checkbox(
+                ":material/wallpaper: Generated Backdrop",
+                value=False,
+                help="Composites the source over a themed generated image instead of a blurred "
+                     "copy of itself, for crop modes that fill the frame with a background. "
+                     "Off by default. **Costs real money**: a second Heimdall image call per "
+                     "clip on top of the cover thumbnail — falls back to the usual blurred "
+                     "background if generation fails.",
+            )
             if active_video_path and os.path.exists(active_video_path):
                 @st.cache_data(show_spinner=False)
                 def _cached_duration(video_path: str) -> float:
@@ -1564,6 +1573,7 @@ def page_create():
                     channel_subscribers=int(st.session_state.channel_subs),
                     opener_sec=opener_sec,
                     broll=broll,
+                    generated_backdrop=generated_backdrop,
                     # What this clip was cut from. A link where there is
                     # one, the file name where there isn't — NornPulse
                     # works on the video, not on where it came from, so

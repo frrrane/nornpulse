@@ -62,6 +62,31 @@ class HeimdallVisualizer:
             f"a short-form vertical video."
         )
 
+    def _build_backdrop_prompt(self, hook_title: str, genre: str, mood: str,
+                               energy_level: float) -> str:
+        """
+        Unlike the thumbnail prompt, this asks for atmosphere rather than
+        a subject: the source video's own footage sits on top of this as
+        the foreground (see skuld_renderer.py's generated_backdrop crop
+        mode), so a backdrop with a strong subject of its own would
+        compete with it rather than frame it. Softer contrast too, for
+        the same reason — the foreground needs to read as the sharpest,
+        most legible thing on screen.
+        """
+        energy_word = (
+            "energetic, saturated" if energy_level >= 0.7 else
+            "moderate-energy" if energy_level >= 0.45 else
+            "calm, muted"
+        )
+        return (
+            f"An abstract, atmospheric vertical background texture evoking the theme: "
+            f"\"{hook_title}\", in the spirit of {mood} {genre}. {energy_word} color "
+            f"palette. Soft focus, gentle gradients, no sharp central subject, no faces, "
+            f"no readable text, no watermark, no logos — pure ambient backdrop that other "
+            f"footage will be composited on top of, so it must stay visually quiet enough "
+            f"not to compete with whatever sits in front of it."
+        )
+
     @retry_on_transient()
     def _generate(self, prompt: str):
         """
@@ -80,6 +105,29 @@ class HeimdallVisualizer:
             ),
         )
 
+    def _generate_and_save(self, prompt: str, output_path: Path, clip_id: str, label: str) -> Optional[str]:
+        """
+        Shared by compose_thumbnail and compose_backdrop: the call, the
+        image-part extraction, and the write-to-disk are identical: only
+        the prompt and the destination filename differ.
+        """
+        try:
+            response = self._generate(prompt)
+            parts = response.candidates[0].content.parts if response.candidates else []
+            image_part = next((p for p in parts if getattr(p, "inline_data", None)), None)
+            if image_part is None:
+                logger.warning(f"Gemini returned no image for clip_id '{clip_id}' ({label}).")
+                return None
+
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(image_part.inline_data.data)
+            logger.info(f"✨ {label} (Heimdall) composed: {output_path.name} "
+                       f"({len(image_part.inline_data.data)} bytes)")
+            return str(output_path)
+        except Exception as e:
+            logger.error(f"Heimdall {label} composition failed for clip_id '{clip_id}': {e}")
+            return None
+
     def compose_thumbnail(
         self, clip_id: str, hook_title: str, music_benchmark: dict,
         output_dir: str | Path = "output_clips",
@@ -95,21 +143,27 @@ class HeimdallVisualizer:
         mood = music_benchmark.get("mood", "neutral")
         energy_level = float(music_benchmark.get("energy_level", 0.5))
         prompt = self._build_prompt(hook_title, genre, mood, energy_level)
+        logger.info(f"👁️ Cover image (Heimdall) composing for {clip_id} ({genre}/{mood})...")
+        output_path = Path(output_dir) / f"{clip_id}_thumb.jpg"
+        return self._generate_and_save(prompt, output_path, clip_id, "cover image")
 
-        try:
-            logger.info(f"👁️ Cover image (Heimdall) composing for {clip_id} ({genre}/{mood})...")
-            response = self._generate(prompt)
-            parts = response.candidates[0].content.parts if response.candidates else []
-            image_part = next((p for p in parts if getattr(p, "inline_data", None)), None)
-            if image_part is None:
-                logger.warning(f"Gemini returned no image for clip_id '{clip_id}'.")
-                return None
-
-            output_path = Path(output_dir) / f"{clip_id}_thumb.jpg"
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_bytes(image_part.inline_data.data)
-            logger.info(f"✨ Cover image (Heimdall) composed: {output_path.name} ({len(image_part.inline_data.data)} bytes)")
-            return str(output_path)
-        except Exception as e:
-            logger.error(f"Heimdall thumbnail composition failed for clip_id '{clip_id}': {e}")
-            return None
+    def compose_backdrop(
+        self, clip_id: str, hook_title: str, music_benchmark: dict,
+        output_dir: str | Path = "output_clips",
+    ) -> Optional[str]:
+        """
+        Composes a themed 9:16 BACKGROUND image for skuld_renderer.py's
+        generated_backdrop crop mode — the source clip's own footage is
+        composited on top of this, so unlike compose_thumbnail this asks
+        for atmosphere, not a subject (see _build_backdrop_prompt).
+        Returns the local .jpg path, or None if generation fails —
+        callers should fall back to blurred_background rather than fail
+        the whole clip over an image-generation glitch.
+        """
+        genre = music_benchmark.get("genre", "cinematic")
+        mood = music_benchmark.get("mood", "neutral")
+        energy_level = float(music_benchmark.get("energy_level", 0.5))
+        prompt = self._build_backdrop_prompt(hook_title, genre, mood, energy_level)
+        logger.info(f"👁️ Backdrop (Heimdall) composing for {clip_id} ({genre}/{mood})...")
+        output_path = Path(output_dir) / f"{clip_id}_backdrop.jpg"
+        return self._generate_and_save(prompt, output_path, clip_id, "backdrop")

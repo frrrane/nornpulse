@@ -67,7 +67,8 @@ def resolve_caption_font(choice: Optional[str] = None) -> str:
         return CAPTION_FONT
     return CAPTION_FONTS.get(choice, CAPTION_FONT)
 
-CropMode = Literal["center_crop", "blurred_background", "top_anchored_crop", "cinematic_letterbox"]
+CropMode = Literal["center_crop", "blurred_background", "top_anchored_crop",
+                   "cinematic_letterbox", "generated_backdrop"]
 
 # Crop modes that discard the sides of the frame. center_crop fills a 9:16
 # screen by cutting a 16:9 source down to `crop=ih*9/16:ih`, which is the
@@ -643,7 +644,8 @@ class SkuldRenderer:
         self.output_dir = Path(output_dir).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def _build_crop_filter(self, crop_mode: CropMode, video_label: str = "[0:v]") -> str:
+    def _build_crop_filter(self, crop_mode: CropMode, video_label: str = "[0:v]",
+                           backdrop_input: str = "[1:v]") -> str:
         """
         video_label is normally the raw decoded input ([0:v]), but when a
         zoom motion effect is active, render_vertical_short instead pipes
@@ -697,6 +699,23 @@ class SkuldRenderer:
                 f"{bg_label}scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:6[bg];"
                 f"{fg_label}scale=1080:-1:force_original_aspect_ratio=decrease[fg];"
                 f"[bg][fg]overlay=(W-w)/2:H*0.06"
+            )
+        if crop_mode == "generated_backdrop":
+            # Composites the source over a themed GENERATED image instead
+            # of a blurred copy of itself (see
+            # HeimdallVisualizer.compose_backdrop). backdrop_input is a
+            # SEPARATE ffmpeg input, not a split of video_label, so no
+            # split=2 dance is needed here — fg is only ever used once;
+            # bg comes from an entirely different stream. Caller is
+            # responsible for actually attaching that input and for never
+            # requesting this mode without one (render_vertical_short
+            # falls back to blurred_background rather than reaching this
+            # branch with nothing to composite against).
+            return (
+                f"{backdrop_input}scale=1080:1920:force_original_aspect_ratio=increase,"
+                f"crop=1080:1920,setsar=1[bg];"
+                f"{video_label}scale=1080:-1:force_original_aspect_ratio=decrease[fg];"
+                f"[bg][fg]overlay=(W-w)/2:(H-h)/2"
             )
         if crop_mode == "cinematic_letterbox":
             # Full frame scaled to fit width, solid black bars top/bottom --
@@ -906,10 +925,23 @@ class SkuldRenderer:
         crazy: float = 0.3,
         music_path: Optional[str | Path] = None,
         narration_path: Optional[str | Path] = None,
+        backdrop_path: Optional[str | Path] = None,
     ) -> Dict[str, Any]:
         input_video_path = Path(input_video_path)
         if not input_video_path.exists():
             raise FileNotFoundError(f"Input video not found: {input_video_path}")
+
+        # generated_backdrop needs a real image to composite against — a
+        # caller requesting it without one (generation failed upstream, or
+        # simply forgot) falls back to blurred_background rather than
+        # reaching _build_crop_filter with nothing for [1:v] to be, which
+        # would fail the whole render over a decoration.
+        has_backdrop = bool(backdrop_path) and Path(backdrop_path).exists()
+        if crop_mode == "generated_backdrop" and not has_backdrop:
+            logger.warning(
+                f"{clip_id}: generated_backdrop requested but no usable image "
+                f"was given; rendering with blurred_background instead.")
+            crop_mode = "blurred_background"
 
         output_video_path = self.output_dir / f"{clip_id}_9x16.mp4"
         logger.info(
@@ -921,6 +953,12 @@ class SkuldRenderer:
         clip_start_sec = parse_time_to_seconds(start_time)
         clip_end_sec = parse_time_to_seconds(end_time)
         clip_duration_sec = max(0.1, clip_end_sec - clip_start_sec)
+
+        # The backdrop image, if used, is always ffmpeg input index 1 —
+        # immediately after the source video at 0 and before narration/
+        # music, which are appended later as extra_inputs and read their
+        # own index from next_input_idx below.
+        backdrop_inputs: List[str] = ["-i", str(backdrop_path)] if crop_mode == "generated_backdrop" else []
 
         if motion_effect in ("ken_burns_zoom", "punch_in_zoom"):
             # Zoom effects run as a pre-stage on the raw decoded input at
@@ -981,10 +1019,14 @@ class SkuldRenderer:
         has_narration = bool(narration_path) and Path(narration_path).exists()
         source_has_audio = has_audio_stream(input_video_path)
 
-        extra_inputs: List[str] = []
+        # backdrop_inputs, if present, must come first in extra_inputs to
+        # actually land at index 1 the way _build_crop_filter's [1:v]
+        # assumed above — narration/music start counting from whichever
+        # index that leaves free.
+        extra_inputs: List[str] = list(backdrop_inputs)
         mix_parts: List[str] = []
         mix_labels: List[str] = []
-        next_input_idx = 1
+        next_input_idx = 2 if backdrop_inputs else 1
 
         if has_narration:
             extra_inputs += ["-i", str(narration_path)]

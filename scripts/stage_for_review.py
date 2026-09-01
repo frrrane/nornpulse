@@ -17,7 +17,11 @@ agent/weaver.py) — off by default, since each one is a separate paid Veo
 call on top of what staging otherwise costs. NORNPULSE_BROLL=1 checks
 every clip's own narration for a moment that needs a generated cutaway —
 off by default for the same reason, and most clips will find none, which
-is the expected, correct outcome.
+is the expected, correct outcome. NORNPULSE_GENERATED_BACKDROP=1
+composites the source over a themed generated image instead of a
+blurred copy of itself (see skuld_renderer.py's generated_backdrop crop
+mode) — off by default; a second Heimdall image call on top of the
+cover thumbnail when it's on.
 
 A URL is downloaded and transcribed first, so staging from a fresh source
 is one command. A local path skips both and needs its transcript passed
@@ -76,7 +80,8 @@ def _resolve_source(source: str, transcript_path: str | None):
 
 def stage_clips(source: str, transcript_path: str | None, target_count: int,
                 subscribers: int = 0, channel_slug: str | None = None,
-                opener_sec: float = 0.0, broll: bool = False) -> int:
+                opener_sec: float = 0.0, broll: bool = False,
+                generated_backdrop: bool = False) -> int:
     from agent import channels as chans
     from agent.verdandi_orchestrator import CLIP_MIN_SEC, CLIP_MAX_SEC
     from agent.verdandi_orchestrator import VerdandiOrchestrator
@@ -129,6 +134,9 @@ def stage_clips(source: str, transcript_path: str | None, target_count: int,
         print("🧵 Generated cutaway check requested — each clip's narration is "
               "reasoned over, and only clips with a real moment for it get a "
               "paid Veo call (see agent/weaver.py).")
+    if generated_backdrop:
+        print("🖼️  Generated backdrop requested — a themed image call per clip "
+              "(see agent/heimdall_visualizer.py, skuld_renderer.py).")
 
     print(f"🚀 Staging {target_count} clip(s) from {video.name}...")
     clips = VerdandiOrchestrator().orchestrate_generation(
@@ -144,6 +152,7 @@ def stage_clips(source: str, transcript_path: str | None, target_count: int,
         channel_subscribers=subscribers,
         opener_sec=opener_sec,
         broll=broll,
+        generated_backdrop=generated_backdrop,
         progress_callback=lambda stage, message: print(f"   [{stage}] {message}"),
     )
 
@@ -209,4 +218,5 @@ if __name__ == "__main__":
         os.getenv("NORNPULSE_CHANNEL") or None,
         float(os.getenv("NORNPULSE_OPENER_SEC", "0")),
         os.getenv("NORNPULSE_BROLL", "").strip().lower() in ("1", "true", "yes"),
+        os.getenv("NORNPULSE_GENERATED_BACKDROP", "").strip().lower() in ("1", "true", "yes"),
     ))
