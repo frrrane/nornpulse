@@ -161,6 +161,25 @@ of work, judged against what the clips actually looked like.
       choice it hadn't made yet — reordered. Verified live: a real run
       produced "Hippo Swings Butterfly Net At High-Speed Flying Ball
       Explosion" for a visual_disruption hook, not a topic label.
+- [x] **Quality signals now actually reach the dashboard.** A product
+      audit found that every check this project produces — preflight's
+      rejection-history checklist, the audience reaction, owner-measured
+      retention, even the older `opening_problem` flag despite its own
+      comment claiming otherwise — was print-only or email-only, never
+      reaching the clip's own metadata or `page_review()`, the actual
+      persistent surface a reviewer uses. Fixed: `preflight.check_clip`
+      now runs unconditionally inside `VerdandiOrchestrator` itself
+      (free, so no reason to gate it) instead of only in
+      `stage_for_review.py`, and its findings plus `opening_problem` and
+      `audience_reaction` are written onto the clip record, so both real
+      callers (Create page, the CLI script) pick them up automatically.
+      `page_review()` gained three severity-ordered lines on its
+      existing extras pattern. Also closed a related gap the same audit
+      found: `agent/audience.py` covered the trend-generated and
+      externally-supplied paths but not `VerdandiOrchestrator` itself —
+      the pipeline's own primary path, the one that produced the
+      published clips being graded. Added as a fourth opt-in
+      (`audience_check`), same pattern as the three weave forms.
 - [x] **Weave generated footage into cut clips.** All three forms, cheapest
       first, each a paid generation call on a clip that previously cost
       nothing beyond rendering, so a real line item at six uploads a day
