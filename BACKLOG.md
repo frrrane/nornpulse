@@ -43,35 +43,6 @@ submission is **Wed 9 September 2026, 2pm PDT**.
 These came out of reviewing real rejected clips. Ordered by effect per unit
 of work, judged against what the clips actually looked like.
 
-- [ ] **Weave generated footage into cut clips.** Three forms, cheapest first:
-
-  1. ~~*Generated cold-open*~~ — **done** (`agent/weaver.py`): a
-     crossfaded Veo opener in front of the cut, addressing the exact "cuts
-     unexpectedly at the second second" complaint from a real past
-     rejection. Was fully built and wired through
-     `VerdandiOrchestrator.orchestrate_generation`/`orchestrate_batch`
-     months before this line was last touched, but nothing above the
-     orchestrator ever exposed a way to turn it on — now surfaced as a
-     slider in the Create page's Advanced Settings (default 0, off) and
-     `NORNPULSE_OPENER_SEC` in `scripts/stage_for_review.py`.
-  2. ~~*Generated B-roll under narration*~~ — **done** (`agent/weaver.py`):
-     `identify_broll_moment` reasons over a clip's own transcript for a
-     span the source footage genuinely can't show, and correctly says
-     "nowhere" on most clips rather than forcing an insert — verified
-     against the real sample_data transcript (correctly picked the loop-
-     quantum-gravity passage) and against deliberately concrete narration
-     (correctly found nothing). `insert_broll` swaps only the picture for
-     that window via ffmpeg, with the clip's own audio stream-copied
-     through untouched — verified byte-identical via a raw PCM diff.
-     Wired and exposed from the start this time: a checkbox in the
-     Create page and `NORNPULSE_BROLL` in `scripts/stage_for_review.py`.
-  3. *Generated backdrop instead of blur*, compositing the source over a
-     themed generated background rather than a blurred copy of itself.
-     Still unbuilt.
-
-  Every insert is a paid Veo call on a clip that currently costs nothing
-  beyond rendering, so at six uploads a day this is a real line item.
-
 - [ ] **Tags are weak, and in four distinct ways.** The clip published as
   `ncSGySusHUg` went out with:
 
@@ -190,6 +161,42 @@ of work, judged against what the clips actually looked like.
       choice it hadn't made yet — reordered. Verified live: a real run
       produced "Hippo Swings Butterfly Net At High-Speed Flying Ball
       Explosion" for a visual_disruption hook, not a topic label.
+- [x] **Weave generated footage into cut clips.** All three forms, cheapest
+      first, each a paid generation call on a clip that previously cost
+      nothing beyond rendering, so a real line item at six uploads a day
+      (form 3's is cheaper — an image call, not video):
+
+      1. *Generated cold-open* (`agent/weaver.py`): a crossfaded Veo opener
+         in front of the cut, addressing the exact "cuts unexpectedly at
+         the second second" complaint from a real past rejection. Was
+         fully built and wired through
+         `VerdandiOrchestrator.orchestrate_generation`/`orchestrate_batch`
+         months before this line was last touched, but nothing above the
+         orchestrator ever exposed a way to turn it on — now a slider in
+         the Create page's Advanced Settings (default 0, off) and
+         `NORNPULSE_OPENER_SEC` in `scripts/stage_for_review.py`.
+      2. *Generated B-roll under narration* (`agent/weaver.py`):
+         `identify_broll_moment` reasons over a clip's own transcript for
+         a span the source footage genuinely can't show, and correctly
+         says "nowhere" on most clips rather than forcing an insert —
+         verified against the real sample_data transcript (correctly
+         picked the loop-quantum-gravity passage) and against
+         deliberately concrete narration (correctly found nothing).
+         `insert_broll` swaps only the picture for that window via
+         ffmpeg, the clip's own audio stream-copied through untouched —
+         verified byte-identical via a raw PCM diff. Exposed the same
+         way: a Create page checkbox, `NORNPULSE_BROLL` for the CLI.
+      3. *Generated backdrop instead of blur* (`agent/skuld_renderer.py`,
+         `agent/heimdall_visualizer.py`): the smallest of the three —
+         reuses Heimdall's existing image-generation (built for cover
+         thumbnails) rather than a new Veo call, since a backdrop needs
+         no motion. `compose_backdrop` asks for atmosphere, not a
+         subject, so it doesn't compete with the source footage
+         composited on top of it. Falls back to `blurred_background` on
+         a failed generation. Verified against real ffmpeg: extracted
+         and viewed an actual composited frame, not just the
+         filter-graph string. Exposed the same way: a Create page
+         checkbox, `NORNPULSE_GENERATED_BACKDROP` for the CLI.
 - [x] **A critic agent, and an audience agent** (`agent/critic.py`,
       `agent/audience.py`). The critic sits between the brief and
       generation, checked against real, live-read rejection history (19
