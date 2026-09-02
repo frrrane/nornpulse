@@ -23,7 +23,8 @@ from agent import text_fit
 from agent.skuld_renderer import (
     SkuldRenderer, parse_time_to_seconds, format_seconds_to_mmss, get_video_duration_seconds,
     measure_audio_mean_volume, NARRATION_FALLBACK_VOLUME_THRESHOLD_DB,
-    SIDE_CROPPING_MODES,
+    SIDE_CROPPING_MODES, caption_style_from_visual,
+    banner_font_from_hook_type, caption_font_from_hook_type,
 )
 from agent.urdr_analytics import UrdrAnalytics, hook_title_guidance_block
 from agent.bragi_composer import BragiComposer
@@ -405,8 +406,8 @@ class VerdandiOrchestrator:
         self,
         transcript_text: str,
         rendered_clips: List[Dict[str, Any]],
-        warmth: float,
-        crazy: float,
+        warmth: Optional[float],
+        crazy: Optional[float],
         retention_summary: Dict[str, Any],
         min_duration_sec: float,
         max_duration_sec: float,
@@ -613,6 +614,27 @@ class VerdandiOrchestrator:
             motion_effect = visual_benchmark.get("motion_effect", "none") if visual_benchmark else "none"
             color_grade = visual_benchmark.get("color_grade", "neutral") if visual_benchmark else "neutral"
 
+            # crazy/warmth, same reasoning as crop_mode/motion_effect/
+            # color_grade just above: grounded in this same hook_type's
+            # visual treatment rather than sitting at one flat setting for
+            # every clip, UNLESS a caller pinned an explicit value (the
+            # Create page's sliders) -- that override is left alone.
+            clip_crazy, clip_warmth = caption_style_from_visual(motion_effect, color_grade)
+            if crazy is not None:
+                clip_crazy = crazy
+            if warmth is not None:
+                clip_warmth = warmth
+
+            # Banner/caption font, same override-if-set pattern: an
+            # editorial pairing per hook_type (see
+            # skuld_renderer.HOOK_TYPE_BANNER_FONT/HOOK_TYPE_CAPTION_FONT
+            # for why this one is a judgement call, not a benchmark
+            # lookup) unless a caller pinned one explicitly -- the
+            # channel-profile default stage_for_review.py already passes,
+            # or a human's choice on the Create page.
+            clip_banner_font = banner_font_from_hook_type(hook_type)
+            clip_caption_font = caption_font if caption_font else caption_font_from_hook_type(hook_type)
+
             # Heimdall composes a custom cover thumbnail grounded in the
             # same music_benchmark row — the mood/genre/energy that suits
             # this hook_type acoustically is the same signal that should
@@ -691,12 +713,13 @@ class VerdandiOrchestrator:
                 clip_id=clip_id,
                 crop_mode=crop_mode,
                 motion_effect=motion_effect,
-                caption_font=caption_font,
+                caption_font=clip_caption_font,
+                banner_font=clip_banner_font,
                 color_grade=color_grade,
                 hook_banner_text=hook_banner_text,
                 transcript_text=caption_transcript,
-                warmth=warmth,
-                crazy=crazy,
+                warmth=clip_warmth,
+                crazy=clip_crazy,
                 music_path=music_path,
                 narration_path=narration_path,
                 backdrop_path=backdrop_path,
@@ -1143,8 +1166,8 @@ class VerdandiOrchestrator:
         transcript_text: str,
         video_path: str,
         target_count: int,
-        warmth: float = 0.5,
-        crazy: float = 0.3,
+        warmth: Optional[float] = None,
+        crazy: Optional[float] = None,
         topic_focus: Optional[str] = None,
         min_duration_sec: float = CLIP_MIN_SEC,
         max_duration_sec: float = CLIP_MAX_SEC,
@@ -1170,6 +1193,13 @@ class VerdandiOrchestrator:
         source_ref records what this clip was cut from -- a URL or a file
         name -- and is stamped onto every returned clip so a published
         video can always answer whose material it derives from.
+
+        warmth/crazy default to None, not a fixed value: left unset, each
+        clip's caption reveal is grounded in that clip's own per-hook-type
+        visual treatment instead of one flat setting for every clip (see
+        skuld_renderer.caption_style_from_visual). Pass an explicit float
+        to pin every clip in this call to it regardless of hook_type --
+        what the Create page's sliders do.
 
         progress_callback, if given, is called as (stage_key, message) at
         each stage transition (urdr, upload, verdandi, bragi, heimdall,
@@ -1357,8 +1387,8 @@ class VerdandiOrchestrator:
         self,
         video_urls: List[str],
         target_count_per_video: int = 1,
-        warmth: float = 0.5,
-        crazy: float = 0.3,
+        warmth: Optional[float] = None,
+        crazy: Optional[float] = None,
         topic_focus: Optional[str] = None,
         min_duration_sec: float = CLIP_MIN_SEC,
         max_duration_sec: float = CLIP_MAX_SEC,
@@ -1391,6 +1421,9 @@ class VerdandiOrchestrator:
         generation) is logged and that video is skipped rather than
         aborting the whole batch — one bad URL in a playlist shouldn't
         cost the videos that were fine.
+
+        warmth/crazy default to None here too, forwarded as-is into each
+        video's orchestrate_generation() call -- see that docstring.
         """
         urls = video_urls[:BATCH_MAX_VIDEOS]
         if len(video_urls) > BATCH_MAX_VIDEOS:

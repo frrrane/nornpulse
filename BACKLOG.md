@@ -125,6 +125,47 @@ of work, judged against what the clips actually looked like.
 
 ## Done
 
+- [x] **Grounded crazy/warmth, banner/caption font, and emphasis-word
+      selection per hook_type.** From reviewing real rejection history
+      (`critic.rejection_history()`, 20 entries): "too bouncy" appeared
+      twice while `crazy` sat at one flat `0.3` for every clip regardless
+      of content, and "nicer font"/"more engaging font" appeared twice
+      while the banner font was not even configurable — `render_vertical_short`
+      had no `banner_font` parameter at all until this, so every clip used
+      whichever `DISPLAY_FACE` `text_fit.font_file` tried first.
+
+      `skuld_renderer.caption_style_from_visual(motion_effect, color_grade)`
+      derives (crazy, warmth) from the SAME per-hook-type visual benchmark
+      row that already grounds `crop_mode`/`motion_effect`/`color_grade`
+      (`get_top_visual_benchmark`) — the signal driving how energetic the
+      camera motion is and how warm the color grade is now also drives the
+      caption reveal, instead of an independently-guessed style sitting
+      next to it. `HOOK_TYPE_BANNER_FONT`/`HOOK_TYPE_CAPTION_FONT` pair
+      each of the 8 `HOOK_TITLE_GUIDANCE` hook types with a face, labelled
+      honestly as an editorial judgement call rather than a benchmark
+      lookup, since — unlike the visual treatment — there is no existing
+      data to ground a font pairing in.
+
+      Wired into `verdandi_orchestrator.py`'s render tool: `warmth`/`crazy`
+      on `orchestrate_generation`/`orchestrate_batch` changed from fixed
+      `float` defaults to `Optional[float] = None`, resolved per-clip from
+      the hook_type unless a caller pins an explicit value — what the
+      Create page's sliders already do, so manual renders are unaffected;
+      only the automated path (which never set either) gains grounding.
+      Verified against real renders: a real `render_vertical_short` call
+      with an explicit `banner_font`, frame extracted and viewed, showing
+      a visibly different typeface from the default.
+
+      Also improved emphasis-word selection (`_highlight_emphasis_word`),
+      not itself named in any real rejection but requested alongside the
+      above: it picked the single longest word in a caption chunk, which
+      meant a number ("93%" strips to "93", two characters) never cleared
+      the four-letter floor and could never be the highlight — exactly
+      backwards for a shock_stat-style caption, where the number IS the
+      hook. Now prioritises a digit-carrying word, then a deliberately
+      shouted (ALL-CAPS, len > 1) word, and only then falls back to the
+      original longest-word rule.
+
 - [x] **Emoji in kinetic captions — checked properly rather than built.**
       A caption's text comes from transcribing spoken audio, and nobody
       speaks an emoji: confirmed against real transcript fixtures

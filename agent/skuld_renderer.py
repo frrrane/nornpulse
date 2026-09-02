@@ -82,6 +82,92 @@ MotionEffect = Literal["none", "ken_burns_zoom", "punch_in_zoom", "shake"]
 ColorGrade = Literal["neutral", "cool_desaturated", "warm_glow", "vibrant_punch"]
 RGB = Tuple[int, int, int]
 
+# crazy and warmth used to sit at one flat default (0.3, 0.5) for every
+# clip regardless of content -- "too bouncy" was a real, repeated
+# rejection while that was true. motion_effect and color_grade are
+# already chosen per clip from real Urðr benchmark data keyed on hook_type
+# (see verdandi_orchestrator's render tool, get_top_visual_benchmark); the
+# signal that should drive how energetic and how warm the caption reveal
+# looks is the same signal already driving how energetic the camera
+# motion is and how warm the video's own color grade is, not an
+# independently-guessed style sitting next to it. A caller that pins an
+# explicit warmth/crazy (the Create page's sliders) is left alone --
+# this only fills in for the automated path, which never set either.
+_MOTION_TO_CRAZY = {
+    "shake": 0.75,
+    "punch_in_zoom": 0.6,
+    "ken_burns_zoom": 0.2,
+    "none": 0.3,
+}
+_COLOR_GRADE_TO_WARMTH = {
+    "warm_glow": 0.8,
+    "cool_desaturated": 0.2,
+    "vibrant_punch": 0.55,
+    "neutral": 0.5,
+}
+
+
+def caption_style_from_visual(motion_effect: str, color_grade: str) -> Tuple[float, float]:
+    """
+    (crazy, warmth) derived from an already-resolved motion_effect/
+    color_grade, so a clip's captions read as part of the same edit
+    rather than an independently-guessed style. An unrecognised value
+    falls back to this project's long-standing flat defaults (0.3, 0.5)
+    rather than guessing at one.
+    """
+    return (_MOTION_TO_CRAZY.get(motion_effect, 0.3),
+            _COLOR_GRADE_TO_WARMTH.get(color_grade, 0.5))
+
+
+# Two real, separate rejections asked for a "more engaging"/"nicer" font
+# on the title, and the banner font was never actually configurable at
+# all -- render_vertical_short had no banner_font parameter until this
+# was added, so every clip used whichever DISPLAY_FACE text_fit.font_file
+# tries first, regardless of hook_type. This is a judgement call, not a
+# measured one -- unlike caption_style_from_visual above, there is no
+# existing benchmark data a font pairing could be grounded in, so it is
+# labelled as what it is: an editorial choice per hook_type, using each
+# face's own documented character (see scripts/fetch_fonts.py's FACES),
+# not an invented one.
+#
+# Keyed identically to HOOK_TITLE_GUIDANCE (urdr_analytics.py) so the
+# words a hook_type asks for and the face they render in are reasoned
+# about together rather than by two unrelated lookups.
+HOOK_TYPE_BANNER_FONT = {
+    "shock_stat": "Archivo Black",         # heaviest, widest -- reads as impact
+    "curiosity_gap": "Oswald Bold",        # editorial, not meme -- suits a held-back reveal
+    "contrarian_claim": "Anton",           # classic Impact-style punch for a direct claim
+    "direct_question": "Bebas Neue",       # tall, clean -- reads as a direct address
+    "story_in_medias_res": "Oswald Bold",  # editorial narrative tone
+    "metaphor_analogy": "Bebas Neue",      # elegant rather than shouting
+    "problem_agitation": "Anton",          # urgent, punchy
+    "visual_disruption": "Archivo Black",  # heaviest -- matches a chaotic frame
+}
+
+# Same reasoning, for the libass caption face -- CAPTION_FONTS' label
+# keys, not the family names those labels resolve to (resolve_caption_font
+# does that translation).
+HOOK_TYPE_CAPTION_FONT = {
+    "shock_stat": "Impact — Roboto Black",
+    "curiosity_gap": "Geometric — League Spartan",
+    "contrarian_claim": "Impact — Roboto Black",
+    "direct_question": "Condensed — Roboto Condensed",
+    "story_in_medias_res": "Humanist — Lato Black",
+    "metaphor_analogy": "Humanist — Lato Black",
+    "problem_agitation": "Impact — Roboto Black",
+    "visual_disruption": "Geometric — League Spartan",
+}
+
+
+def banner_font_from_hook_type(hook_type: str) -> Optional[str]:
+    """A DISPLAY_FACES name for hook_type, or None for an unrecognised one (text_fit.font_file's own fallback order applies)."""
+    return HOOK_TYPE_BANNER_FONT.get(hook_type)
+
+
+def caption_font_from_hook_type(hook_type: str) -> Optional[str]:
+    """A CAPTION_FONTS label for hook_type, or None for an unrecognised one (resolve_caption_font's own default applies)."""
+    return HOOK_TYPE_CAPTION_FONT.get(hook_type)
+
 
 def parse_time_to_seconds(time_str: str) -> float:
     """Converts HH:MM:SS, MM:SS, or SS.ms into float seconds."""
@@ -484,18 +570,43 @@ def _distribute_chunk_times_from_words(
 
 def _highlight_emphasis_word(chunk_text: str, secondary_bgr_hex: str) -> str:
     """
-    Colors the single longest word in a chunk with the warmth-driven
-    secondary color, so SecondaryColour actually renders somewhere on
-    screen — ASS only honors it via \\k karaoke tags otherwise, which this
-    codebase never emits. Words under 4 letters (stripped of punctuation)
-    are skipped as not punchy enough to bother emphasizing.
+    Colors one word in a chunk with the warmth-driven secondary color, so
+    SecondaryColour actually renders somewhere on screen — ASS only
+    honors it via \\k karaoke tags otherwise, which this codebase never
+    emits.
+
+    Picked by a small priority order rather than length alone:
+
+    1. A word carrying a digit — a number, a percentage, a stat — at any
+       length. This is exactly what a shock_stat-style caption should draw
+       the eye to, and length-only picking always skipped it: the '93' in
+       "93%" strips down to two characters, under the four-letter floor
+       below, so the number that IS the hook never got to be the
+       highlight.
+    2. A deliberately-shouted word (len > 1, so a stray single capital
+       like "I" doesn't count) — a model that already chose to shout a
+       word chose the emphasis; this only honors it.
+    3. Otherwise, the single longest word, still gated at 4 letters so a
+       chunk with nothing punchy enough isn't forced to highlight
+       something anyway. This is the original, and only, rule before the
+       two priorities above were added.
     """
     words = chunk_text.split()
     if not words:
         return chunk_text
-    idx = max(range(len(words)), key=lambda i: len(re.sub(r"[^\w]", "", words[i])))
-    if len(re.sub(r"[^\w]", "", words[idx])) < 4:
-        return chunk_text
+
+    def stripped(w: str) -> str:
+        return re.sub(r"[^\w]", "", w)
+
+    idx = next((i for i, w in enumerate(words) if any(c.isdigit() for c in stripped(w))), None)
+    if idx is None:
+        idx = next((i for i, w in enumerate(words)
+                    if len(stripped(w)) > 1 and stripped(w).isupper()), None)
+    if idx is None:
+        idx = max(range(len(words)), key=lambda i: len(stripped(words[i])))
+        if len(stripped(words[idx])) < 4:
+            return chunk_text
+
     words[idx] = f"{{\\c&H{secondary_bgr_hex}&}}{words[idx]}{{\\c}}"
     return " ".join(words)
 
@@ -1035,6 +1146,7 @@ class SkuldRenderer:
         crop_mode: CropMode = "center_crop",
         motion_effect: MotionEffect = "none",
         caption_font: Optional[str] = None,
+        banner_font: Optional[str] = None,
         color_grade: ColorGrade = "neutral",
         hook_banner_text: Optional[str] = None,
         transcript_text: Optional[str] = None,
@@ -1102,7 +1214,7 @@ class SkuldRenderer:
         banner_emoji_pos: Optional[Tuple[float, float]] = None
         if hook_banner_text:
             banner_vf, banner_emoji_png, banner_emoji_pos = self._build_banner_filter(
-                hook_banner_text, warmth, clip_id=clip_id, out_dir=self.output_dir)
+                hook_banner_text, warmth, banner_font, clip_id=clip_id, out_dir=self.output_dir)
             vf += banner_vf
 
         if transcript_text:

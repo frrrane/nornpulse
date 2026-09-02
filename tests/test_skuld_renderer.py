@@ -114,6 +114,48 @@ def test_distribute_chunk_times_never_runs_past_the_line():
 
 
 # --------------------------------------------------------------------------
+# Emphasis-word selection
+# --------------------------------------------------------------------------
+#
+# A digit-carrying word is picked over the length-only rule, at any
+# length -- the point of the fix. "93%" strips to "93", two characters,
+# which the length-only rule would have skipped outright.
+
+_HEX = "FF00FF"
+
+
+def _highlighted_word(text: str) -> str | None:
+    m = re.search(r"\{\\c&H" + _HEX + r"&\}(\S+)\{\\c\}", sr._highlight_emphasis_word(text, _HEX))
+    return m.group(1) if m else None
+
+
+def test_a_digit_carrying_word_is_picked_even_if_short():
+    assert _highlighted_word("crash rate hits 93%") == "93%"
+
+
+def test_digit_priority_beats_a_longer_plain_word():
+    assert _highlighted_word("astronomers discover 7 new moons") == "7"
+
+
+def test_a_shouted_word_is_picked_when_there_is_no_digit():
+    assert _highlighted_word("this is NEVER going to work") == "NEVER"
+
+
+def test_a_single_capital_letter_does_not_count_as_shouted():
+    """"I" is not the model shouting, it's just a pronoun -- falls through
+    to the longest-word rule instead of being picked itself."""
+    assert _highlighted_word("I really cannot believe it") == "believe"
+
+
+def test_falls_back_to_the_longest_word_with_neither_signal():
+    assert _highlighted_word("we tried something completely different") == "completely"
+
+
+def test_short_chunk_with_no_signal_gets_no_highlight():
+    assert _highlighted_word("try it now") is None
+
+
+# --------------------------------------------------------------------------
 # Colour handling
 # --------------------------------------------------------------------------
 
@@ -764,6 +806,32 @@ def test_each_caption_carries_its_line_intact(tmp_path):
     for phrase in ("first line with several words in it",
                    "second line also with several words"):
         assert phrase in _re.sub(r"\{[^}]*\}", "", body)
+
+
+def test_caption_style_grounds_in_the_visual_treatment():
+    """Energetic motion/color pairs with an energetic caption reveal, not a flat default."""
+    crazy, warmth = sr.caption_style_from_visual("shake", "warm_glow")
+    assert crazy > sr.caption_style_from_visual("none", "warm_glow")[0]
+    assert warmth > sr.caption_style_from_visual("shake", "cool_desaturated")[1]
+
+
+def test_caption_style_falls_back_for_an_unrecognised_value():
+    """An unrecognised value degrades to this project's long-standing flat defaults."""
+    assert sr.caption_style_from_visual("something_new", "also_new") == (0.3, 0.5)
+
+
+def test_every_hook_type_has_a_banner_and_caption_font():
+    """HOOK_TITLE_GUIDANCE's own key set -- so a hook_type the model can
+    actually choose is never missing a font pairing."""
+    from agent.urdr_analytics import HOOK_TITLE_GUIDANCE
+    for hook_type in HOOK_TITLE_GUIDANCE:
+        assert sr.banner_font_from_hook_type(hook_type) in sr.text_fit.DISPLAY_FACES
+        assert sr.caption_font_from_hook_type(hook_type) in sr.CAPTION_FONTS
+
+
+def test_an_unrecognised_hook_type_gets_no_font_override():
+    assert sr.banner_font_from_hook_type("not_a_real_hook_type") is None
+    assert sr.caption_font_from_hook_type("not_a_real_hook_type") is None
 
 
 def test_a_caption_never_draws_an_emoji(tmp_path):
