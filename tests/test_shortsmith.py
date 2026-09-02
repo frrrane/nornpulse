@@ -20,37 +20,63 @@ def _brief(title="A perfectly ordinary title", caption="A caption."):
 
 # --- the hook --------------------------------------------------------------
 
-def test_emoji_are_stripped_from_the_hook():
+def test_emoji_in_the_middle_are_stripped_from_the_hook():
     """
-    drawtext and libass cannot render colour emoji, and a model writing
-    titles for a comedy channel puts them in constantly. Left in, they draw
-    as hollow boxes on the first frame — the one that decides whether anyone
-    keeps watching.
+    A mid-sentence emoji (not a trailing decorative run) is rarer in
+    practice and still just dropped from the burned text: drawtext and
+    libass cannot draw colour emoji, and left in, it renders as a hollow
+    box on the first frame — the one that decides whether anyone keeps
+    watching.
     """
-    hook = shortsmith.hook_text("When your newest employee gives 110% 😭🔥")
+    hook, emoji = shortsmith.hook_text("When 😭 your newest employee gives 110%")
+    assert "😭" not in hook
+    assert hook.startswith("When")
+    assert emoji == ""  # not a trailing run, so nothing to composite either
+
+
+def test_a_trailing_emoji_is_split_off_rather_than_dropped():
+    """
+    A trailing run is how titles in this pipeline actually carry decorative
+    emoji, and it gets composited as an image alongside the text instead of
+    being thrown away.
+    """
+    hook, emoji = shortsmith.hook_text("When your newest employee gives 110% 😭🔥")
     assert "😭" not in hook and "🔥" not in hook
-    assert hook.startswith("When your newest employee")
+    assert hook == "When your newest employee gives 110%"
+    assert emoji == "😭🔥"
 
 
 def test_hook_is_short_enough_to_read():
     long_title = "An extremely long title that nobody could possibly read in one second flat"
-    hook = shortsmith.hook_text(long_title)
+    hook, _ = shortsmith.hook_text(long_title)
     assert len(hook) <= shortsmith.HOOK_MAX_CHARS + 1  # +1 for the ellipsis
 
 
 def test_hook_truncates_on_a_word_boundary():
-    hook = shortsmith.hook_text("alpha bravo charlie delta echo foxtrot golf hotel india")
+    hook, _ = shortsmith.hook_text("alpha bravo charlie delta echo foxtrot golf hotel india")
     assert "…" in hook
     # No half-words before the ellipsis.
     assert not hook.replace("…", "").endswith(("alph", "brav", "charli"))
 
 
+def test_truncation_drops_the_trailing_emoji_too():
+    """
+    A hook cut short lost its actual ending; tacking the emoji onto a
+    truncated, unrelated word would read as a mistake rather than a title.
+    """
+    long_title = ("An extremely long title that nobody could possibly read "
+                  "in one second flat 🎉🔥")
+    hook, emoji = shortsmith.hook_text(long_title)
+    assert hook.endswith("…")
+    assert emoji == ""
+
+
 def test_whitespace_is_collapsed():
-    assert shortsmith.hook_text("  too    many   spaces ") == "too many spaces"
+    assert shortsmith.hook_text("  too    many   spaces ") == ("too many spaces", "")
 
 
 def test_short_title_is_left_alone():
-    assert shortsmith.hook_text("Short and fine") == "Short and fine"
+    assert shortsmith.hook_text("Short and fine") == ("Short and fine", "")
 
 
 # --- the spoken line -------------------------------------------------------
@@ -206,3 +232,88 @@ def test_the_hook_clears_before_the_clip_ends():
     """
     assert 0 < shortsmith.HOOK_HOLD_SEC < 8
     assert 0 < shortsmith.HOOK_FADE_SEC < shortsmith.HOOK_HOLD_SEC
+
+
+# --- compositing the trailing emoji as an image -----------------------------
+#
+# libass and drawtext still cannot draw colour emoji, so a trailing run is
+# rendered separately via agent.text_fit and composited with ffmpeg's
+# overlay filter instead. No ffmpeg runs here, same as the rest of this
+# file — what is worth guarding is the pure-Python layout math, which is
+# invisible until the composited frame is wrong.
+
+from agent import text_fit
+
+pytestmark_emoji_font = pytest.mark.skipif(
+    not text_fit.emoji_font_file(), reason="no colour emoji font on this machine")
+
+
+def test_split_trailing_emoji_separates_text_and_emoji():
+    text, emoji = text_fit.split_trailing_emoji(
+        "Broth-Spraying Plastic Parrot Bounces Into Electric Toaster 🦜🍲")
+    assert text == "Broth-Spraying Plastic Parrot Bounces Into Electric Toaster"
+    assert emoji == "🦜🍲"
+
+
+def test_split_trailing_emoji_leaves_plain_text_alone():
+    assert text_fit.split_trailing_emoji("No emoji here at all") == (
+        "No emoji here at all", "")
+
+
+def test_split_trailing_emoji_ignores_a_leading_or_interior_run():
+    """
+    Only a trailing run is recognised — the shape titles in this pipeline
+    actually use. Leading/interior emoji still fall to strip_emoji
+    downstream, same as before this existed.
+    """
+    text, emoji = text_fit.split_trailing_emoji("🎉 Cats are back")
+    assert emoji == ""
+    assert "🎉" in text  # untouched here; hook_text's strip_emoji drops it later
+
+
+@pytestmark_emoji_font
+def test_emoji_glyph_renders_real_colour_pixels():
+    result = text_fit.emoji_glyph("🦜", 68)
+    assert result is not None
+    img, advance = result
+    assert advance > 0
+    assert img.mode == "RGBA"
+    px = img.load()
+    # At least one pixel actually has colour and isn't fully transparent —
+    # a hollow-box/tofu render would fail this.
+    assert any(px[x, y][3] > 0 and px[x, y][:3] != (0, 0, 0)
+               for x in range(img.width) for y in range(img.height))
+
+
+@pytestmark_emoji_font
+def test_emoji_glyph_scales_to_the_target_size():
+    small, _ = text_fit.emoji_glyph("🦜", 40)
+    large, _ = text_fit.emoji_glyph("🦜", 120)
+    assert small.height < large.height
+
+
+def test_emoji_glyph_is_none_without_a_font(monkeypatch):
+    monkeypatch.setattr(text_fit, "emoji_font_file", lambda: None)
+    assert text_fit.emoji_glyph("🦜", 68) is None
+
+
+@pytestmark_emoji_font
+@pytestmark_font
+def test_trailing_emoji_is_placed_beside_the_last_line(tmp_path):
+    png_path, pos, last_line_x = shortsmith._place_trailing_emoji(
+        "🦜🍲", "Electric Toaster", font=FONT, font_px=68, frame_w=1080,
+        y=200.0, out_dir=tmp_path, clip_id="c1")
+    assert png_path is not None and png_path.exists()
+    assert last_line_x is not None and 0 <= last_line_x < 1080
+    ex, ey = pos
+    # The emoji sits to the right of where the (re-centred) text starts.
+    assert ex > last_line_x
+
+
+def test_trailing_emoji_is_dropped_if_no_font_is_available(monkeypatch, tmp_path):
+    """The bare text is the worst acceptable outcome, not a crop off-frame."""
+    monkeypatch.setattr(text_fit, "emoji_font_file", lambda: None)
+    png_path, pos, last_line_x = shortsmith._place_trailing_emoji(
+        "🦜🍲", "Electric Toaster", font=None, font_px=68, frame_w=1080,
+        y=200.0, out_dir=tmp_path, clip_id="c2")
+    assert png_path is None and pos is None and last_line_x is None

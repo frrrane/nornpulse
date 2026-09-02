@@ -85,17 +85,29 @@ of work, judged against what the clips actually looked like.
   fixed by `agent/tag_selector.py`; the existing 37 would need editing in
   Studio to recover.
 
-- [ ] **Emoji in the banner and captions.** Neither libass nor ffmpeg's
-  drawtext can render colour emoji — libass cannot read CBDT tables, and
-  drawtext draws a hollow box. `shortsmith.hook_text` strips them for that
-  reason, and a reviewer has since asked for them in the hook banner too.
+- [ ] **Emoji in Skuld's cut-clip banner and in captions.** Done for
+  `shortsmith.py`'s generated-clip hook (see Done, below); not yet done
+  for `skuld_renderer.py`'s cut-clip banner or for kinetic captions —
+  those are the more commonly-seen surfaces in practice, since Skuld
+  handles the primary cut-from-source path.
 
-  Doing it properly is a compositing job rather than a parameter: detect
-  the emoji in a title, resolve each to a glyph image, measure where the
-  drawn text leaves a gap for it, and overlay the images at the right
-  position and scale — then keep that alignment correct when the banner
-  wraps or the type shrinks to fit. Worth doing, but it is a real piece of
-  work and should not be attempted as a quick win.
+  Skuld's banner is a bigger integration than shortsmith's was: its
+  `_build_banner_filter` output feeds into an already-composed multi-input
+  filter graph (crop, motion, colour grade, captions, and — per the
+  `generated_backdrop` precedent — potentially another image input
+  already), not a standalone ffmpeg pass, so adding an overlay node there
+  means threading it through that existing graph correctly rather than
+  building a new one from scratch.
+
+  Captions are harder still: word-chunk timing (now real per-word
+  timestamps, see Done above) would need the emoji glyph synced to its own
+  chunk's reveal, not just placed once statically.
+
+  Neither libass nor ffmpeg's drawtext can render colour emoji directly —
+  libass cannot read CBDT tables, drawtext draws a hollow box — so both
+  remaining pieces need the same compositing approach shortsmith's now
+  uses: resolve the emoji to a glyph image via `agent.text_fit.emoji_glyph`
+  and overlay it with ffmpeg rather than drawing it as text.
 
 - [ ] **Scheduled `sync_stats.py`.** Currently manual. Forecasts cannot be
   graded without it running regularly.
@@ -136,6 +148,44 @@ of work, judged against what the clips actually looked like.
   if AI Studio credits are ever topped back up.
 
 ## Done
+
+- [x] **Emoji in shortsmith's generated-clip hook.** A trailing decorative
+      emoji run (the shape titles in this pipeline actually use — a model
+      appends emoji, it does not scatter them mid-sentence) is now
+      composited as a real colour image instead of being dropped.
+      `agent.text_fit` gained `split_trailing_emoji` (splits the run off
+      before length truncation, so it survives instead of getting cut
+      along with the words around it) and `emoji_glyph` (renders it via
+      Pillow's `embedded_color=True`). The font source needed no bundling:
+      the Dockerfile already apt-installs `fonts-noto-color-emoji`, with a
+      comment that had already anticipated exactly this PNG-overlay
+      approach; a workstation ChromeOS path covers local dev. Both
+      candidate paths were verified against the real files, not assumed —
+      the container's exact apt-installed font was pulled out of the real
+      base image (`python:3.11-slim-bookworm`) and Pillow rendered real
+      coloured pixels from it before this shipped. One real constraint
+      surfaced by that verification: NotoColorEmoji ships exactly one
+      embedded bitmap strike (109px) and FreeType refuses every other
+      size, so a glyph always renders at that fixed size first and gets
+      resized to whatever the caller needs.
+
+      `shortsmith.finish()` composites the glyph beside the hook's last
+      line via ffmpeg's `overlay`, centred with it as one group rather
+      than the text re-centred alone with the emoji bolted onto whatever
+      room is left, and drops the emoji rather than compositing it if the
+      combined width would overflow the frame — same "worst case is the
+      bare clip" degrade as everywhere else in this function. The
+      no-emoji path (still the common case) is untouched: the new
+      filter_complex-based overlay path only engages when there is
+      actually a glyph to composite, so the already-verified plain-`-vf`
+      path never changes shape. Verified against real ffmpeg renders, not
+      just the command string — extracted and viewed real frames for the
+      hook-only path, the harder narration+audio-mix+overlay combined
+      path (real audio and video streams confirmed via ffprobe), and the
+      post-hold frame (both text and emoji correctly cleared together).
+
+      Not yet done: Skuld's cut-clip banner and kinetic captions — see
+      Known problems, above, for why those are a separate, bigger piece.
 
 - [x] **Word-level caption timings.** Root cause was that a transcript line
       carried a start time and nothing else, so the kinetic word-chunk

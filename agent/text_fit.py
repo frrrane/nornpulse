@@ -82,6 +82,108 @@ def strip_emoji(text: str) -> str:
     return " ".join("".join(c for c in (text or "") if ord(c) < 0x2190).split())
 
 
+# Colour emoji glyph source for the one exception to strip_emoji: a
+# trailing decorative run (see split_trailing_emoji) is composited as an
+# image instead of stripped, since libass and drawtext still cannot draw
+# it directly.
+#
+# Not bundled like DISPLAY_FACES -- the Dockerfile already apt-installs
+# fonts-noto-color-emoji (it went in for glyph coverage before this
+# existed, with a comment already anticipating a PNG-overlay path), so the
+# container candidate comes first. The ChromeOS path covers a workstation
+# dev box, verified present via `fc-list` there. Both paths were confirmed
+# against the real font, not assumed: the container's exact apt-installed
+# file was pulled out of the same base image (python:3.11-slim-bookworm)
+# and Pillow rendered real coloured pixels from it before this shipped.
+EMOJI_FONT_CANDIDATES = (
+    "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",   # Debian/apt (container)
+    "/usr/share/fonts/chromeos/noto/NotoColorEmoji.ttf",   # ChromeOS workstation
+)
+
+# The same cutoff strip_emoji uses, so "what gets composited" and "what
+# still gets dropped" never disagree about what counts as an emoji.
+_EMOJI_CUT = 0x2190
+
+
+def emoji_font_file() -> Optional[str]:
+    """The colour-emoji font, or None if neither candidate is on disk."""
+    for candidate in EMOJI_FONT_CANDIDATES:
+        if Path(candidate).exists():
+            return candidate
+    return None
+
+
+def _is_emoji_token(token: str) -> bool:
+    """Whether every character in token is outside the plain-text range."""
+    return bool(token) and all(ord(c) >= _EMOJI_CUT for c in token)
+
+
+def split_trailing_emoji(text: str) -> Tuple[str, str]:
+    """
+    Split off a trailing run of emoji-only tokens, e.g.
+    "Cats are back 🐱🎉" -> ("Cats are back", "🐱🎉").
+
+    Only a *trailing* run is recognised: it is how titles in this pipeline
+    actually carry decorative emoji -- a model appends them, it does not
+    scatter them mid-sentence -- and detecting it this way sidesteps the
+    much harder general case of an emoji glued mid-word, or one sitting
+    between plain words that would then have to reflow around a gap.
+    Anything outside this shape is still dropped by strip_emoji downstream,
+    the same as before this existed.
+    """
+    words = (text or "").split()
+    cut = len(words)
+    while cut > 0 and _is_emoji_token(words[cut - 1]):
+        cut -= 1
+    return " ".join(words[:cut]), "".join(words[cut:])
+
+
+# NotoColorEmoji ships exactly one embedded colour bitmap strike --
+# FreeType raises "invalid pixel size" for every other size, confirmed
+# against both the ChromeOS workstation font and the exact file the
+# Dockerfile apt-installs. So a glyph always renders at this fixed size
+# first and gets resized afterward to whatever a caller actually needs --
+# the standard way a bitmap-strike font is used at an arbitrary scale.
+EMOJI_STRIKE_PX = 109
+
+
+def emoji_glyph(emoji_text: str, target_px: int):
+    """
+    Render emoji_text (e.g. "🦜🍲") as a tightly-cropped RGBA image sized
+    to stand about target_px tall, and the advance width a caller should
+    reserve beside it at that size.
+
+    Returns (image, advance_width) or None -- when no emoji font is on
+    disk, emoji_text is empty, or it renders to nothing. A caller treats
+    None as "leave this off the frame", the same "worst acceptable outcome
+    is the bare clip" degrade used everywhere else text gets burned in.
+    """
+    font_path = emoji_font_file()
+    if not font_path or not emoji_text:
+        return None
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        font = ImageFont.truetype(font_path, EMOJI_STRIKE_PX)
+        advance = font.getlength(emoji_text)
+        bbox = font.getbbox(emoji_text, mode="RGBA")
+        if not bbox or bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+            return None
+        left, top, right, bottom = bbox
+        img = Image.new("RGBA", (right - left, bottom - top), (0, 0, 0, 0))
+        ImageDraw.Draw(img).text((-left, -top), emoji_text, font=font, embedded_color=True)
+
+        scale = target_px / EMOJI_STRIKE_PX
+        if abs(scale - 1.0) > 0.01:
+            new_size = (max(1, round(img.width * scale)), max(1, round(img.height * scale)))
+            img = img.resize(new_size, Image.LANCZOS)
+            advance *= scale
+        return img, advance
+    except Exception:
+        logger.warning("Could not render an emoji glyph; leaving it off the frame.",
+                        exc_info=True)
+        return None
+
+
 def font_file(preferred: Optional[str] = None) -> Optional[str]:
     """
     A concrete font file that exists on this machine, or None.
