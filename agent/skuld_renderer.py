@@ -644,6 +644,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\
         # real words like "well-known"
         clean_text = re.sub(r"(?<=\s)-(?=\s)", "", clean_text)
         clean_text = clean_text.strip(" []:")
+        # A caption's text comes from transcribing spoken audio, so it
+        # cannot carry emoji in practice -- nobody speaks one, and it was
+        # confirmed empty against real transcript fixtures before this was
+        # written. This strip is a cheap defensive floor for the
+        # hypothetical (a hand-edited transcript override, a future
+        # transcription-model quirk), not a real observed gap: libass
+        # still cannot draw colour emoji, so anything that did slip
+        # through would render as a hollow box otherwise. Compositing an
+        # image here properly would need it synced to its own word-chunk's
+        # reveal, not a one-shot placement like a hook banner -- not worth
+        # building for a case that does not occur.
+        clean_text = text_fit.strip_emoji(clean_text)
         # Escape any literal '{'/'}' from the transcript itself BEFORE
         # _highlight_emphasis_word injects its own real override-tag
         # braces below — escaping afterward would turn those injected

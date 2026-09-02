@@ -85,18 +85,6 @@ of work, judged against what the clips actually looked like.
   fixed by `agent/tag_selector.py`; the existing 37 would need editing in
   Studio to recover.
 
-- [ ] **Emoji in kinetic captions.** Done for `shortsmith.py`'s
-  generated-clip hook and `skuld_renderer.py`'s cut-clip banner (see Done,
-  below); not yet done for captions.
-
-  Harder than either banner: word-chunk timing (now real per-word
-  timestamps, see Done above) would need the emoji glyph synced to its own
-  chunk's reveal, not placed once statically the way a hook is — and
-  libass drives caption rendering from a generated `.ass` file, an
-  entirely different mechanism from the drawtext-based banners, so the
-  overlay has to be composited by ffmpeg on top of libass's own output
-  rather than threaded into the subtitle file itself.
-
 - [ ] **Scheduled `sync_stats.py`.** Currently manual. Forecasts cannot be
   graded without it running regularly.
 
@@ -136,6 +124,21 @@ of work, judged against what the clips actually looked like.
   if AI Studio credits are ever topped back up.
 
 ## Done
+
+- [x] **Emoji in kinetic captions — checked properly rather than built.**
+      A caption's text comes from transcribing spoken audio, and nobody
+      speaks an emoji: confirmed against real transcript fixtures
+      (`sample_data/transcripts/*.txt`) that neither carries a single
+      character in the emoji range. The word-chunk-synced overlay this
+      would need (harder than either hook banner — placed once statically
+      — since a chunk's own reveal timing would have to carry the glyph
+      too) isn't worth building for a case that doesn't occur. Added the
+      cheap defensive floor instead:
+      `generate_rebased_ass_subtitle_file` now runs `text_fit.strip_emoji`
+      on a caption's cleaned text before it reaches libass, so the
+      hypothetical (a hand-edited transcript override, a future
+      transcription-model quirk) degrades to a dropped character rather
+      than the hollow box libass would otherwise draw.
 
 - [x] **Emoji in Skuld's cut-clip banner.** Same compositing approach as
       shortsmith's hook, extended into a real multi-input filter graph

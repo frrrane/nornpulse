@@ -766,6 +766,22 @@ def test_each_caption_carries_its_line_intact(tmp_path):
         assert phrase in _re.sub(r"\{[^}]*\}", "", body)
 
 
+def test_a_caption_never_draws_an_emoji(tmp_path):
+    """
+    Real transcripts never carry emoji -- confirmed empty against actual
+    transcript fixtures -- but a caption's text still has to degrade
+    safely against the hypothetical: libass cannot draw colour emoji, so
+    one that slipped through (a hand-edited transcript override, say)
+    would render as a hollow box otherwise.
+    """
+    out = tmp_path / "t.ass"
+    sr.generate_rebased_ass_subtitle_file(
+        "[00:10.000] Liftoff \U0001F680 was incredible\n", out, 10.0, 22.0)
+    body = out.read_text(encoding="utf-8-sig")
+    assert "\U0001F680" not in body
+    assert "Liftoff" in _re.sub(r"\{[^}]*\}", "", body)
+
+
 def test_word_chunking_is_on_now_that_transcription_gives_per_word_times():
     """
     Guards the decision, not the code. utils/transcribe.py now asks for a
