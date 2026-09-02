@@ -885,8 +885,11 @@ class SkuldRenderer:
             )
         return ""
 
-    def _build_banner_filter(self, hook_banner_text: str, warmth: float = 0.5,
-                             banner_font: Optional[str] = None) -> str:
+    def _build_banner_filter(
+        self, hook_banner_text: str, warmth: float = 0.5,
+        banner_font: Optional[str] = None,
+        clip_id: str = "clip", out_dir: Optional[Path] = None,
+    ) -> Tuple[str, Optional[Path], Optional[Tuple[float, float]]]:
         """
         The hook banner burned over the first frames.
 
@@ -901,6 +904,13 @@ class SkuldRenderer:
         The box grows with the text instead of staying a fixed 100px slab,
         because a two-line title inside a one-line box is the same defect
         wearing a different hat.
+
+        Returns (drawbox/drawtext filter fragment, emoji PNG path or None,
+        (emoji_x, emoji_y) or None). The emoji, if any, is not part of the
+        returned string — its overlay needs its own ffmpeg input index,
+        which only render_vertical_short knows once it has decided where
+        in the input list this image goes, the same reasoning
+        _build_crop_filter's backdrop_input parameter exists for.
         """
         # A saturated accent rather than near-black. The old pair ran from
         # (10,10,15) to (90,30,10) -- values dark enough to read as a grey
@@ -917,14 +927,15 @@ class SkuldRenderer:
         # one face and filled with another.
         font = text_fit.font_file(banner_font)
 
-        # Emoji come off before the box is measured, not after: drawtext
-        # renders them as hollow squares, and a box sized around glyphs
-        # that will not draw is the wrong size for the text that does.
-        # They stay in the YouTube title, which is metadata rather than
-        # pixels — that is where every video that has actually travelled
-        # on these channels carries them.
+        # A trailing decorative run is composited separately as an image
+        # further down (drawtext still cannot draw it); anything else --
+        # glued mid-word, or leading -- is rarer in practice and comes off
+        # here before the box is measured, same as before this existed: a
+        # box sized around glyphs that will not draw is the wrong size for
+        # the text that does.
+        plain_text, banner_emoji = text_fit.split_trailing_emoji(hook_banner_text)
         lines, font_px = text_fit.fit_text(
-            text_fit.strip_emoji(hook_banner_text),
+            text_fit.strip_emoji(plain_text),
             max_width_px=BANNER_WIDTH - 2 * BANNER_PADDING,
             font_px=BANNER_FONT_PX,
             font_path=font,
@@ -932,7 +943,7 @@ class SkuldRenderer:
             fallback_wrap=BANNER_FALLBACK_WRAP,
         )
         if not lines:
-            return ""
+            return "", None, None
 
         line_height = int(font_px * 1.25)
 
@@ -970,15 +981,38 @@ class SkuldRenderer:
         # banner had never specified one.
         face = f"fontfile={font}:" if font else ""
 
+        # The trailing emoji, if any, sits beside the LAST line, and the
+        # two are centred together as one group within the box's own width
+        # budget -- the text alone re-centred with the emoji bolted onto
+        # whatever room happens to be left reads as two unrelated things,
+        # not one hook.
+        emoji_png: Optional[Path] = None
+        emoji_pos: Optional[Tuple[float, float]] = None
+        last_line_x: Optional[float] = None
+        if banner_emoji:
+            last_line_y = first_line_y + (len(lines) - 1) * line_height
+            placed = text_fit.place_trailing_emoji(
+                banner_emoji, lines[-1], font, font_px,
+                centre_x=box_centre, width_budget_px=BANNER_WIDTH - 2 * BANNER_PADDING,
+                y=last_line_y)
+            if placed:
+                img, ex, ey, last_line_x = placed
+                emoji_png = (out_dir or Path(".")) / f"{clip_id}_banner_emoji.png"
+                img.save(emoji_png)
+                emoji_pos = (ex, ey)
+
         for i, line in enumerate(lines):
+            is_last = i == len(lines) - 1
+            x_expr = (f"{last_line_x:.1f}" if is_last and last_line_x is not None
+                      else f"{box_centre:.0f}-text_w/2")
             parts.append(
                 f"drawtext={face}text='{_escape_drawtext(line)}'"
                 f":fontcolor={text_hex}:fontsize={font_px}"
                 f":borderw=3:bordercolor=black@0.6"
-                f":x={box_centre:.0f}-text_w/2"
+                f":x={x_expr}"
                 f":y={first_line_y + i * line_height}")
 
-        return ",".join(parts)
+        return ",".join(parts), emoji_png, emoji_pos
 
     def render_vertical_short(
         self,
@@ -1031,6 +1065,13 @@ class SkuldRenderer:
         # own index from next_input_idx below.
         backdrop_inputs: List[str] = ["-i", str(backdrop_path)] if crop_mode == "generated_backdrop" else []
 
+        # The banner's trailing emoji, if any, always takes the next slot
+        # after backdrop (or index 1 if there is no backdrop) — reserved
+        # here, independent of whether _build_banner_filter below actually
+        # finds a compositable emoji, so the overlay filter can reference
+        # its index before extra_inputs is assembled further down.
+        banner_emoji_idx = 2 if backdrop_inputs else 1
+
         if motion_effect in ("ken_burns_zoom", "punch_in_zoom"):
             # Zoom effects run as a pre-stage on the raw decoded input at
             # its own native resolution (see _build_zoom_prestage's
@@ -1045,8 +1086,12 @@ class SkuldRenderer:
             vf += self._build_motion_filter(motion_effect, crazy)
         vf += self._build_color_grade_filter(color_grade)
 
+        banner_emoji_png: Optional[Path] = None
+        banner_emoji_pos: Optional[Tuple[float, float]] = None
         if hook_banner_text:
-            vf += self._build_banner_filter(hook_banner_text, warmth)
+            banner_vf, banner_emoji_png, banner_emoji_pos = self._build_banner_filter(
+                hook_banner_text, warmth, clip_id=clip_id, out_dir=self.output_dir)
+            vf += banner_vf
 
         if transcript_text:
             sub_path = self.output_dir / f"{clip_id}_subs.ass"
@@ -1075,6 +1120,19 @@ class SkuldRenderer:
 
         vf += "[scaled]"
 
+        # The banner emoji is composited after the fade rather than
+        # threaded into the chain above it — that keeps this insertion
+        # additive (nothing above needed to learn about a second label)
+        # at the cost of the emoji not sharing the ~0.35s edge fade with
+        # the rest of the frame.
+        # ponytail: hard-edged against the fade, not faded with it; move
+        # it above the fade,[scaled] block if that reads as a glitch.
+        final_video_label = "[scaled]"
+        if banner_emoji_png:
+            ex, ey = banner_emoji_pos
+            vf += f";[scaled][{banner_emoji_idx}:v]overlay=x={ex:.1f}:y={ey:.1f}[withemoji]"
+            final_video_label = "[withemoji]"
+
         # Builds an N-way audio mix from whichever of {original source
         # audio, Mimir's narration, Bragi's score} are actually present.
         # When narration is present it's the stream actually carrying the
@@ -1092,12 +1150,16 @@ class SkuldRenderer:
 
         # backdrop_inputs, if present, must come first in extra_inputs to
         # actually land at index 1 the way _build_crop_filter's [1:v]
-        # assumed above — narration/music start counting from whichever
-        # index that leaves free.
+        # assumed above; the banner emoji (if rendered) comes right after,
+        # at banner_emoji_idx, matching the overlay filter built above —
+        # narration/music start counting from whichever index that leaves
+        # free.
         extra_inputs: List[str] = list(backdrop_inputs)
+        if banner_emoji_png:
+            extra_inputs += ["-i", str(banner_emoji_png)]
         mix_parts: List[str] = []
         mix_labels: List[str] = []
-        next_input_idx = 2 if backdrop_inputs else 1
+        next_input_idx = banner_emoji_idx + (1 if banner_emoji_png else 0)
 
         if has_narration:
             extra_inputs += ["-i", str(narration_path)]
@@ -1158,7 +1220,7 @@ class SkuldRenderer:
             "-i", str(input_video_path),
             *extra_inputs,
             "-filter_complex", filter_complex,
-            "-map", "[scaled]",
+            "-map", final_video_label,
             *audio_map,
             "-c:v", "libx264",
             "-preset", "veryfast",

@@ -85,29 +85,17 @@ of work, judged against what the clips actually looked like.
   fixed by `agent/tag_selector.py`; the existing 37 would need editing in
   Studio to recover.
 
-- [ ] **Emoji in Skuld's cut-clip banner and in captions.** Done for
-  `shortsmith.py`'s generated-clip hook (see Done, below); not yet done
-  for `skuld_renderer.py`'s cut-clip banner or for kinetic captions —
-  those are the more commonly-seen surfaces in practice, since Skuld
-  handles the primary cut-from-source path.
+- [ ] **Emoji in kinetic captions.** Done for `shortsmith.py`'s
+  generated-clip hook and `skuld_renderer.py`'s cut-clip banner (see Done,
+  below); not yet done for captions.
 
-  Skuld's banner is a bigger integration than shortsmith's was: its
-  `_build_banner_filter` output feeds into an already-composed multi-input
-  filter graph (crop, motion, colour grade, captions, and — per the
-  `generated_backdrop` precedent — potentially another image input
-  already), not a standalone ffmpeg pass, so adding an overlay node there
-  means threading it through that existing graph correctly rather than
-  building a new one from scratch.
-
-  Captions are harder still: word-chunk timing (now real per-word
+  Harder than either banner: word-chunk timing (now real per-word
   timestamps, see Done above) would need the emoji glyph synced to its own
-  chunk's reveal, not just placed once statically.
-
-  Neither libass nor ffmpeg's drawtext can render colour emoji directly —
-  libass cannot read CBDT tables, drawtext draws a hollow box — so both
-  remaining pieces need the same compositing approach shortsmith's now
-  uses: resolve the emoji to a glyph image via `agent.text_fit.emoji_glyph`
-  and overlay it with ffmpeg rather than drawing it as text.
+  chunk's reveal, not placed once statically the way a hook is — and
+  libass drives caption rendering from a generated `.ass` file, an
+  entirely different mechanism from the drawtext-based banners, so the
+  overlay has to be composited by ffmpeg on top of libass's own output
+  rather than threaded into the subtitle file itself.
 
 - [ ] **Scheduled `sync_stats.py`.** Currently manual. Forecasts cannot be
   graded without it running regularly.
@@ -148,6 +136,34 @@ of work, judged against what the clips actually looked like.
   if AI Studio credits are ever topped back up.
 
 ## Done
+
+- [x] **Emoji in Skuld's cut-clip banner.** Same compositing approach as
+      shortsmith's hook, extended into a real multi-input filter graph
+      instead of a standalone ffmpeg pass. The layout math (centre a text
+      line and a trailing emoji together as one group, drop the emoji
+      rather than overflow the frame) was pulled out of shortsmith into
+      `agent.text_fit.place_trailing_emoji` so both renderers share it —
+      "the measuring belongs in one place" is literally this module's own
+      stated purpose.
+
+      `_build_banner_filter` now returns `(filter_fragment, emoji_png,
+      emoji_pos)` instead of a bare string; `render_vertical_short`
+      reserves the emoji's ffmpeg input index the same way
+      `generated_backdrop` already reserves one for its own image input
+      (`banner_emoji_idx`, computed before `_build_banner_filter` runs so
+      the overlay node can reference it, then folded into the existing
+      `next_input_idx` bookkeeping narration/music already used) and
+      overlays it onto `[scaled]` after the edge fade rather than
+      threading a second output label through the crop/motion/colour/
+      caption chain above it — the one deliberate corner cut here: the
+      emoji doesn't share the ~0.35s edge fade with the rest of the frame,
+      same spirit as shortsmith's hard-cut-instead-of-alpha-fade.
+
+      Verified against real renders on real source footage, not just the
+      command string: a real `render_vertical_short` call with an emoji
+      banner, extracted and viewed the composited frame; the harder
+      emoji+narration+music combination (stresses the input-index
+      bookkeeping hardest); and the no-emoji path unchanged.
 
 - [x] **Emoji in shortsmith's generated-clip hook.** A trailing decorative
       emoji run (the shape titles in this pipeline actually use — a model

@@ -476,8 +476,9 @@ from agent import text_fit as _tf
 
 def _banner(text, warmth=0.5, banner_font=None):
     from agent.skuld_renderer import SkuldRenderer
-    return SkuldRenderer.__new__(SkuldRenderer)._build_banner_filter(
+    filt, _emoji_png, _emoji_pos = SkuldRenderer.__new__(SkuldRenderer)._build_banner_filter(
         text, warmth, banner_font)
+    return filt
 
 
 def _parts(f):
@@ -832,8 +833,25 @@ def test_accented_latin_survives_the_strip():
 
 
 def test_the_banner_never_draws_an_emoji(tmp_path):
-    filt = sr.SkuldRenderer()._build_banner_filter("Thrust \U0001F680\U0001F525")
+    filt, _png, _pos = sr.SkuldRenderer()._build_banner_filter(
+        "Thrust \U0001F680\U0001F525", clip_id="c1", out_dir=tmp_path)
     assert "\U0001F680" not in filt and "\U0001F525" not in filt
+    assert "Thrust" in filt
+
+
+def test_a_trailing_banner_emoji_is_composited_as_an_image(tmp_path):
+    """
+    "Thrust 🚀🔥" is a trailing decorative run -- the shape titles in this
+    pipeline actually use -- so it should not just be dropped from the
+    drawn text, it should come back as a real glyph image to overlay.
+    """
+    from agent import text_fit
+    if not text_fit.emoji_font_file():
+        pytest.skip("no colour emoji font on this machine")
+    filt, png, pos = sr.SkuldRenderer()._build_banner_filter(
+        "Thrust \U0001F680\U0001F525", clip_id="c2", out_dir=tmp_path)
+    assert png is not None and png.exists()
+    assert pos is not None
     assert "Thrust" in filt
 
 

@@ -184,6 +184,46 @@ def emoji_glyph(emoji_text: str, target_px: int):
         return None
 
 
+def place_trailing_emoji(
+    emoji_text: str, last_line: str, font_path: Optional[str], font_px: int,
+    centre_x: float, width_budget_px: float, y: float,
+):
+    """
+    Render a trailing emoji and work out where it and a text line's LAST
+    line both sit, centred together as one group within width_budget_px
+    around centre_x.
+
+    The measuring belongs in one place: both renderers burn a hook this
+    way and both need the same answer to "the text alone re-centred with
+    the emoji bolted onto whatever room happens to be left reads as two
+    unrelated things, not one hook" — the same reasoning fit_text above
+    exists for, one level up.
+
+    Returns (image, emoji_x, emoji_y, last_line_x) — the caller draws the
+    text's last line at last_line_x instead of its usual centring, and
+    composites image at (emoji_x, emoji_y). None if the glyph could not be
+    rendered, or the combined group would not fit in width_budget_px, in
+    which case the caller keeps the bare, normally-centred text exactly as
+    if the emoji had never been there.
+    """
+    glyph = emoji_glyph(emoji_text, font_px)
+    if not glyph:
+        return None
+    img, advance = glyph
+    width_of = measurer(font_path, font_px)
+    if width_of is None:
+        return None
+    text_w = width_of(last_line)
+    gap = font_px * 0.28
+    group_w = text_w + gap + advance
+    if group_w > width_budget_px:
+        return None
+    group_x = centre_x - group_w / 2
+    emoji_x = group_x + text_w + gap
+    emoji_y = y + (font_px - img.height) / 2
+    return img, emoji_x, emoji_y, group_x
+
+
 def font_file(preferred: Optional[str] = None) -> Optional[str]:
     """
     A concrete font file that exists on this machine, or None.

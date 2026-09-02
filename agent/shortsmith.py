@@ -356,26 +356,15 @@ def _place_trailing_emoji(
     the frame's width budget, in which case the caller keeps the bare text
     exactly as if the emoji had never been there.
     """
-    glyph = text_fit.emoji_glyph(emoji_text, font_px)
-    if not glyph:
+    placed = text_fit.place_trailing_emoji(
+        emoji_text, last_line, font, font_px,
+        centre_x=frame_w / 2, width_budget_px=frame_w * HOOK_WIDTH_FRACTION, y=y)
+    if not placed:
         return None, None, None
-    img, advance = glyph
-
-    width_of = text_fit.measurer(font, font_px)
-    if width_of is None:
-        return None, None, None
-    text_w = width_of(last_line)
-    gap = font_px * 0.28
-    group_w = text_w + gap + advance
-    if group_w > frame_w * HOOK_WIDTH_FRACTION:
-        return None, None, None
-
-    group_x = (frame_w - group_w) / 2
+    img, emoji_x, emoji_y, last_line_x = placed
     png_path = out_dir / f"{clip_id}_hook_emoji.png"
     img.save(png_path)
-    emoji_x = group_x + text_w + gap
-    emoji_y = y + (font_px - img.height) / 2
-    return png_path, (emoji_x, emoji_y), group_x
+    return png_path, (emoji_x, emoji_y), last_line_x
 
 
 def _has_audio(video_path: Path) -> bool:
