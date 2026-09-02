@@ -115,6 +115,26 @@ of work, judged against what the clips actually looked like.
 - **Full Google OAuth verification.** Takes weeks. The consent screen is
   published unverified, which is sufficient.
 
+- **Agentic video processing** (Google's 2 Sep 2026 announcement — up to 88%
+  fewer tokens, 66% lower cost on video calls). Checked live rather than
+  from the announcement's own sample code, per this project's established
+  rule that only a real call settles model/platform availability. It is a
+  different API surface (`client.interactions.create`, not the
+  `models.generate_content` this codebase uses) and its video input needs
+  either a Files-API `uri` or inline base64 `data` — the Files API path is
+  out regardless, `genai.Client.files.upload` raises "This method is only
+  supported in the Gemini Developer client" on the Vertex route this
+  project bills through. Inline base64 `data` with `processing: "agentic"`
+  got past request validation but was rejected with "Unsupported model
+  interaction" on Vertex for both `gemini-3.6-flash` and the announcement's
+  own `gemini-3.7-flash` — a clean 400, before any billing check. The same
+  call against AI Studio got past that same validation and failed only on
+  this project's already-depleted AI Studio prepay wallet (the reason
+  billing moved to Vertex in the first place), which reads as the feature
+  being real and live there. Conclusion: not adoptable on this project's
+  billing path today. Revisit once Vertex serves `interactions.create`, or
+  if AI Studio credits are ever topped back up.
+
 ## Done
 
 - [x] **Word-level caption timings.** Root cause was that a transcript line
