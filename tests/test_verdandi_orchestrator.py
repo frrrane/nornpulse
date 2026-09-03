@@ -472,12 +472,28 @@ def test_every_internal_call_matches_its_method_signature():
 
 
 def test_make_tools_accepts_what_orchestrate_generation_sends():
-    """The specific pairing that broke, pinned."""
+    """
+    The specific pairing that broke, pinned. channel_profile broke a
+    different way than the others here: it was read inside
+    tool_execute_skuld_render's own body (passed to preflight.check_clip)
+    with no such parameter on _make_tools at all -- a plain NameError, not
+    a signature mismatch, so test_every_internal_call_matches_its_
+    method_signature above cannot see it: that check is for self.method(
+    kwarg=...) calls, and this bad reference is a bare name, not one of
+    those. Same failure shape as the caption_font outage this file already
+    documents: the render succeeds -- the file is really written -- and
+    the exception fires right after, on the way to rendered_clips.append(),
+    swallowed by the Gemini SDK's function-calling layer, so the whole run
+    reports "no clips were actually rendered" despite real output on disk.
+    """
     import inspect
     params = inspect.signature(VerdandiOrchestrator._make_tools).parameters
     for forwarded in ("caption_language", "caption_font", "clip_id_prefix",
-                      "vision_mode", "window", "topic_focus", "progress_callback"):
+                      "vision_mode", "window", "topic_focus", "progress_callback",
+                      "channel_profile"):
         assert forwarded in params, f"_make_tools() cannot accept {forwarded}"
+
+
 
 
 # --------------------------------------------------------------------------

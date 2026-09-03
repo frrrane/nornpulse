@@ -425,6 +425,7 @@ class VerdandiOrchestrator:
         broll: bool = False,
         generated_backdrop: bool = False,
         audience_check: bool = False,
+        channel_profile: Optional[Any] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ) -> List[Callable]:
         """Builds request-scoped tool functions closing over this call's state."""
@@ -1302,6 +1303,7 @@ class VerdandiOrchestrator:
             broll=broll,
             generated_backdrop=generated_backdrop,
             audience_check=audience_check,
+            channel_profile=channel_profile,
             progress_callback=progress_callback,
         )
         prompt = self._build_prompt(
