@@ -523,3 +523,46 @@ class NornPublisher:
         except Exception as e:
             logger.error(f"Failed to fetch statistics for {video_id}: {e}")
             raise PublishError(f"Failed to fetch statistics for {video_id}: {e}") from e
+
+    def get_channel_statistics(self, youtube_channel_id: str) -> Dict[str, Any]:
+        """
+        Fetches a channel's current public subscriber count.
+
+        This is the number channels.json's `subscribers` field should hold:
+        it selects the size band (size_band_for) every grounded decision —
+        hook ranking, calibration, the reach forecast — gets read within, so
+        a stale value silently changes what the pipeline recommends. See
+        scripts/sync_channels.py, the thing that actually keeps it fresh.
+
+        Same API-key-preferred client as get_video_statistics, for the same
+        reason: subscriber counts are public, so there's no need to make
+        this depend on a per-channel OAuth token that can expire.
+        """
+        try:
+            youtube = self._youtube_for_reading()
+            response = youtube.channels().list(
+                part="statistics", id=youtube_channel_id).execute()
+
+            items = response.get("items", [])
+            if not items:
+                raise PublishError(
+                    f"No channel found for id '{youtube_channel_id}' (wrong id, or deleted?).")
+
+            stats = items[0].get("statistics", {})
+            # A channel can hide its subscriber count; YouTube then omits
+            # the field entirely rather than sending a real 0, so the two
+            # cases must not collapse into the same return value.
+            if "subscriberCount" not in stats:
+                raise PublishError(
+                    f"Channel '{youtube_channel_id}' has hidden its subscriber count.")
+            return {
+                "youtube_channel_id": youtube_channel_id,
+                "subscriber_count": int(stats["subscriberCount"]),
+                "hidden_subscriber_count": bool(stats.get("hiddenSubscriberCount", False)),
+            }
+        except PublishError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to fetch channel statistics for {youtube_channel_id}: {e}")
+            raise PublishError(
+                f"Failed to fetch channel statistics for {youtube_channel_id}: {e}") from e

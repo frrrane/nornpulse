@@ -258,3 +258,58 @@ def test_publishing_still_requires_oauth():
     src = inspect.getsource(np.NornPublisher.upload_to_youtube_shorts)
     assert "_get_youtube_credentials" in src
     assert "developerKey" not in src
+
+
+# --------------------------------------------------------------------------
+# Channel statistics (scripts/sync_channels.py's reason for existing)
+# --------------------------------------------------------------------------
+
+class _FakeChannelsList:
+    def __init__(self, response):
+        self._response = response
+
+    def execute(self):
+        return self._response
+
+
+class _FakeYouTube:
+    """Just enough of the googleapiclient surface for .channels().list()."""
+
+    def __init__(self, response):
+        self._response = response
+
+    def channels(self):
+        return self
+
+    def list(self, **kw):
+        return _FakeChannelsList(self._response)
+
+
+def test_get_channel_statistics_returns_subscriber_count(publisher, monkeypatch):
+    response = {"items": [{"statistics": {"subscriberCount": "1234"}}]}
+    monkeypatch.setattr(publisher, "_youtube_for_reading", lambda: _FakeYouTube(response))
+    stats = publisher.get_channel_statistics("UC_test")
+    assert stats["subscriber_count"] == 1234
+    assert stats["hidden_subscriber_count"] is False
+
+
+def test_get_channel_statistics_distinguishes_hidden_from_zero():
+    """
+    YouTube omits subscriberCount entirely when a channel hides it, rather
+    than sending a real 0 -- collapsing the two would silently move a
+    channel into the 0-100 band it may not actually be in.
+    """
+    from agent.norn_publisher import NornPublisher, PublishError
+    pub = NornPublisher()
+    response = {"items": [{"statistics": {"hiddenSubscriberCount": True}}]}
+    pub._youtube_for_reading = lambda: _FakeYouTube(response)
+    with pytest.raises(PublishError, match="hidden"):
+        pub.get_channel_statistics("UC_test")
+
+
+def test_get_channel_statistics_raises_for_unknown_channel():
+    from agent.norn_publisher import NornPublisher, PublishError
+    pub = NornPublisher()
+    pub._youtube_for_reading = lambda: _FakeYouTube({"items": []})
+    with pytest.raises(PublishError, match="No channel found"):
+        pub.get_channel_statistics("UC_does_not_exist")

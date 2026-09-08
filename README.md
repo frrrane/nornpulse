@@ -451,6 +451,14 @@ Schedule it with cron:
 
 Videos that are deleted, private, or never published are flagged unmeasurable rather than recorded as zero views, so they stay out of the cross-validation charts instead of counting as missed predictions.
 
+`channels.json`'s subscriber counts need the same kind of refresh, for a higher-stakes reason: that number selects the size band — `size_band_for()` — every grounded decision in the app is read within, hook ranking and calibration and the reach forecast all of it, and it only changes when someone edits the file by hand otherwise.
+
+```bash
+python scripts/sync_channels.py    # --dry-run to preview
+```
+
+Same API-key path as `sync_stats.py`, for the same reason, and prints a warning if a sync would move a channel into a different band — the one case where a stale number wasn't just imprecise, it was pointing the pipeline at the wrong evidence entirely.
+
 ## 🔒 Public demo mode
 
 The Devpost submission needs a URL a judge can open, which means `--allow-unauthenticated`. `NORNPULSE_DEMO_MODE=1` (set by `deploy_cloud_run.sh`, off by default locally) closes off everything that writes or spends:
