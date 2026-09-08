@@ -51,6 +51,19 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# st.logo's own slot renders above Streamlit's automatic page nav (Home /
+# Create / Review / Intelligence), not wherever in the script it's called
+# from -- the hand-rolled version this replaced lived inside `with
+# st.sidebar:` further down and could only ever land below that nav, no
+# matter how early the markdown ran. No `link=` override: the default
+# (clicking returns to this app's own Home) is the right behaviour for
+# NornPulse's own mark -- the separate "Norn Labs" attribution line
+# further down the sidebar is what links out to the parent site.
+# icon_image is what shows in the collapsed-sidebar rail and the mobile
+# header, so it needs to survive small: the same square mark already
+# used as the browser favicon.
+st.logo("assets/sidebar_logo.png", icon_image="assets/favicon.png")
+
 st.markdown("""
 <style>
     /* ── NornPulse design system ───────────────────────────────────────────
@@ -852,29 +865,17 @@ if "_transcript_source_video" not in st.session_state:
 # The ClickHouse banner below is deliberately still global — a silently
 # degraded connection has to be visible wherever you are.
 with st.sidebar:
-    # Both marks share one icon column width (28px, flex-shrink:0) so
-    # "NornPulse" and "Norn Labs" start at the same x regardless of each
-    # mark's own aspect ratio -- inline icon+text left them ragged, since
-    # a 44px-wide mark and a 24px-wide one push their labels to different
-    # start points even sharing a left edge.
+    # The NornPulse mark itself now lives in st.logo's own slot, above the
+    # nav. What's left here is only the parent-brand attribution -- it
+    # names the company this product belongs to, not the product, so it
+    # stays a small link in the sidebar body rather than competing with
+    # the primary logo for the same slot.
     st.markdown(
-        "<div style='padding:.35rem 0 .9rem 0;'>"
-        "<div style='display:flex;align-items:center;gap:.5rem;'>"
-        f"<span style='display:inline-flex;width:26px;flex-shrink:0;'>{_nornpulse_mark(26)}</span>"
-        "<span style='font-family:var(--display);font-weight:800;font-size:1.22rem;"
-        "letter-spacing:-.02em;'>NornPulse</span></div>"
-        # The parent-brand row links out to nornlabs.ai -- it names the
-        # company, not this product, so "go there" is a reasonable click.
-        # The mark itself used to share the row's 26px icon column at
-        # full size, towering over the 0.66rem eyebrow text next to it;
-        # it's sized down to that text's own height and just centered in
-        # the same column so both rows still start at the same x.
         "<a href='https://nornlabs.ai' target='_blank' style='text-decoration:none;"
-        "color:inherit;display:flex;align-items:center;gap:.5rem;margin-top:.3rem;'>"
-        f"<span style='display:inline-flex;width:26px;flex-shrink:0;justify-content:center;'>"
+        "color:inherit;display:flex;align-items:center;gap:.5rem;padding:.35rem 0 .9rem 0;'>"
+        f"<span style='display:inline-flex;width:20px;flex-shrink:0;justify-content:center;'>"
         f"{_nornlabs_mark(13)}</span>"
-        "<span class='eyebrow'>Norn Labs</span></a>"
-        "</div>", unsafe_allow_html=True)
+        "<span class='eyebrow'>Norn Labs</span></a>", unsafe_allow_html=True)
 
 # Global ClickHouse health banner, deliberately ABOVE the tabs so it's
 # visible no matter which tab is open. Urðr degrades to in-memory
