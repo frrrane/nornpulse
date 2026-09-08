@@ -1,8 +1,19 @@
 # NornPulse: Autonomous Media Engine
 # Core Dependencies for Hackathon Setup
+#
+# Every version below is pinned exact, not floored (>=). mcp/mcp-clickhouse
+# used to be the only exception to that -- floored, so `pip install
+# --no-cache-dir` on every Docker build could silently pick up whatever was
+# newest on PyPI that day -- and it took ClickHouse down in production: mcp
+# 2.x renamed CallToolResult.isError to is_error, a pure runtime
+# AttributeError with nothing wrong at install time to catch it first. The
+# rest of this file carried the identical risk and just hadn't been the one
+# to actually break yet. Each pin below is the version already running and
+# verified, not an arbitrary freeze -- bump deliberately, re-verify the real
+# call paths (Gemini/Vertex/ClickHouse/YouTube), then move the pin.
 
 # Google GenAI SDK (Gemini 2.0 Flash)
-google-genai>=2.18.0
+google-genai==2.19.0
 
 # ClickHouse access — via the official ClickHouse MCP server (mcp-clickhouse),
 # per the Agentic Cinema ClickHouse track requirement. See
@@ -24,32 +35,32 @@ mcp==1.29.0
 mcp-clickhouse==0.4.1
 
 # Frontend & Visualization
-streamlit>=1.35.0
-plotly>=5.20.0
-pandas>=2.0.0
-pillow>=10.0.0
+streamlit==1.61.1
+plotly==6.9.0
+pandas==3.0.5
+pillow==12.3.0
 
 # Environment
-python-dotenv>=1.0.0
+python-dotenv==1.2.3
 
 # Ingestion — source videos come from links as well as uploads.
-yt-dlp>=2026.7.4
+yt-dlp==2026.7.4
 
 # YouTube Data API: publishing, and reading real view counts back for the
 # predicted-vs-actual loop. google-auth-oauthlib drives the consent flow.
-google-api-python-client>=2.198.0
-google-auth-oauthlib>=1.4.0
+google-api-python-client==2.198.0
+google-auth-oauthlib==1.4.0
 
 # Retry with backoff around transient Gemini/Lyria/Imagen failures — a 503
 # on the thumbnail call used to lose the whole cover. See agent/api_retry.py.
-tenacity>=9.1.4
+tenacity==9.1.4
 
 # Scheduling. Not imported yet: agent/norn_cron.py is kept for scheduled
 # *staging* (a timer that fills a review queue, never one that publishes) and
 # still has to be rewritten against trend_publish.py --stage. daemon.py, the
 # original consumer named here, was deleted.
-apscheduler>=3.11.3
-google-cloud-storage>=2.14.0
+apscheduler==3.11.3
+google-cloud-storage==3.13.1
 
 # Secret Manager, for the four real secrets in a container with no .env.
 # Only consulted when NORNPULSE_USE_SECRET_MANAGER is set (see agent/secrets.py).
@@ -58,4 +69,4 @@ google-cloud-storage>=2.14.0
 # with google-cloud-aiplatform and google-ai-generativelanguage. Neither is
 # imported at runtime -- model calls go through google-genai -- and the live
 # Gemini, Vertex and ClickHouse paths were re-verified after the upgrade.
-google-cloud-secret-manager>=2.20.0
+google-cloud-secret-manager==2.30.0
