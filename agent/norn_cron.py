@@ -3,161 +3,158 @@
 ⚡ NornPulse: Scheduled staging (norn_cron.py)
 Norn Labs (nornlabs.ai)
 
-Manages automated ingestion, AI segment selection via Gemini, Skuld rendering,
-metadata generation, and Gmail/HITL staging dispatch.
+A timer that fills the review queue on its own, and stops there.
 
-Status: kept deliberately, not yet wired
-------------------------------------------
-Nothing imports this today. It was written against `daemon.py`, which has
-since been deleted, and an over-engineering audit flagged the whole module
-as dead — correctly, on the evidence. It survives because scheduled
-*staging* is still wanted: the piece worth automating is putting a clip in
-front of a human on a timer, not publishing on one.
+Nothing here uploads. It runs `trend_publish.py --generate --stage` for
+each configured channel — the same script a human runs by hand, as a
+subprocess rather than a second copy of its ~300 lines of critic/rights-
+check/footage/shortsmith orchestration. A scheduler that stages is a
+scheduler that fills a review queue, which is safe to be wrong; a
+scheduler that publishes is not, and this project's rule is that a
+pipeline stage gets automated only once its output is being approved
+consistently in human review — which the trend loop's output is not yet.
+check_approvals.py is still the only thing that uploads.
 
-The distinction matters and is the reason this is unwired rather than
-running. Everything here stops at `send_gmail_staged_approval`; nothing in
-it uploads. A scheduler that stages is a scheduler that fills a review
-queue, which is safe to be wrong. A scheduler that publishes is not, and
-this project's rule is that a pipeline stage gets automated only once its
-output is being approved consistently in human review — which the trend
-loop's output is not yet.
+The previous version of this file predated the trend loop entirely (it
+called SkuldRenderer directly with a hardcoded 15-second window and the
+long-deprecated `google.generativeai` SDK) and was never imported by
+anything. This is a full rewrite against the pipeline as it actually
+exists today, not a patch.
 
-The class name still says Daemon and the old flow it orchestrates predates
-the trend loop, so wiring this up means rewriting the body against
-`trend_publish.py --stage`, not calling it as it stands.
+Cost is the reason this isn't unconditional: --generate bills a Veo call
+per attempt that finds a usable topic. `--max-per-day` (default 2, per
+channel) is tracked in a small local state file so a channel that already
+staged enough today is skipped rather than run again on the next cron
+firing a few hours later.
+
+    python -m agent.norn_cron                      # every configured channel
+    python -m agent.norn_cron --channel nornpulse   # one channel
+    python -m agent.norn_cron --max-per-day 1
+
+Schedule it with cron, e.g. every 4 hours (giving several chances to hit
+the cap across a day, since "nothing trending suited this channel" is a
+real, free, non-error outcome that doesn't count against it):
+
+    0 */4 * * * cd /path/to/nornpulse && venv/bin/python -m agent.norn_cron >> norn_cron.log 2>&1
 """
 
-import os
+import argparse
 import json
 import logging
+import subprocess
+import sys
+from datetime import date
 from pathlib import Path
-from typing import Dict, Any, Optional
-from dotenv import load_dotenv
+from typing import Optional
 
-load_dotenv()
 logger = logging.getLogger("nornpulse.cron")
 
-class NornCronDaemon:
+# Local, gitignored -- this is scheduling state, not configuration. Kept
+# next to .nornpulse_last_session.json's own precedent for the same reason:
+# it describes what THIS machine's cron has already done today, not
+# anything another checkout or the deployed service should inherit.
+STATE_PATH = Path(".norn_cron_state.json")
+
+# What trend_publish.py --stage actually prints on each real outcome --
+# the signal this module keys off of, since the script's own exit code is
+# 0 for both "staged" and "nothing trending suited this channel" (both are
+# legitimate non-error outcomes for a human running it by hand, so that
+# convention is right for trend_publish.py and is not something this
+# wrapper should change under it).
+_STAGED_MARKER = "sent. Reply APPROVE or REJECT"
+_NO_TOPIC_MARKER = "Nothing trending suits this channel right now"
+
+
+def _load_state(state_path: Path) -> dict:
+    if not state_path.exists():
+        return {}
+    try:
+        return json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        logger.warning(f"{state_path} is unreadable; treating as empty.")
+        return {}
+
+
+def _today_count(channel_slug: str, state_path: Path = STATE_PATH) -> int:
+    entry = _load_state(state_path).get(channel_slug, {})
+    if entry.get("date") != date.today().isoformat():
+        return 0
+    return int(entry.get("count", 0))
+
+
+def _record_staged(channel_slug: str, state_path: Path = STATE_PATH) -> None:
+    state = _load_state(state_path)
+    today = date.today().isoformat()
+    entry = state.get(channel_slug, {})
+    count = entry.get("count", 0) + 1 if entry.get("date") == today else 1
+    state[channel_slug] = {"date": today, "count": count}
+    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def stage_one(channel_slug: str, max_per_day: int = 2,
+              state_path: Path = STATE_PATH, timeout_sec: int = 900) -> str:
     """
-    Core orchestrator that runs the end-to-end NornPulse pipeline.
+    Runs trend_publish.py --generate --stage for one channel, unless
+    today's cap is already spent.
+
+    Returns "staged", "no_topic", "skipped_cap", or "failed" -- a caller
+    counts anything but the first two as worth looking at, not necessarily
+    "failed": no_topic is the honest, expected outcome on a day nothing
+    trending suits the channel, and costs nothing.
     """
+    already = _today_count(channel_slug, state_path)
+    if already >= max_per_day:
+        logger.info(f"{channel_slug}: already staged {already}/{max_per_day} "
+                    f"today — skipping.")
+        return "skipped_cap"
 
-    def __init__(self, output_dir: str | Path = "output_clips"):
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
+    logger.info(f"{channel_slug}: running trend_publish.py --generate --stage "
+                f"({already}/{max_per_day} staged today)...")
+    try:
+        proc = subprocess.run(
+            [sys.executable, "trend_publish.py", "--channel", channel_slug,
+             "--generate", "--stage", "--verbose"],
+            capture_output=True, text=True, timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        logger.error(f"{channel_slug}: trend_publish.py did not finish within "
+                     f"{timeout_sec}s.")
+        return "failed"
 
-    def generate_ai_metadata(self, clip_id: str, transcript_snippet: str) -> Dict[str, Any]:
-        """
-        Uses Gemini to generate viral YouTube Shorts titles, descriptions, and tags.
-        Falls back to rule-based defaults if the API key is missing or fails.
-    """
-        default_metadata = {
-            "title": f"The AI Reality Check #{clip_id} #Shorts",
-            "description": "Generated autonomously by NornPulse (nornlabs.ai). Real-time insights and tech breakdowns.",
-            "tags": ["AI", "Tech", "NornPulse", "Shorts"]
-        }
+    output = proc.stdout + proc.stderr
+    logger.info(output[-2000:])  # tail -- a generation call can log a lot
 
-        if not self.gemini_api_key or self.gemini_api_key.startswith("your_"):
-            logger.warning("Valid Gemini API key missing. Using fallback metadata.")
-            return default_metadata
+    if _STAGED_MARKER in output:
+        _record_staged(channel_slug, state_path)
+        logger.info(f"{channel_slug}: staged and emailed for approval.")
+        return "staged"
+    if _NO_TOPIC_MARKER in output:
+        logger.info(f"{channel_slug}: nothing trending suited it this run.")
+        return "no_topic"
 
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=self.gemini_api_key)
-            # Using current flash model reference
-            model = genai.GenerativeModel("gemini-2.5-flash")
-            
-            prompt = (
-                f"Based on this video transcript snippet, generate a viral YouTube Short title (under 60 characters with emojis), "
-                f"a compelling description, and 4 comma-separated tags.\n\n"
-                f"Transcript snippet:\n{transcript_snippet}\n\n"
-                f"Return ONLY valid JSON with keys: 'title', 'description', 'tags' (list of strings)."
-            )
-            
-            response = model.generate_content(prompt)
-            clean_text = response.text.strip().replace("```json", "").replace("```", "")
-            data = json.loads(clean_text)
-            return {
-                "title": data.get("title", default_metadata["title"]),
-                "description": data.get("description", default_metadata["description"]),
-                "tags": data.get("tags", default_metadata["tags"])
-            }
-        except Exception as e:
-            logger.error(f"Failed to generate AI metadata via Gemini: {e}")
-            return default_metadata
+    logger.error(f"{channel_slug}: exited {proc.returncode} without staging "
+                 f"anything. Last output:\n{output[-500:]}")
+    return "failed"
 
-    def run_pipeline_iteration(self, video_path: str | Path, transcript_path: str | Path) -> Optional[str]:
-        """
-        Executes a full pipeline iteration: reads transcript, renders short,
-        generates AI metadata, saves sidecar JSON, and dispatches via Gmail publisher.
-        """
-        from agent.skuld_renderer import SkuldRenderer
-        from agent.norn_publisher import NornPublisher
 
-        video_path = Path(video_path)
-        transcript_path = Path(transcript_path)
+def main(argv: Optional[list] = None) -> int:
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--channel", action="append", dest="channels",
+                     help="channel slug to stage for. Repeatable. Defaults to "
+                          "every channel in channels.json.")
+    ap.add_argument("--max-per-day", type=int, default=2,
+                     help="staging attempts per channel per day (default 2). "
+                          "Each one that finds a topic bills a Veo generation.")
+    args = ap.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
-        if not video_path.exists() or not transcript_path.exists():
-            logger.error("Input video or transcript path does not exist.")
-            return None
+    from agent import channels as chans
+    slugs = args.channels or [c.slug for c in chans.list_channels()]
 
-        logger.info("🚀 Starting automated NornPulse pipeline iteration...")
-        
-        # Read transcript text
-        transcript_text = transcript_path.read_text(encoding="utf-8")
-        
-        # For test/demo purposes, pick a high-impact window or dynamic slice
-        clip_id = f"clip_{os.urandom(2).hex()}"
-        start_time = "00:00"
-        end_time = "00:15"
-        
-        # 1. Render Short via Skuld
-        renderer = SkuldRenderer(output_dir=self.output_dir)
-        render_res = renderer.render_vertical_short(
-            input_video_path=video_path,
-            start_time=start_time,
-            end_time=end_time,
-            clip_id=clip_id,
-            crop_mode="center_crop",
-            hook_banner_text="THE AI REALITY CHECK",
-            transcript_text=transcript_text
-        )
+    results = {slug: stage_one(slug, max_per_day=args.max_per_day) for slug in slugs}
+    logger.info(f"Done: {results}")
+    return 1 if any(r == "failed" for r in results.values()) else 0
 
-        rendered_mp4 = Path(render_res["output_video_path"])
-
-        # 2. Generate AI Metadata
-        logger.info("🧠 Consulting Gemini for high-retention metadata...")
-        metadata = self.generate_ai_metadata(clip_id, transcript_text[:500])
-
-        # 3. Save Sidecar JSON Metadata for UI and Publisher sync
-        sidecar_path = self.output_dir / f"{clip_id}_metadata.json"
-        with open(sidecar_path, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2)
-
-        # 4. Dispatch Gmail HITL Staging Notification
-        publisher = NornPublisher()
-        success = publisher.send_gmail_staged_approval(
-            clip_id=clip_id,
-            title=metadata["title"],
-            virality=94.5, # Mock score or dynamic score from Urðr analytics
-            video_path=rendered_mp4
-        )
-
-        if success:
-            logger.info(f"✨ Pipeline iteration complete. Staged {clip_id} successfully!")
-            return clip_id
-        else:
-            logger.error("Pipeline finished rendering, but Gmail notification failed.")
-            return None
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    cron = NornCronDaemon()
-    # Test execution using sample assets if available
-    sample_vid = Path("sample_data/sample_source.mp4")
-    sample_sub = Path("sample_data/sample_transcript.txt")
-    if sample_vid.exists() and sample_sub.exists():
-        cron.run_pipeline_iteration(sample_vid, sample_sub)
-    else:
-        print("Place a sample source video and transcript in sample_data/ to test via cron.")
+    sys.exit(main())
