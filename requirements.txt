@@ -8,8 +8,20 @@ google-genai>=2.18.0
 # per the Agentic Cinema ClickHouse track requirement. See
 # agent/clickhouse_mcp_client.py for the bridge and .env.example for the
 # CLICKHOUSE_* variables the server itself reads.
-mcp>=1.29.0
-mcp-clickhouse>=0.4.1
+#
+# Pinned exact, not just floored: both used to be open-ended (>=), and a
+# `pip install --no-cache-dir` on every Docker build means each deploy could
+# silently pick up whatever was newest on PyPI that day. mcp-clickhouse
+# 0.6.0 requires fastmcp>=4.0.0, which pulls mcp 2.x -- and mcp 2.x renamed
+# CallToolResult.isError to is_error, breaking every query in
+# clickhouse_mcp_client._result_text() with
+# "'CallToolResult' object has no attribute 'isError'" while looking
+# perfectly healthy at build time (it's a runtime AttributeError, not an
+# install-time failure). fastmcp itself already constrains mcp<2.0 in the
+# 2.x line this pin resolves to, so this isn't an arbitrary older pin --
+# it's the newest combination that's still mutually compatible.
+mcp==1.29.0
+mcp-clickhouse==0.4.1
 
 # Frontend & Visualization
 streamlit>=1.35.0

@@ -42,7 +42,11 @@ load_dotenv(override=True)
 
 st.set_page_config(
     page_title="NornPulse: Autonomous Short-Form Engine",
-    page_icon="⚡",
+    # The real mark (_nornpulse_mark()'s own SVG, rasterised), not the
+    # generic lightning-bolt emoji Streamlit apps default to -- a tab full
+    # of Streamlit apps all show the same bolt, which tells a visitor
+    # nothing about which one this is.
+    page_icon="assets/favicon.png",
     layout="wide",
     initial_sidebar_state="expanded",
 )
