@@ -119,6 +119,17 @@ echo "📦 Deploying ${COMMIT} to ${SERVICE} (${REGION})."
 # targets the heaviest part of a cold load: app.py's own import chain
 # (google-genai, pandas, plotly, streamlit, the ClickHouse MCP client) is
 # CPU-bound, not I/O-bound, so more CPU during that window is a real win.
+#
+# NORNPULSE_USE_VERTEX routes every Gemini/Veo call through Vertex AI,
+# billed to this GCP project's normal billing account, instead of AI
+# Studio's separate prepaid balance -- which has already run out once in
+# production (a hard outage across every model call, with no warning
+# until the 429). No credentials to manage either way: the attached
+# service account's existing Editor role already covers Vertex AI, and
+# agent/genai_client.py routes each model's name and region
+# automatically once this is set. GEMINI_API_KEY stays mounted below as a
+# fallback (drop NORNPULSE_USE_VERTEX to use it again) but is otherwise
+# unused now.
 gcloud run deploy "$SERVICE" \
   --source . \
   --project="$PROJECT" \
@@ -140,6 +151,8 @@ gcloud run deploy "$SERVICE" \
   --set-env-vars="NORNPULSE_DEPLOYED_COMMIT=${COMMIT}" \
   --set-env-vars="GMAIL_USER=franeppotrc@gmail.com" \
   --set-env-vars="NOTIFY_EMAIL=franeppotrc@gmail.com" \
+  --set-env-vars="NORNPULSE_USE_VERTEX=true" \
+  --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT}" \
   --set-secrets="GEMINI_API_KEY=nornpulse-gemini-api-key:latest" \
   --set-secrets="CLICKHOUSE_PASSWORD=nornpulse-clickhouse-password:latest" \
   --set-secrets="GMAIL_APP_PASSWORD=nornpulse-gmail-app-password:latest"
