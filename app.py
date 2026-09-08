@@ -1210,6 +1210,21 @@ def page_create():
         uploaded = st.file_uploader(
             "Upload a 16:9 video", type=["mp4", "mov", "m4v", "webm"],
             help="Any source works — NornPulse reads the video, not where it came from.")
+
+        # A bundled 24s clip so a first-time visitor can see the real
+        # pipeline run without finding their own video first — this matters
+        # most on the demo, where the Video link field above can't fetch
+        # anything (YouTube bot-blocks Cloud Run). Generated through this
+        # project's own Veo pipeline rather than a real downloaded video,
+        # so it ships copyright-clean; narration checked word-for-word
+        # against the script via get_or_create_transcript before this went
+        # in, so it's a known-good run, not a hopeful one.
+        example_path = Path("assets/example_voyager1.mp4")
+        if example_path.exists() and st.button(
+                "🛰️ Try our example — Voyager 1 (24s)", key="use_example_btn",
+                help="No upload needed — runs the real pipeline on a bundled clip."):
+            st.session_state.example_video_selected = True
+
         uploaded_path = None
         if uploaded is not None:
             uploads = Path("output_clips/uploads")
@@ -1221,6 +1236,9 @@ def page_create():
             if not uploaded_path.exists():
                 uploaded_path.write_bytes(uploaded.getbuffer())
             st.caption(f"📁 {uploaded.name} · {uploaded_path.stat().st_size / 1048576:.0f} MB")
+        elif st.session_state.get("example_video_selected"):
+            uploaded_path = example_path
+            st.caption("🛰️ Using the bundled example — a Voyager 1 clip (24s).")
 
         if DEMO_MODE:
             st.text_input(

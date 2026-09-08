@@ -131,3 +131,29 @@ def test_link_ingestion_stays_blocked_on_the_demo():
     block = block[:block.index("Batch Mode")]
     assert "yt_url_locked" in block
     assert block.index("if DEMO_MODE:") < block.index('key="yt_url"')
+
+
+def test_bundled_example_video_exists():
+    """
+    The one-click "Try our example" button on the source step needs no
+    upload and no working link, which is exactly what a visitor has on the
+    demo. A regression here (the file moved or got cleaned up) would leave
+    the button pointing at nothing.
+    """
+    example = Path(__file__).resolve().parent.parent / "assets" / "example_voyager1.mp4"
+    assert example.exists(), "assets/example_voyager1.mp4 is missing — the example button will 404"
+    assert example.stat().st_size > 0
+
+
+def test_a_real_upload_wins_over_the_bundled_example():
+    """
+    If someone has both clicked "Try our example" and uploaded their own
+    file, their own file must win -- the example is a fallback for when
+    there's nothing else, not a sticky override.
+    """
+    block = SOURCE[SOURCE.index("a link, or a file from anywhere"):]
+    block = block[:block.index("Batch Mode")]
+    assert "if uploaded is not None:" in block
+    assert 'elif st.session_state.get("example_video_selected"):' in block
+    assert block.index("if uploaded is not None:") < block.index(
+        'elif st.session_state.get("example_video_selected"):')
