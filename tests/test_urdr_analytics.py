@@ -257,6 +257,66 @@ def test_connection_error_is_recorded_when_offline(offline_urdr):
 
 
 # --------------------------------------------------------------------------
+# Schema init runs once per process, not once per session
+# --------------------------------------------------------------------------
+# UrdrAnalytics() is reconstructed on every new Streamlit session (it lives
+# in st.session_state, which is per-browser-tab), so init_schema()'s 13
+# sequential CREATE/ALTER TABLE round trips used to re-run on every new
+# visitor's first page load -- pure latency, since the DDL is idempotent
+# and the schema can't have changed since the last visitor hit this same
+# warm container.
+
+@pytest.fixture(autouse=True)
+def _reset_schema_ready_flag():
+    """The guard is process-wide state; don't let one test's writes leak
+    into another's assertions about how many queries just ran."""
+    import agent.urdr_analytics as urdr_module
+    urdr_module._schema_ready = False
+    yield
+    urdr_module._schema_ready = False
+
+
+def test_init_schema_runs_ddl_only_once_across_sessions(monkeypatch):
+    # describe_connection stays mocked offline so __init__'s own connect()
+    # call doesn't try to spawn a real mcp-clickhouse subprocess; each
+    # instance is then flipped "connected" by hand, the same two-step
+    # pattern offline_urdr's callers use elsewhere in this file.
+    monkeypatch.setattr(ch, "check_connection", lambda: False)
+    monkeypatch.setattr(ch, "describe_connection", lambda: "offline for tests")
+    calls = []
+    monkeypatch.setattr(ch, "run_query", lambda q: (calls.append(q) or {"rows": [[1]]}))
+
+    first = UrdrAnalytics()
+    monkeypatch.setattr(first, "_connected", True)
+    first.init_schema()
+    count_after_first_session = len(calls)
+    assert count_after_first_session > 0  # sanity: it actually ran the DDL
+
+    second = UrdrAnalytics()  # a second browser session hitting the same warm process
+    monkeypatch.setattr(second, "_connected", True)
+    second.init_schema()
+    assert len(calls) == count_after_first_session  # no new round trips
+
+
+def test_init_schema_is_retryable_after_a_failure(monkeypatch):
+    """A partial failure (network blip mid-sequence) must not permanently
+    skip the remaining DDL for the rest of the container's life."""
+    monkeypatch.setattr(ch, "check_connection", lambda: False)
+    monkeypatch.setattr(ch, "describe_connection", lambda: "offline for tests")
+
+    def boom(q):
+        raise RuntimeError("transient network blip")
+    monkeypatch.setattr(ch, "run_query", boom)
+
+    urdr = UrdrAnalytics()
+    monkeypatch.setattr(urdr, "_connected", True)
+    urdr.init_schema()
+
+    import agent.urdr_analytics as urdr_module
+    assert urdr_module._schema_ready is False  # stays retryable, not latched
+
+
+# --------------------------------------------------------------------------
 # Unmeasurable outcomes
 # --------------------------------------------------------------------------
 # Some published_clip_outcomes rows point at videos that are deleted,

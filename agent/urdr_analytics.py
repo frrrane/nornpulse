@@ -15,6 +15,7 @@ ClickHouse track requirement.
 import logging
 import datetime
 import math
+import threading
 from typing import Dict, Any, List, Optional
 import pandas as pd
 from dotenv import load_dotenv
@@ -24,6 +25,17 @@ load_dotenv()
 import agent.clickhouse_mcp_client as ch  # noqa: E402 – imported after load_dotenv intentionally
 
 logger = logging.getLogger("nornpulse.urdr")
+
+# init_schema() used to re-run on every new browser session — Streamlit
+# session state, not the process, was what UrdrAnalytics() was guarded by,
+# so each new visitor's first page load paid for 13 sequential
+# CREATE TABLE/ALTER TABLE round trips to ClickHouse before anything could
+# render, even though the schema can't have changed since the last visitor
+# hit this same warm container. The DDL is idempotent (IF NOT EXISTS
+# throughout), so there's nothing to gain by repeating it; this flag makes
+# it run at most once per container process instead of once per session.
+_schema_ready = False
+_schema_ready_lock = threading.Lock()
 
 # How to actually WRITE a title for each hook type, not just which label to
 # attach to one. A real published title ("NASA's Plan For A Permanent Moon
@@ -367,6 +379,20 @@ class UrdrAnalytics:
         if not self.is_connected():
             return
 
+        global _schema_ready
+        if _schema_ready:
+            return
+        with _schema_ready_lock:
+            if _schema_ready:  # re-check: another session may have won the race
+                return
+            # Only latch the guard on success -- a partial failure (network
+            # blip on statement 5 of 13, say) must stay retryable on the
+            # next session rather than permanently skip the remaining DDL
+            # for this container's lifetime.
+            if self._init_schema_uncached():
+                _schema_ready = True
+
+    def _init_schema_uncached(self) -> bool:
         try:
             ch.run_query("""
             CREATE TABLE IF NOT EXISTS video_hook_retention (
@@ -520,8 +546,10 @@ class UrdrAnalytics:
             visual_count = visual_count_result.get("rows", [[0]])[0][0] if visual_count_result.get("rows") else 0
             if visual_count == 0:
                 self.seed_visual_benchmarks()
+            return True
         except Exception as e:
             logger.error(f"Error initializing ClickHouse schema: {e}")
+            return False
 
     def seed_benchmarks(self) -> int:
         """Seeds standard video hook benchmarks into ClickHouse."""

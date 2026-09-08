@@ -113,6 +113,12 @@ echo "📦 Deploying ${COMMIT} to ${SERVICE} (${REGION})."
 # ffmpeg, which is CPU- and memory-hungry, and several concurrent renders in
 # one instance would contend. timeout is the 60-minute maximum because a
 # batch generation legitimately runs for many minutes.
+#
+# cpu-boost gives a cold-starting instance extra CPU only until it's ready
+# to serve its first request -- free at steady state, and it directly
+# targets the heaviest part of a cold load: app.py's own import chain
+# (google-genai, pandas, plotly, streamlit, the ClickHouse MCP client) is
+# CPU-bound, not I/O-bound, so more CPU during that window is a real win.
 gcloud run deploy "$SERVICE" \
   --source . \
   --project="$PROJECT" \
@@ -120,6 +126,7 @@ gcloud run deploy "$SERVICE" \
   --allow-unauthenticated \
   --memory=4Gi \
   --cpu=2 \
+  --cpu-boost \
   --timeout=3600 \
   --concurrency=4 \
   --max-instances=3 \

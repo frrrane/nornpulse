@@ -816,8 +816,16 @@ if "channel_subs" not in st.session_state:
     st.session_state.channel_subs = chans.get_channel(chans.DEFAULT_SLUG).subscribers
 
 if "verdandi_adk" not in st.session_state:
-    project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "norn-labs-default")
-    st.session_state.verdandi_adk = VerdandiOrchestrator(project_id=project_id)
+    # The one part of a slow first load that in-app code can actually
+    # influence: nothing has rendered below this point yet, so without a
+    # spinner a new visitor stares at a blank page while this connects to
+    # ClickHouse (and, on a genuinely cold container, waits through the
+    # one-time MCP subprocess spawn -- see urdr_analytics.connect()). It
+    # cannot do anything about Cloud Run's own pre-listening cold start;
+    # that window has no request to attach a spinner to yet.
+    with st.spinner("Connecting to the live warehouse…"):
+        project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "norn-labs-default")
+        st.session_state.verdandi_adk = VerdandiOrchestrator(project_id=project_id)
 if "publisher" not in st.session_state: st.session_state.publisher = NornPublisher()
 if "current_generation" not in st.session_state: st.session_state.current_generation = []
 if "published_count" not in st.session_state: st.session_state.published_count = 0
