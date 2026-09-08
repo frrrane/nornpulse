@@ -81,13 +81,13 @@ BEATS: List[Beat] = [
     Beat(
         key="generation",
         narration=(
-            "So it makes videos on that basis. Urðr asks ClickHouse what is "
-            "travelling and returns a topic with a denominator: unboxing, three "
+            "So it makes videos on that basis. Urðr, the analytics agent, asks "
+            "ClickHouse what is travelling and returns a topic with a denominator: unboxing, three "
             "trending videos, median nine point seven million views. Verðandi "
             "writes the brief, three beats in eight seconds, and picks one premise "
             "over two others. A rights check runs before a frame exists. Veo "
-            "generates, Mímir narrates, the hook burns into the first three "
-            "seconds. That clip is live, and nobody typed a word of it."
+            "generates on Vertex AI, Mímir narrates, the hook burns into the "
+            "first three seconds. That clip is live, and nobody typed a word of it."
         ),
         page="/",
         manual=("Terminal: trend_publish.py --generate, showing topic, brief, "
@@ -100,8 +100,8 @@ BEATS: List[Beat] = [
         narration=(
             "And every decision is labelled by what it rests on — measured, "
             "assumed, or model judgement. The hook is measured, with a sample "
-            "size attached. The framing is a seeded prior, because the public "
-            "dataset has no visual features to ground it against, and it says so."
+            "size attached. The framing is a seeded prior — the public dataset "
+            "has no visual features to ground it against."
         ),
         page="/",
         # Renders inline now, not behind an expander — no click needed, and
@@ -130,7 +130,7 @@ BEATS: List[Beat] = [
     Beat(
         key="why",
         narration=(
-            "Here is why. The public dataset is a crawl, so it only contains "
+            "Here's why: the public dataset is a crawl, so it only contains "
             "videos discoverable enough to be crawled. A channel posting into the "
             "void isn't in it. Banding by size doesn't remove survivorship bias, "
             "because the population inside the band is filtered too."
@@ -144,8 +144,8 @@ BEATS: List[Beat] = [
         narration=(
             "So forecasts are calibrated against the channel's own history, then "
             "graded. Right now only two of sixteen are gradeable — the rest are too "
-            "young, predate the forecasts, or point at videos that no longer exist. "
-            "It says so, instead of averaging an accuracy figure over two clips."
+            "young, predate the forecasts, or point at videos that no longer "
+            "exist — instead of averaging an accuracy figure over two clips."
         ),
         page="/page_intelligence",
         actions=[("scroll_to", "text=Forecast scoreboard"), ("wait", 3.0)],
@@ -176,21 +176,22 @@ BEATS: List[Beat] = [
     Beat(
         key="gate_inbox",
         narration=(
-            "This one was approved with the note, could be funnier. The forecast "
-            "is written down before publication, then graded against what "
-            "happened. It can be wrong in public, which is the point."
+            "This one was rejected with the note, the subtitles aren't synced. "
+            "The forecast is written down before publication, then graded "
+            "against what happened. It can be wrong in public, which is the point."
         ),
         page="/page_review",
-        manual="The approval email in a real inbox, reply comment “could be funnier” visible.",
+        manual="The rejection email in a real inbox, reply comment about unsynced subtitles visible.",
         min_seconds=13.0,
     ),
     Beat(
         key="close",
         narration=(
             "Most AI tools present everything with identical confidence. This "
-            "one tells you what it measured, what it assumed, and what it "
-            "guessed — and when the sample is too thin, it refuses to answer. "
-            "NornPulse. Every chart is live against the real warehouse."
+            "one tells you what it measured, assumed, or guessed — and when "
+            "the sample is too thin, it refuses to answer. "
+            "NornPulse, running on Cloud Run. Every chart is live against the "
+            "real warehouse."
         ),
         page="/",
         # h1 is the static "NornPulse" title, present before the ClickHouse

@@ -72,7 +72,10 @@ def narrate_beats(out_dir: Path, force: bool = False) -> dict:
         try:
             got = narrator.narrate(
                 clip_id=beat.key, script_text=beat.narration,
-                energy_level=0.55, output_dir=str(out_dir))
+                # Below 0.45 so MimirNarrator._pick_voice lands on Charon
+                # (calmer, lower register) -- a deliberate cinematic-narrator
+                # choice for this video, not an energy read on the beats.
+                energy_level=0.3, output_dir=str(out_dir))
         except Exception as e:
             print(f"  {beat.key:12} ❌ {str(e)[:70]}")
             continue

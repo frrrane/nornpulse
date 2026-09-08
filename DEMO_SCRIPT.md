@@ -36,13 +36,14 @@ minute beforehand or set `--min-instances=1` for the day.
 
 **On screen:** **Manual shot.** Terminal running `trend_publish.py --generate` — topic, brief, rights verdict — then the finished Short playing full-frame, sound on.
 
-> So it makes videos on that basis. Urðr asks ClickHouse what is travelling
+> So it makes videos on that basis. Urðr, the analytics agent, asks
+> ClickHouse what is travelling
 > and returns a topic with a denominator: unboxing, three trending videos,
 > median nine point seven million views. Verðandi writes the brief, three
 > beats in eight seconds, and picks one premise over two others. A rights
-> check runs before a frame exists. Veo generates, Mímir narrates, the hook
-> burns into the first three seconds. That clip is live, and nobody typed a
-> word of it.
+> check runs before a frame exists. Veo generates on Vertex AI, Mímir
+> narrates, the hook burns into the first three seconds. That clip is live,
+> and nobody typed a word of it.
 
 ## 1:03 – 1:20 · Every decision, labelled
 
@@ -50,8 +51,8 @@ minute beforehand or set `--min-instances=1` for the day.
 
 > And every decision is labelled by what it rests on — measured, assumed, or
 > model judgement. The hook is measured, with a sample size attached. The
-> framing is a seeded prior, because the public dataset has no visual
-> features to ground it against, and it says so.
+> framing is a seeded prior — the public dataset has no visual features to
+> ground it against.
 
 ## 1:20 – 1:38 · Pointed at itself
 
@@ -66,7 +67,7 @@ minute beforehand or set `--min-instances=1` for the day.
 
 **On screen:** Intelligence page, scrolled to the crawl-bias note.
 
-> Here is why. The public dataset is a crawl, so it only contains videos
+> Here's why: the public dataset is a crawl, so it only contains videos
 > discoverable enough to be crawled. A channel posting into the void isn't
 > in it. Banding by size doesn't remove survivorship bias, because the
 > population inside the band is filtered too.
@@ -77,8 +78,8 @@ minute beforehand or set `--min-instances=1` for the day.
 
 > So forecasts are calibrated against the channel's own history, then
 > graded. Right now only two of sixteen are gradeable — the rest are too
-> young, predate the forecasts, or point at videos that no longer exist.
-> It says so, instead of averaging an accuracy figure over two clips.
+> young, predate the forecasts, or point at videos that no longer exist —
+> instead of averaging an accuracy figure over two clips.
 
 ## 2:13 – 2:21 · The human gate, automated
 
@@ -89,20 +90,20 @@ minute beforehand or set `--min-instances=1` for the day.
 
 ## 2:21 – 2:34 · The human gate, by hand
 
-**On screen:** **Manual shot.** The approval email in a real inbox, reply comment "could be funnier" visible.
+**On screen:** **Manual shot.** The rejection email in a real inbox, reply comment about unsynced subtitles visible.
 
-> This one was approved with the note, could be funnier. The forecast is
-> written down before publication, then graded against what happened. It can
-> be wrong in public, which is the point.
+> This one was rejected with the note, the subtitles aren't synced. The
+> forecast is written down before publication, then graded against what
+> happened. It can be wrong in public, which is the point.
 
 ## 2:34 – 2:53 · Close
 
 **On screen:** Home page, the thesis line.
 
 > Most AI tools present everything with identical confidence. This one
-> tells you what it measured, what it assumed, and what it guessed — and
-> when the sample is too thin, it refuses to answer. NornPulse. Every
-> chart is live against the real warehouse.
+> tells you what it measured, assumed, or guessed — and when the sample
+> is too thin, it refuses to answer. NornPulse, running on
+> Cloud Run. Every chart is live against the real warehouse.
 
 <!-- generated: 431 words, ~167s at 155wpm, 173s at 150wpm -->
 
@@ -116,10 +117,10 @@ Playwright drives everything except the two beats marked **manual**; those are
 the two that show the product doing the thing the competition is about, so
 they are the ones to film first, not last.
 
-- [ ] **Terminal: `trend_publish.py --channel sloptokdaily --generate`** —
+- [x] **Terminal: `trend_publish.py --channel nornpulse --generate`** —
       topic with its denominator, the brief, the rights verdict
-- [ ] **The generated Short playing full-frame, sound on**
-- [ ] **The approval email in a real inbox**, with the reply comment visible
+- [x] **The generated Short playing full-frame**
+- [x] **The rejection email in a real inbox**, with the reply comment visible
 - [ ] Home page, full scroll, warm instance
 - [ ] The provenance panel on Home, showing all three levels
 - [ ] Intelligence → benchmark vs reality panel
