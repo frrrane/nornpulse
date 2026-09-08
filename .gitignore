@@ -42,3 +42,6 @@ sample_data/transcripts/
 # Rendered brand/logo exports — not source, not used at runtime (the app
 # draws its own marks inline in app.py).
 brand_assets/
+
+# Output of sync_stats.py / sync_channels.py's own cron entries.
+*.log
