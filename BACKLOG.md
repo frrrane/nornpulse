@@ -7,12 +7,15 @@ submission is **Wed 9 September 2026, 2pm PDT**.
 
 ## Hard requirements (cannot ship without)
 
-- [ ] **Demo video, ≤3 minutes.** Script, beats, capture and assembly all
-  exist — `demo_capture.py` records the seven driveable beats, `demo_assemble.py`
-  narrates and cuts, and a silent dry run comes out at 2:41. What is missing is
-  the two hand-shot beats, which currently render as slates. Two shots are manual (the trend
-  loop in a terminal, the approval email) and are the ones that show the
-  product doing what the competition is about — film those first.
+- [x] **Demo video, ≤3 minutes.** Both manual beats shot (the trend loop in
+  a terminal, the rejection email — the note changed from "could be
+  funnier" to a real one about unsynced subtitles once an actual rejection
+  existed to film) and cut in alongside the seven driveable ones. A caption
+  sync bug found late — the kinetic renderer was silently dropping words on
+  long lines, one gap nearly 8s — got bypassed with a direct ASS generator
+  built from the real per-word timestamps rather than debugged under
+  deadline. Live and public: youtube.com/watch?v=slQK1RV_Qro, linked from
+  the Devpost submission and verified congruent with it.
 - [x] **Written description** for the Devpost entry — `DESCRIPTION.md`. Numbers
   read live on 26 Aug 2026; re-check before submitting.
 
@@ -85,8 +88,12 @@ of work, judged against what the clips actually looked like.
   fixed by `agent/tag_selector.py`; the existing 37 would need editing in
   Studio to recover.
 
-- [ ] **Scheduled `sync_stats.py`.** Currently manual. Forecasts cannot be
-  graded without it running regularly.
+- [x] **Scheduled `sync_stats.py`.** On cron now, every 6 hours. The same
+  gap existed one level up — `channels.json`'s subscriber counts, which
+  select the size band every grounded decision is read within, were just
+  as manual — so `scripts/sync_channels.py` closes that one too, daily at
+  6am. Both verified against real cron invocation (a stripped `env -i`
+  shell, not just an interactive one) before being trusted unattended.
 
 - [ ] **`visual_style_benchmarks` and `music_virality_benchmarks` are still
   seeded priors**, not measured. The public dataset has no visual or audio
@@ -290,8 +297,14 @@ of work, judged against what the clips actually looked like.
 - [x] Pitch repositioned around the ClickHouse partner track, which is the
       track the entry is judged in. Eight tables and four layers stated
       directly under the pitch.
-- [x] Cold start removed — `--min-instances=1`, measured at 0.15s against
-      the ~62s it was.
+- [x] Cold start addressed without paying for `--min-instances=1`
+      (~$150/mo at this service's 2vCPU/4Gi, running 24/7 whether or not
+      anyone visits). Root cause found by profiling a cold `import app`:
+      `UrdrAnalytics.init_schema()`'s 13 sequential ClickHouse round trips
+      were re-running on every new *session*, not once per container —
+      now a process-wide guard. `--cpu-boost` on top (free at steady
+      state), plus a Cloud Scheduler job pinging the live URL every 5
+      minutes so the common case stays warm regardless.
 - [x] Display typefaces bundled from Google Fonts (Anton, Archivo Black,
       Bebas Neue, Oswald Bold), preferred over system faces so a render
       looks the same locally and in the container.
