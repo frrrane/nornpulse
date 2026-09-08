@@ -22,12 +22,18 @@ output/
 output_clips/
 .nornpulse_last_session.json
 
-# Brand-board moodboard exports sitting in the repo root, unused at
+# Brand-board moodboard exports and rendered logo lockups, unused at
 # runtime -- the app draws its own marks inline in app.py. Untracked
 # deliberately (not source, not final assets); excluded here too so a
 # `--source .` deploy doesn't upload them into the build.
 *.jpeg
 *.jpg
+brand_assets/
+
+# Screen recordings and cached transcripts from local dev/testing --
+# never source, never used at runtime.
+*.webm
+sample_data/transcripts/
 
 # Sample media: multi-MB, and the deployed demo does not ingest.
 sample_data/*.mp4
