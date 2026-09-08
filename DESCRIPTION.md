@@ -75,8 +75,10 @@ is interesting.
 | **Heimdall** | makes the cover |
 | **Mímir** | narrates |
 
-Gemini 3.6 Flash orchestrates, Veo 3.1 generates footage, Lyria scores, and
-everything runs on Cloud Run with secrets in Secret Manager.
+Gemini 3.6 Flash orchestrates, Veo 3.1 generates footage, Lyria scores —
+all three routed through **Vertex AI** in production rather than the public
+Gemini API, billed to the Google Cloud project — and everything runs on
+Cloud Run with secrets in Secret Manager.
 
 **ClickHouse is the argument, not the storage.** Every claim above is a query,
 and without a warehouse that can scan billions of rows per read, the honest
@@ -156,7 +158,7 @@ rather than averaging something comforting over two clips.
 **Live:** https://nornpulse.nornlabs.ai — read-only, every chart running
 against the real warehouse.
 
-**Built with:** ClickHouse · Gemini 3.6 Flash · Veo 3.1 · Lyria · Cloud Run ·
-FFmpeg · Streamlit · Python
+**Built with:** ClickHouse · Vertex AI (Gemini 3.6 Flash, Veo 3.1, Lyria) ·
+Cloud Run · Secret Manager · Cloud Storage · FFmpeg · Streamlit · Python
 
 **Submitted to the ClickHouse partner track.**
