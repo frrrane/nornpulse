@@ -21,12 +21,12 @@ submission is **Wed 9 September 2026, 2pm PDT**.
 
 ## Next
 
-- [ ] **Scheduled staging.** `agent/norn_cron.py` exists but nothing imports it,
-  and its body predates the trend loop — wiring it up means rewriting it against
-  `trend_publish.py --stage`. Deliberately staging-only: a timer that fills a
-  review queue is safe to be wrong, a timer that publishes is not. Kept through
-  an over-engineering audit for this reason; the module now says so in its own
-  docstring so it does not read as dead code.
+- [x] **Scheduled staging.** `agent/norn_cron.py` fully rewritten against
+  `trend_publish.py --generate --stage` (subprocess, not a reimport of its
+  critic/rights-check/footage/shortsmith orchestration), on cron every 4
+  hours, capped at 2 attempts/channel/day in a local state file so cost
+  stays bounded. Still staging-only — check_approvals.py remains the only
+  thing that uploads.
 
 - [ ] **Upload cadence.** Six uploads/day maximum (1,600 quota units each
   against 10,000/day). Views need days to mature, so elapsed time is the
@@ -39,7 +39,7 @@ submission is **Wed 9 September 2026, 2pm PDT**.
 These came out of reviewing real rejected clips. Ordered by effect per unit
 of work, judged against what the clips actually looked like.
 
-- [ ] **Tags are weak, and in four distinct ways.** The clip published as
+- [x] **Tags were weak, in four distinct ways.** The clip published as
   `ncSGySusHUg` went out with:
 
   ```
@@ -47,29 +47,48 @@ of work, judged against what the clips actually looked like.
   south, pole, experiences, extreme, temperatures, builds, landing, Shorts
   ```
 
-  1. *Phrases split inconsistently.* `thermal swing` survived as a pair
-     while `south` and `pole` were emitted separately — the one term a
-     searcher would actually type is the one that got broken up.
-  2. *Generic verbs and adjectives ranked as tags.* `experiences`,
-     `builds`, `landing`, `extreme`. They describe nothing and match
-     nothing; `_is_usable` filters length and stopwords but not
-     part-of-speech.
-  3. *Nothing validated.* Every tag came back `model` provenance, "not
-     present in the current trending" — the Shorts snapshot is comedy and
-     entertainment, so a space clip can never find a match in it. The
-     validation step is real and simply cannot fire for this channel's
-     subject matter, which is worth saying out loud rather than leaving as
-     an unexplained absence of MEASURED tags.
-  4. *The older uploads are worse.* The three nornpulse videos published
-     before `tag_selector.py` existed all carry the identical set
-     `AI, NornPulse, Shorts, Tech`, none of which describes a white hole, a
-     dark-energy star or a mediocre star. Fixable in Studio.
+  1. *Phrases split inconsistently.* Fixed. Root cause was one bug behind
+     both (1) and (2): "lunar south pole experiences extreme temperatures"
+     is six content words with no stopword between them, so `_windows()`
+     treated it as one run past `MAX_PHRASE_WORDS` and degraded the whole
+     thing to loose words — losing "lunar south pole" and "extreme
+     temperatures" as phrases even though both sit right there inside it.
+  2. *Generic verbs and adjectives ranked as tags.* Fixed for the
+     connective verbs (`experiences`, `builds`) by adding them to
+     `_STOPWORDS` as run-breakers — which also fixes (1), since the run
+     splits into "lunar south pole" and "extreme temperatures" once the
+     verb between them stops joining them. Deliberately did NOT
+     blocklist `extreme` or `landing`: both are genuine topic words in
+     other contexts ("extreme temperatures", "landing site" are real
+     search terms), and were only appearing as bare orphans because the
+     run-splitting bug upstream never let them form their real phrases in
+     the first place. Verified against the exact real regression
+     (`tests/test_tag_selector.py::test_a_long_unbroken_run_still_yields_its_real_sub_phrases`
+     and neighbors), not just a synthetic case.
+  3. *Nothing validated.* `select_tags()` now appends an explanatory note
+     when every tag comes back MODEL and a trending snapshot was actually
+     available to check against: not silence, and not conflated with the
+     separate "no snapshot at all" case. Went with the "label it plainly"
+     option from the two below rather than the ingestion one — smaller,
+     and honest about why is what this project does everywhere else
+     already.
+  4. *The older uploads are worse.* Unchanged — this one is a manual
+     YouTube Studio edit on already-published videos, not a code fix.
 
-  The interesting half is (3): tag validation needs a corpus that covers
+  ~~The interesting half is (3): tag validation needs a corpus that covers
   the channel's subject, which the current trending ingest cannot supply.
   Either ingest per-topic Shorts alongside the general chart, or accept
   that tags on a niche channel are model judgement and label them plainly
-  as such.
+  as such.~~ Took the label-it-plainly path. Per-topic trending ingestion
+  is still open if the labelled gap turns out not to be enough.
+
+  Found while fixing this: `_tags_for()`'s returned `decisions` (including
+  the new note) are computed in `trend_publish.py`, `publish_file.py`, and
+  `norn_publisher.py`, but nothing displays them anywhere — unlike every
+  other decision type, which `app.py`'s "How this was decided" panel
+  renders. The fix above is correct at the layer it lives in, the same
+  layer every other Decision already returns through; wiring tag
+  decisions into that panel is a separate, real gap, not yet done.
 
 
 ## Housekeeping

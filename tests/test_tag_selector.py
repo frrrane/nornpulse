@@ -267,3 +267,84 @@ def test_intermediate_windows_are_not_emitted():
     assert "florida" in tags
     for slice_ in ("humidity claims", "florida humidity"):
         assert slice_ not in tags
+
+
+# --------------------------------------------------------------------------
+# Real regression: ncSGySusHUg's published tags
+# --------------------------------------------------------------------------
+# "moon's harshest environment", nasa, thermal swing, lunar, south, pole,
+# experiences, extreme, temperatures, builds, landing, Shorts -- four
+# distinct problems in one real published tag set (see BACKLOG.md).
+
+NASA_CLIP = {
+    "clip_id": "c10",
+    "hook_title": "NASA's Plan For A Permanent Moon Base",
+    "social_caption": (
+        "In the moon's harshest environment, a massive thermal swing at "
+        "the lunar south pole experiences extreme temperatures as NASA "
+        "builds its next landing site."),
+    "topic_category": "space",
+}
+
+
+def test_a_long_unbroken_run_still_yields_its_real_sub_phrases():
+    """
+    "lunar south pole experiences extreme temperatures" is six content
+    words with no stopword between them -- one run, past
+    MAX_PHRASE_WORDS, which used to mean it degraded entirely to loose
+    words and lost "lunar south pole" and "extreme temperatures" as
+    phrases even though both are genuine three-and-two-word search terms
+    sitting right there inside it.
+    """
+    tags, _ = ts.select_tags(NASA_CLIP, trending=None)
+    assert "lunar south pole" in tags
+    assert "extreme temperatures" in tags
+
+
+def test_purely_connective_verbs_never_ship_as_bare_tags():
+    tags, _ = ts.select_tags(NASA_CLIP, trending=None)
+    assert "experiences" not in tags
+    assert "builds" not in tags
+
+
+def test_a_word_that_is_sometimes_a_real_topic_is_not_blocklisted():
+    """
+    Unlike "experiences"/"builds", "landing" is a legitimate topic word in
+    plenty of real content (a landing site, a moon landing) -- the fix is
+    to stop the run degrading around it, not to blocklist it outright.
+    Once "builds" breaks the run properly, "landing site" forms as its own
+    real phrase rather than needing "landing" banned to avoid an orphan.
+    """
+    tags, _ = ts.select_tags(NASA_CLIP, trending=None)
+    assert "landing site" in tags
+
+
+def test_zero_measured_tags_gets_an_explanatory_note_not_silence():
+    """
+    Every tag on this clip is genuinely MODEL -- the (comedy/gaming)
+    TRENDING fixture has nothing space-related to match. Left silent, an
+    all-MODEL tag list reads as "validation didn't run"; it should read as
+    "validation ran, the snapshot just doesn't cover this subject".
+    """
+    _, decisions = ts.select_tags(NASA_CLIP, trending=TRENDING)
+    notes = [d for d in decisions if d.choice == "(no tag matched the trending snapshot)"]
+    assert len(notes) == 1
+    assert notes[0].level == pv.MODEL
+
+
+def test_the_explanatory_note_does_not_appear_when_something_matched():
+    tags, decisions = ts.select_tags(COMEDY_CLIP, trending=TRENDING)
+    assert any(d.level == pv.MEASURED for d in decisions if d.step == "Tag")
+    notes = [d for d in decisions if d.choice == "(no tag matched the trending snapshot)"]
+    assert notes == []
+
+
+def test_the_explanatory_note_does_not_appear_without_a_snapshot_to_check():
+    """
+    No trending data at all is a different, already-obvious problem
+    (there's nothing to validate against, full stop) -- conflating it with
+    "validated and found nothing" would muddy a distinct failure mode.
+    """
+    _, decisions = ts.select_tags(NASA_CLIP, trending=None)
+    notes = [d for d in decisions if d.choice == "(no tag matched the trending snapshot)"]
+    assert notes == []

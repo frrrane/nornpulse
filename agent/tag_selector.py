@@ -92,6 +92,17 @@ _STOPWORDS = {
     "needs", "say", "says", "said", "tell", "tells", "told", "use",
     "uses", "used", "let", "lets", "put", "give", "gives", "keep",
     "turn", "turns", "become", "becomes", "means",
+    # Purely connective process verbs -- "the pole experiences extreme
+    # temperatures" describes the topic through "extreme temperatures",
+    # not through "experiences", and the same is true of every word below:
+    # each is real prose glue with no standalone meaning of its own, unlike
+    # a borderline case such as "claims" ("storm claims lives" is closer to
+    # an idiom than a connective, and stays a candidate). Real published
+    # tags carried "experiences" and "builds" as bare, orphaned words
+    # (ncSGySusHUg) for exactly this reason: nothing broke the run they
+    # sat in, so the whole run collapsed past MAX_PHRASE_WORDS into loose
+    # words instead of "lunar south pole" / "extreme temperatures".
+    "experience", "experiences", "build", "builds", "built",
     # vague adverbs and intensifiers
     "actually", "really", "basically", "literally", "fundamentally",
     "essentially", "simply", "truly", "quite", "rather", "almost",
@@ -408,6 +419,32 @@ def select_tags(
             choice=term,
             level=pv.PRIOR,
             evidence="structural: how YouTube routes a vertical video onto the Shorts shelf",
+        ))
+
+    # Every tag came back MODEL and none of them is wrong for it: the
+    # trending snapshot is comedy- and entertainment-heavy (it's Shorts
+    # ranked by view count, which returns whatever's largest by
+    # construction), so a clip on a subject that snapshot doesn't cover --
+    # science, space, anything niche -- can find zero matches while every
+    # tag still correctly describes the clip. Left unexplained, an all-MODEL
+    # tag list on a real space/science upload (ncSGySusHUg) read as
+    # "validation didn't run" rather than what it actually was: validation
+    # ran and had nothing in its corpus to check against. Only surfaced
+    # when there was something to validate against in the first place --
+    # an empty/missing snapshot is a separate, already-obvious problem.
+    if (trending is not None and not trending.empty
+            and not any(d.level == pv.MEASURED for d in decisions if d.step == "Tag")
+            and any(d.step == "Tag" for d in decisions)):
+        decisions.append(pv.Decision(
+            step="Tag",
+            choice="(no tag matched the trending snapshot)",
+            level=pv.MODEL,
+            evidence=(
+                "not a sign these tags are wrong -- the trending snapshot is Shorts "
+                "ranked by view count, which skews toward comedy/entertainment by "
+                "construction, so a niche-subject clip can legitimately match nothing "
+                "in it. Validation ran; its corpus just doesn't cover this subject."
+            ),
         ))
 
     return tags, decisions
