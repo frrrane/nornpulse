@@ -353,6 +353,140 @@ def test_sentence_ends_survive_trailing_quotes_and_brackets():
     assert snap_to_sentences(6, 8, t)[1] == 9
 
 
+# --------------------------------------------------------------------------
+# snap_end_backward_to_sentence -- the fix for a real bug: snap_to_sentences
+# runs before the hard duration clamp (by design, so the clamp stays
+# authoritative), which means the clamp can shorten an already-snapped
+# end_time straight back down into the middle of a DIFFERENT sentence.
+# Measured on a real published clip: the model chose an end_time close to
+# where the sentence actually finished, the clamp truncated it 1.44s
+# short, and the clip shipped cutting off "the lunar south pole" mid-word.
+# --------------------------------------------------------------------------
+
+from agent.verdandi_orchestrator import snap_end_backward_to_sentence  # noqa: E402
+
+
+def test_pulls_a_clamped_end_back_to_the_sentence_before_it():
+    # Sentence ends in CUES: 14, 21, 29, 32. A clamp that landed at 23
+    # (mid "Some physicists believe we live inside a white hole.") should
+    # pull back to 21, the end of the previous complete sentence.
+    assert snap_end_backward_to_sentence(23, CUES, floor_sec=15) == 21
+
+
+def test_leaves_the_end_alone_when_nothing_is_close_enough():
+    # Nearest sentence end before 18 is 14 -- a 4s gap, past the 3s default.
+    assert snap_end_backward_to_sentence(18, CUES, floor_sec=10) == 18
+
+
+def test_never_pulls_below_the_minimum_duration_floor():
+    # 14 is within reach of 15, but floor_sec=14.5 rules it out -- the
+    # minimum-duration constraint must survive this pass too, not just the
+    # maximum one it was built to fix.
+    assert snap_end_backward_to_sentence(15, CUES, floor_sec=14.5) == 15
+
+
+def test_never_moves_the_end_forward():
+    """
+    The one-directional guarantee this function exists for: a second full
+    snap_to_sentences() pass would pick whichever boundary is nearest
+    regardless of direction, and a sentence-end just after the clamped
+    point can be closer than one before it -- which would push end_sec
+    back past the ceiling that was just enforced, undoing the clamp
+    instead of fixing the snap. 30 sits 1s before the boundary at 29 and
+    2s before the one at 32; only 29 (behind it) may ever be returned.
+    """
+    result = snap_end_backward_to_sentence(30, CUES, floor_sec=25)
+    assert result <= 30
+    assert result != 32
+
+
+@pytest.mark.parametrize("transcript", ["", "no cues at all", "[00:01] only one cue"])
+def test_snap_end_backward_leaves_degenerate_transcripts_untouched(transcript):
+    assert snap_end_backward_to_sentence(12, transcript, floor_sec=5) == 12
+
+
+def test_the_real_regression_end_to_end():
+    """
+    The exact shape of the bug that shipped: a sentence which, in full,
+    needs more time than the duration ceiling allows. snap_to_sentences
+    correctly stretches toward it; the ceiling then has to cut it short
+    regardless (duration is non-negotiable); this pass pulls the result
+    back to the *previous* complete sentence rather than leaving it
+    mid-word inside the one that didn't fit.
+    """
+    # Per-word-ish cues for the long sentence (real transcripts carry one
+    # timestamp per word -- see BACKLOG's word-level caption timings entry),
+    # so snap_to_sentences has something concrete to anchor the sentence's
+    # real end to, rather than inventing a flat tail for a final cue.
+    transcript = (
+        "[00:00] Intro line here.\n"
+        "[00:02] The lunar south pole reaches\n"
+        "[00:07] minus three hundred thirty four\n"
+        "[00:11] degrees fahrenheit in permanently shadowed craters.\n"
+        "[00:14] Next thought begins.")
+    # The model's own raw pick, like the real one that shipped: already
+    # close to where the long sentence actually ends (14), not to the
+    # short intro sentence (2).
+    start_sec, end_sec = 0.0, 13.0
+    snapped_start, snapped_end = snap_to_sentences(start_sec, end_sec, transcript)
+    assert snapped_end == 14.0  # snapped onto the long sentence's real end
+
+    ceiling = 4.5  # a clip this short cannot fit the long sentence in full
+    clamped_end = min(snapped_end, snapped_start + ceiling)
+    assert clamped_end < snapped_end  # the clamp did shorten it, to 4.5 --
+    assert clamped_end == 4.5        # landing mid-word inside "south pole reaches"
+
+    fixed_end = snap_end_backward_to_sentence(
+        clamped_end, transcript, floor_sec=snapped_start + 1.0)
+    assert fixed_end == 2.0  # back to the end of "Intro line here.", not mid-word
+
+
+def test_word_level_transcript_finds_the_sentence_end_a_line_level_read_misses():
+    """
+    The real transcript excerpt from the clip that actually shipped cut off
+    mid-sentence (sample_data/batch_0_input.mp4, 09:02-09:12). One
+    physical line carries the whole "The lunar south pole ... 130
+    degrees." sentence with a timestamp on every word; parse_cues() alone
+    only ever sees that line's leading marker (09:02.16), so it has no way
+    to find where "degrees." -- the word that actually ends the sentence,
+    at 09:11.44 -- sits. The line-level pass in _sentence_end_candidates
+    would miss this boundary entirely; the word-level pass finds it.
+    """
+    from agent.verdandi_orchestrator import _sentence_end_candidates
+
+    excerpt = (
+        "[08:59.200]But [08:59.340]there's [08:59.500]even [08:59.660]more [08:59.800]ahead.\n"
+        "[09:02.160]The [09:02.260]lunar [09:02.500]south [09:02.760]pole [09:03.040]is "
+        "[09:03.180]one [09:03.320]of [09:03.400]the [09:03.460]harshest "
+        "[09:03.960]environments, [09:04.660]with [09:04.780]extreme [09:05.200]temperatures "
+        "[09:05.740]ranging [09:06.180]from [09:06.500]minus [09:07.020]334 "
+        "[09:08.520]degrees [09:08.880]Fahrenheit [09:09.520]to [09:09.780]over "
+        "[09:10.200]130 [09:11.440]degrees.\n"
+        "[09:13.440]This [09:13.620]huge [09:13.920]swing [09:14.280]means [09:14.480]the "
+        "[09:14.560]power, [09:14.940]communications, [09:15.820]and [09:15.900]landing "
+        "[09:16.240]systems [09:16.580]we [09:16.660]build [09:16.880]must "
+        "[09:17.180]withstand [09:17.620]both [09:17.820]intense [09:18.220]cold "
+        "[09:18.960]and [09:19.460]strong [09:19.780]heat.")
+
+    candidates = _sentence_end_candidates(excerpt)
+    # The real number preflight itself reports for this exact clip: cut at
+    # 09:12.0, stops "1.44s before the closing line finishes" -> 553.44.
+    assert 9 * 60 + 13.44 in candidates
+
+    # And the real, honest conclusion this whole investigation reached:
+    # a 552.0 clamp for this sentence has no valid backward snap at all.
+    # The nearest earlier boundary (542.16) is the clip's OWN start --
+    # snapping there wouldn't trim a sentence, it would erase the clip.
+    # The sentence itself runs ~11.3s (542.16 to 553.44), longer than the
+    # 6-10s duration ceiling allows in full: no cut point in this window
+    # is both a real sentence boundary AND inside the allowed range. That
+    # is a content problem (this moment doesn't fit a Short at all), not
+    # a bug snapping can paper over.
+    fixed = snap_end_backward_to_sentence(
+        9 * 60 + 12.0, excerpt, floor_sec=9 * 60 + 2.16 + 6.0)
+    assert fixed == 9 * 60 + 12.0  # correctly left alone, not silently wrong
+
+
 def test_reconcile_matches_a_collision_suffixed_clip():
     """
     Regression guard. unique_clip_id appends "_2" when an id is already on

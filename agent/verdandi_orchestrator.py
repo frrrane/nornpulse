@@ -240,6 +240,87 @@ def snap_to_sentences(start_sec: float, end_sec: float, transcript_text: str,
     return snapped_start, snapped_end
 
 
+def snap_end_backward_to_sentence(end_sec: float, transcript_text: str,
+                                  floor_sec: float, max_shift_sec: float = 3.0) -> float:
+    """
+    Pull a clamped end time back to a sentence close before it. Never
+    forward.
+
+    This docstring's neighbour above (snap_to_sentences) says "the caller
+    re-clamps afterwards, so duration and window limits still win" -- true,
+    and also the bug: the hard duration ceiling has to run after snapping
+    (it is the one non-negotiable constraint), which means it can cut an
+    already sentence-snapped end_time straight back down into the MIDDLE
+    of a different sentence, silently reintroducing the exact "cuts off
+    mid-sentence" rejection snap_to_sentences exists to prevent. Measured
+    on a real published clip: the model chose an end_time close to where
+    the sentence actually finished, the ceiling truncated it 1.44s short,
+    and the clip shipped cutting off "the lunar south pole" mid-word.
+
+    The fix has to be one-directional. A second full snap_to_sentences
+    pass would pick whichever sentence boundary is NEAREST regardless of
+    direction, and a sentence-end shortly after the clamped point can be
+    closer than one before it -- which would push end_sec back past the
+    ceiling it was just clamped to, undoing the clamp instead of the
+    snap. This only ever moves end_sec earlier (never below floor_sec, so
+    the minimum-duration floor still holds), so it can never re-violate a
+    ceiling it has no way to know about.
+    """
+    sentence_ends = _sentence_end_candidates(transcript_text)
+    candidates = [c for c in sentence_ends if floor_sec <= c <= end_sec
+                 and end_sec - c <= max_shift_sec]
+    return max(candidates) if candidates else end_sec
+
+
+# One [MM:SS.mmm] (or [H:MM:SS.mmm]) marker, wherever it sits -- not
+# anchored to line-start like _CUE_RE, because the real per-word caption
+# format (see skuld_renderer._line_word_times) packs many of these into
+# one physical transcript line, and parse_cues() only ever sees that
+# line's first one.
+_WORD_TS_RE = re.compile(r"\[(\d{1,3}:\d{2}(?:[.:]\d+)?)\]\s*([^\[\n]*)")
+
+
+def _sentence_end_candidates(transcript_text: str) -> List[float]:
+    """
+    Every timestamp a sentence could plausibly be said to end at, from
+    both transcript shapes this codebase actually produces.
+
+    parse_cues() alone is enough for the shape snap_to_sentences was
+    built and tested against -- one timestamp per line, each line already
+    a clause. It is NOT enough for the real word-level-timestamp shape:
+    there, a single line can span an entire multi-clause sentence with
+    the actual "..." mid-sentence, and the period ending it sits on its
+    own word deep inside that one line's text, at its own precise
+    timestamp -- invisible to a parser that only reads a line's first
+    marker. Measured on the real clip that shipped cut off mid-sentence:
+    its transcript line ran from "The lunar south pole is one of the
+    harshest environments..." all the way to the next LINE's leading
+    timestamp 11 seconds later, with the actual sentence-ending period
+    sitting on a word timestamped in between that parse_cues() alone
+    could never see.
+
+    Both candidate sets are returned together (as plain floats, sentence
+    text no longer needed once a timestamp is extracted) and the caller
+    picks whichever candidate actually falls in range -- neither shape is
+    assumed, both are checked.
+    """
+    cues = parse_cues(transcript_text)
+    from_lines = [
+        (cues[i + 1][0] if i + 1 < len(cues) else t + 3.0)
+        for i, (t, text) in enumerate(cues) if _SENTENCE_END.search(text)
+    ]
+
+    words = [(parse_time_to_seconds(m.group(1)), m.group(2).strip())
+            for m in _WORD_TS_RE.finditer(transcript_text or "")]
+    words = [(t, w) for t, w in words if w]
+    from_words = [
+        (words[i + 1][0] if i + 1 < len(words) else t + 1.0)
+        for i, (t, w) in enumerate(words) if _SENTENCE_END.search(w)
+    ]
+
+    return sorted(set(from_lines) | set(from_words))
+
+
 # Words that, as the first thing a viewer hears, tell them they have walked
 # in halfway through. A Short has about one second to justify itself, and it
 # is spent differently by "More than twenty lunar landings" than by "And so
@@ -567,6 +648,20 @@ class VerdandiOrchestrator:
             )
             start_time, end_time = _clamp_duration(
                 format_seconds_to_mmss(_snap_start), format_seconds_to_mmss(_snap_end))
+            # The clamp above is the one non-negotiable constraint, so it
+            # has to run last -- but "last" means it can cut the sentence
+            # snap_to_sentences just aligned to right back into pieces
+            # (see snap_end_backward_to_sentence's own docstring: measured
+            # on a real published clip, not hypothetical). One more,
+            # one-directional pass fixes what the clamp may have just
+            # broken without ever re-violating the ceiling it enforced.
+            _clamped_end = parse_time_to_seconds(end_time)
+            _fixed_end = snap_end_backward_to_sentence(
+                _clamped_end, transcript_text,
+                floor_sec=parse_time_to_seconds(start_time) + min_duration_sec)
+            if _fixed_end != _clamped_end:
+                end_time = format_seconds_to_mmss(_fixed_end)
+                logger.info(f"Pulled end back to a sentence close: -> {start_time}-{end_time}")
             resolved_transcript = (
                 transcript_text_override
                 if transcript_text_override and len(transcript_text_override.strip()) > 20
@@ -1052,6 +1147,16 @@ class VerdandiOrchestrator:
             f"{duration_bias_instruction}"
             f"but never exceed {max_duration_sec:.0f}s or go below {min_duration_sec:.0f}s regardless of what "
             f"the historical optimum says. "
+            f"end_time MUST land where a sentence actually finishes in the transcript, not partway through "
+            f"one — a clip that cuts off mid-sentence is the first thing a reviewer notices, and it has "
+            f"already caused real rejections on this channel. Code enforces the {max_duration_sec:.0f}s "
+            f"ceiling above no matter what end_time you choose, and it does so by truncating in place — it "
+            f"has no idea where a sentence ends, so an end_time you pick that runs past the ceiling gets cut "
+            f"exactly at the ceiling, sentence or no sentence. So choose start_time so that the nearest "
+            f"complete sentence at or after it already finishes at or before start_time + {max_duration_sec:.0f}s "
+            f"— pick a slightly later start over an end_time you know will get truncated mid-word. If no "
+            f"start_time in range lets a full sentence fit, prefer ending at the last complete sentence "
+            f"before the ceiling over reaching for one that will be cut off. "
             f"Decide the clip's hook_type BEFORE calling tool_execute_skuld_render, and pass that exact same "
             f"hook_type value to both tool_execute_skuld_render and tool_log_urdr_telemetry for each clip — "
             f"tool_execute_skuld_render uses it to ground Bragi's Lyria-composed background score, so it must "
