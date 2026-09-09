@@ -217,12 +217,14 @@ def main() -> int:
         # looks the clip up by id when the reply lands, so an approval whose
         # sidecar was never written is a dead end — the reply is read, the
         # clip cannot be found, and the decision is lost.
+        from agent import provenance as pv
         clip_record = dict(clip)
         clip_record.update({
             "output_video_path": str(video.resolve()),
             "virality_score": 0.0,
             "source": args.source,
             "tags": tags,
+            "tag_decisions": pv.decisions_to_dicts(decisions),
             "thumbnail_path": args.thumbnail,
         })
         if not args.no_guard:

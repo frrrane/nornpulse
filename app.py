@@ -1871,6 +1871,17 @@ def page_create():
                                 st.success(f"Published: [{result['url']}]({result['url']}) · {result['privacy_status']}{thumb_note}")
                                 st.session_state.published_count += 1
                                 _cached_published_outcomes.clear()
+                                # Tags are chosen here, at upload, against
+                                # whatever the trending snapshot says right
+                                # now. Writing the decisions back into the
+                                # sidecar before it's archived is what makes
+                                # them show up in render_provenance() later —
+                                # the same "How this was decided" panel this
+                                # clip already had for hook/framing/etc.
+                                item["tags"] = result.get("tags", item.get("tags"))
+                                item["tag_decisions"] = result.get("tag_decisions", [])
+                                (Path("output_clips") / f"{c_id}_metadata.json").write_text(
+                                    json.dumps(item, indent=2), encoding="utf-8")
                                 rq.record_decision(
                                     c_id, rq.APPROVED, comment, source="ui",
                                     extra={"youtube_url": result["url"],

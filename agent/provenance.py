@@ -59,6 +59,44 @@ class Decision:
         return LEVEL_LABEL.get(self.level, self.level)
 
 
+def decisions_to_dicts(decisions: List["Decision"]) -> List[Dict[str, Any]]:
+    """
+    Plain-dict form, for persisting into a clip's own JSON sidecar.
+
+    Every other decision (hook, cut, framing, ...) is recomputed live in
+    decisions_for_clip() below, re-groundable against whatever the current
+    benchmarks say. A tag decision cannot be: it's a verdict against the
+    trending snapshot *at selection time*, which keeps moving, so showing
+    it later means storing what was actually decided rather than
+    recomputing something different and calling it the same choice.
+    """
+    return [
+        {"step": d.step, "choice": d.choice, "level": d.level,
+         "evidence": d.evidence, "sample": d.sample}
+        for d in decisions
+    ]
+
+
+def decisions_from_dicts(raw: Any) -> List["Decision"]:
+    """The inverse of decisions_to_dicts(), tolerant of a malformed or
+    missing sidecar field rather than raising -- a clip whose old tag
+    decisions don't parse should still render everything else about it."""
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            out.append(Decision(
+                step=str(item["step"]), choice=str(item["choice"]),
+                level=str(item["level"]), evidence=str(item["evidence"]),
+                sample=item.get("sample")))
+        except KeyError:
+            continue
+    return out
+
+
 def _hook_decision(clip: Dict[str, Any], band: str,
                    facts: Optional[pd.DataFrame]) -> Optional[Decision]:
     from agent import global_benchmarks as gb
@@ -184,7 +222,14 @@ def decisions_for_clip(clip: Dict[str, Any], subscribers: int = 0,
         _music_decision(clip),
         _reach_decision(clip, band, subscribers, facts),
     ]
-    return [d for d in candidates if d is not None]
+    decisions = [d for d in candidates if d is not None]
+    # Tag decisions aren't computed here like the others above -- they're
+    # a verdict against the trending snapshot at selection time (see
+    # decisions_to_dicts), so this reads back whatever was actually
+    # decided rather than recomputing something different against
+    # whatever the snapshot says today.
+    decisions.extend(decisions_from_dicts(clip.get("tag_decisions")))
+    return decisions
 
 
 def grounding_summary(decisions: List[Decision]) -> Dict[str, int]:

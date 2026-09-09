@@ -140,3 +140,47 @@ def test_summary_counts_every_decision():
 @pytest.mark.parametrize("level", [pv.MEASURED, pv.PRIOR, pv.MODEL])
 def test_every_level_has_a_human_label(level):
     assert pv.LEVEL_LABEL[level]
+
+
+# --------------------------------------------------------------------------
+# Tag decisions: persisted at selection time, read back rather than
+# recomputed (see decisions_to_dicts' own docstring for why).
+# --------------------------------------------------------------------------
+
+_TAG_DECISIONS = [
+    pv.Decision(step="Tag", choice="moon landing", level=pv.MEASURED,
+                evidence="carried by 4 currently-trending videos", sample=4),
+    pv.Decision(step="Tag", choice="lunar south pole", level=pv.MODEL,
+                evidence="describes this clip; not present in the current trending snapshot"),
+]
+
+
+def test_decisions_round_trip_through_dicts():
+    restored = pv.decisions_from_dicts(pv.decisions_to_dicts(_TAG_DECISIONS))
+    assert restored == _TAG_DECISIONS
+
+
+def test_decisions_for_clip_reads_back_persisted_tag_decisions():
+    clip = {**CLIP, "tag_decisions": pv.decisions_to_dicts(_TAG_DECISIONS)}
+    decisions = pv.decisions_for_clip(clip, 0, FACTS)
+    tag_steps = [d for d in decisions if d.step == "Tag"]
+    assert tag_steps == _TAG_DECISIONS
+    # Alongside everything else, not instead of it.
+    assert any(d.step == "Hook" for d in decisions)
+
+
+def test_a_clip_without_tag_decisions_gets_none_rather_than_an_error():
+    decisions = pv.decisions_for_clip(CLIP, 0, FACTS)
+    assert not any(d.step == "Tag" for d in decisions)
+
+
+def test_a_malformed_tag_decisions_field_is_dropped_not_raised():
+    """
+    An old sidecar, a hand-edited file, a future field rename -- none of
+    it should take down the rest of a clip's decision panel with it.
+    """
+    for bad in (None, "not a list", 42, [{"choice": "missing other keys"}], [1, 2, 3]):
+        clip = {**CLIP, "tag_decisions": bad}
+        decisions = pv.decisions_for_clip(clip, 0, FACTS)
+        assert not any(d.step == "Tag" for d in decisions), bad
+        assert any(d.step == "Hook" for d in decisions)  # rest still renders

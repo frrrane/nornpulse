@@ -138,6 +138,16 @@ def main() -> int:
         print(f"   ✨ {res['url']}  (privacy: {res['privacy_status']}, "
               f"thumbnail_set: {res['thumbnail_set']})")
 
+        # Tags are chosen here, at upload, against whatever the trending
+        # snapshot says right now -- not back when this was staged. The
+        # sidecar gets the decisions that actually shipped, so a clip's
+        # "How this was decided" panel is accurate afterward, not stale
+        # from staging time.
+        c["tags"] = res.get("tags", c.get("tags"))
+        c["tag_decisions"] = res.get("tag_decisions", [])
+        (OUTPUT_DIR / f"{c['clip_id']}_metadata.json").write_text(
+            json.dumps(c, indent=2), encoding="utf-8")
+
         # The clip record doesn't carry a retention prediction, so look it
         # up from Urðr's benchmarks the same way the dashboard does.
         # Defaulting it to 0.0 silently emptied half of the Predicted-vs-

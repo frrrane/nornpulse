@@ -273,6 +273,15 @@ def main() -> int:
                 continue
 
             print(f"   ✨ {res['url']} ({res['privacy_status']})")
+
+            # Tags are chosen here, at upload, against whatever the trending
+            # snapshot says right now -- not back when this was staged. The
+            # sidecar (about to be archived) gets the decisions that
+            # actually shipped, so a clip's "How this was decided" panel
+            # is accurate after archiving, not stale from staging time.
+            clip["tags"] = res.get("tags", clip.get("tags"))
+            clip["tag_decisions"] = res.get("tag_decisions", [])
+            sidecar.write_text(json.dumps(clip, indent=2), encoding="utf-8")
             urdr = urdr or UrdrAnalytics()
             hook_type = clip.get("hook_type", "unknown")
             predicted_3s = float(clip.get("predicted_3s_retention_pct") or 0.0)

@@ -21,6 +21,7 @@ from email import encoders
 from dotenv import load_dotenv
 
 from agent import channels
+from agent import provenance as pv
 from agent import publications
 from agent import tag_selector as ts
 
@@ -472,7 +473,8 @@ class NornPublisher:
                 )
 
             return {"video_id": video_id, "url": url, "privacy_status": privacy_status,
-                    "thumbnail_set": thumbnail_set, "tags": tags}
+                    "thumbnail_set": thumbnail_set, "tags": tags,
+                    "tag_decisions": pv.decisions_to_dicts(tag_decisions)}
 
         except PublishError:
             raise

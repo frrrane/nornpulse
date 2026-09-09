@@ -306,6 +306,7 @@ def main() -> int:
         # looks the clip up by id when the reply comes back, and an approval
         # that cannot find its clip is a dead end.
         import json
+        from agent import provenance as pv
         clip_record = dict(clip)
         clip_record.update({
             "output_video_path": str(video_path),
@@ -317,6 +318,10 @@ def main() -> int:
             "footage_provider": shot.provider,
             "video_prompt": brief.video_prompt,
             "tags": tags,
+            # Read back by provenance.decisions_for_clip() -- the "How this
+            # was decided" panel shows these alongside hook/framing/etc.
+            # without needing to know tags are a special case.
+            "tag_decisions": pv.decisions_to_dicts(decisions),
         })
         if verdict is not None:
             clip_record["rights_check"] = (

@@ -260,6 +260,21 @@ def test_publishing_still_requires_oauth():
     assert "developerKey" not in src
 
 
+def test_upload_returns_tag_decisions_for_the_caller_to_persist():
+    """
+    Tags are chosen fresh at upload time, against whatever the trending
+    snapshot says right now -- the one moment those decisions exist and
+    can be captured. A caller (check_approvals.py, publish_staged.py,
+    app.py's own Publish button) writes this back into the clip's sidecar
+    so provenance.decisions_for_clip() can read it back later; that only
+    works if it's actually in the return value.
+    """
+    import inspect
+    import agent.norn_publisher as np
+    src = inspect.getsource(np.NornPublisher.upload_to_youtube_shorts)
+    assert '"tag_decisions": pv.decisions_to_dicts(tag_decisions)' in src
+
+
 # --------------------------------------------------------------------------
 # Channel statistics (scripts/sync_channels.py's reason for existing)
 # --------------------------------------------------------------------------
