@@ -82,13 +82,19 @@ of work, judged against what the clips actually looked like.
   as such.~~ Took the label-it-plainly path. Per-topic trending ingestion
   is still open if the labelled gap turns out not to be enough.
 
-  Found while fixing this: `_tags_for()`'s returned `decisions` (including
-  the new note) are computed in `trend_publish.py`, `publish_file.py`, and
-  `norn_publisher.py`, but nothing displays them anywhere — unlike every
+  Found while fixing this, and since fixed: `_tags_for()`'s returned
+  `decisions` were computed in `trend_publish.py`, `publish_file.py`, and
+  `norn_publisher.py`, and nothing displayed them anywhere — unlike every
   other decision type, which `app.py`'s "How this was decided" panel
-  renders. The fix above is correct at the layer it lives in, the same
-  layer every other Decision already returns through; wiring tag
-  decisions into that panel is a separate, real gap, not yet done.
+  renders. `provenance.decisions_to_dicts()`/`decisions_from_dicts()`
+  persist them into a clip's sidecar at selection time (tags are a
+  verdict against the trending snapshot *then*, not re-groundable later
+  the way hook/framing are against current benchmarks) and
+  `decisions_for_clip()` reads them back alongside everything else it
+  already computes live. Wired at all three points tags actually get
+  decided — the two `--stage` paths, and `upload_to_youtube_shorts()`
+  (tags chosen fresh at upload) via its three callers writing the result
+  back into the sidecar.
 
 
 ## Housekeeping
